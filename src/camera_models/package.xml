@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>camera_models</name>
+  <version>1.0.0</version>
+  <description>Camera projection models and calibration tools for ROS 2 Jazzy.</description>
+  <maintainer email="qintonguav@gmail.com">VINS-Fusion maintainers</maintainer>
+  <license>BSD-3-Clause</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>eigen</depend>
+  <depend>ceres-solver</depend>
+  <depend>libopencv-dev</depend>
+  <depend>yaml-cpp</depend>
+  <depend>boost</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -1,0 +1,179 @@
+/*******************************************************
+ * Copyright (C) 2019, Aerial Robotics Group, HKUST
+ * Licensed under the GNU General Public License v3.0.
+ *******************************************************/
+#include <vins_common/ros_utils.hpp>
+#include <cv_bridge/cv_bridge.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/point_cloud.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <deque>
+#include "estimator/estimator.h"
+#include "utility/visualization.h"
+
+class VinsNode final : public rclcpp::Node
+{
+    using Image = sensor_msgs::msg::Image;
+    using Imu = sensor_msgs::msg::Imu;
+    using Cloud = sensor_msgs::msg::PointCloud;
+    using Bool = std_msgs::msg::Bool;
+public:
+    VinsNode() : Node("vins_estimator") {}
+    ~VinsNode() override { estimator_.reset(); unregisterPub(); }
+
+    void start(int argc, char **argv)
+    {
+        readParameters(vins::configFile(shared_from_this(), argc, argv),
+            declare_parameter<std::string>("output_path", ""));
+        IMAGE0_TOPIC = declare_parameter<std::string>("image0_topic", IMAGE0_TOPIC);
+        IMAGE1_TOPIC = declare_parameter<std::string>("image1_topic", IMAGE1_TOPIC);
+        IMU_TOPIC = declare_parameter<std::string>("imu_topic", IMU_TOPIC);
+        sync_tolerance_ = declare_parameter<double>("stereo_sync_tolerance", 0.003);
+        max_queue_ = declare_parameter<int>("image_queue_size", 100);
+        if (max_queue_ < 1 || sync_tolerance_ < 0.0)
+            throw std::invalid_argument("Invalid queue size or stereo synchronization tolerance");
+        registerPub(shared_from_this());
+        estimator_ = std::make_unique<Estimator>();
+        estimator_->setParameter();
+        // Best effort accepts both reliable rosbag publishers and sensor drivers.
+        auto qos = rclcpp::SensorDataQoS().keep_last(100);
+        sub_imu_ = create_subscription<Imu>(IMU_TOPIC.empty() ? "/imu0" : IMU_TOPIC,
+            rclcpp::SensorDataQoS().keep_last(2000), [this](Imu::ConstSharedPtr m) {
+                if (USE_IMU) estimator_->inputIMU(vins::seconds(m->header.stamp),
+                    Eigen::Vector3d(m->linear_acceleration.x, m->linear_acceleration.y, m->linear_acceleration.z),
+                    Eigen::Vector3d(m->angular_velocity.x, m->angular_velocity.y, m->angular_velocity.z));
+            });
+        sub_image0_ = create_subscription<Image>(IMAGE0_TOPIC, qos,
+            [this](Image::ConstSharedPtr m) { enqueue(images0_, std::move(m)); });
+        if (NUM_OF_CAM == 2)
+            sub_image1_ = create_subscription<Image>(IMAGE1_TOPIC, qos,
+                [this](Image::ConstSharedPtr m) { if (STEREO) enqueue(images1_, std::move(m)); });
+        sub_feature_ = create_subscription<Cloud>("/feature_tracker/feature", qos,
+            [this](Cloud::ConstSharedPtr m) { feature(m); });
+        sub_restart_ = create_subscription<Bool>("/vins_restart", 10,
+            [this](Bool::ConstSharedPtr m) { if (m->data) restart(); });
+        sub_imu_switch_ = create_subscription<Bool>("/vins_imu_switch", 10,
+            [this](Bool::ConstSharedPtr m) { switchSensors(m->data, STEREO); });
+        sub_cam_switch_ = create_subscription<Bool>("/vins_cam_switch", 10,
+            [this](Bool::ConstSharedPtr m) {
+                if (m->data && NUM_OF_CAM != 2) {
+                    RCLCPP_WARN(get_logger(), "Stereo requires two calibrated cameras");
+                    return;
+                }
+                switchSensors(USE_IMU, m->data);
+                images0_.clear(); images1_.clear();
+            });
+        sync_timer_ = create_wall_timer(std::chrono::milliseconds(2), [this] { syncImages(); });
+        RCLCPP_INFO(get_logger(), "Ready: %s, image=%s, imu=%s", STEREO ? "stereo" : "mono", IMAGE0_TOPIC.c_str(), IMU_TOPIC.c_str());
+    }
+
+private:
+    void enqueue(std::deque<Image::ConstSharedPtr> &queue, Image::ConstSharedPtr image)
+    {
+        if (queue.size() >= static_cast<size_t>(max_queue_)) queue.pop_front();
+        queue.push_back(std::move(image));
+    }
+    static cv::Mat decode(const Image::ConstSharedPtr &image)
+    {
+        if (image->encoding == "8UC1") {
+            Image copy = *image;
+            copy.encoding = sensor_msgs::image_encodings::MONO8;
+            return cv_bridge::toCvCopy(copy, sensor_msgs::image_encodings::MONO8)->image;
+        }
+        return cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::MONO8)->image;
+    }
+    void syncImages()
+    {
+        if (images0_.empty() || (STEREO && images1_.empty())) return;
+        if (STEREO) {
+            const double dt = vins::seconds(images0_.front()->header.stamp) - vins::seconds(images1_.front()->header.stamp);
+            if (dt < -sync_tolerance_) { images0_.pop_front(); return; }
+            if (dt > sync_tolerance_) { images1_.pop_front(); return; }
+        }
+        auto left = images0_.front(); images0_.pop_front();
+        Image::ConstSharedPtr right;
+        if (STEREO) { right = images1_.front(); images1_.pop_front(); }
+        try {
+            estimator_->inputImage(vins::seconds(left->header.stamp), decode(left), right ? decode(right) : cv::Mat());
+        } catch (const cv::Exception &e) {
+            RCLCPP_ERROR(get_logger(), "Image conversion/tracking failed: %s", e.what());
+        } catch (const cv_bridge::Exception &e) {
+            RCLCPP_ERROR(get_logger(), "Image conversion failed: %s", e.what());
+        }
+    }
+    void restart()
+    {
+        RCLCPP_WARN(get_logger(), "Restarting estimator");
+        estimator_.reset(); // Stops and joins the old processing thread first.
+        images0_.clear(); images1_.clear();
+        path.poses.clear();
+        estimator_ = std::make_unique<Estimator>();
+        estimator_->setParameter();
+    }
+    void switchSensors(bool imu, bool stereo)
+    {
+        if (!imu && !stereo) {
+            RCLCPP_WARN(get_logger(), "Mono mode requires an IMU");
+            return;
+        }
+        if (imu && (IMU_TOPIC.empty() || ACC_N <= 0 || GYR_N <= 0 || ACC_W <= 0 || GYR_W <= 0)) {
+            RCLCPP_WARN(get_logger(), "Enabling IMU requires an IMU topic and positive noise parameters in the configuration");
+            return;
+        }
+        if (imu == static_cast<bool>(USE_IMU) && stereo == static_cast<bool>(STEREO)) return;
+        // Join the worker before changing sensor flags or discarding queues.
+        estimator_.reset();
+        USE_IMU = imu;
+        STEREO = stereo;
+        images0_.clear(); images1_.clear();
+        path.poses.clear();
+        estimator_ = std::make_unique<Estimator>();
+        estimator_->setParameter();
+    }
+    void feature(const Cloud::ConstSharedPtr &m)
+    {
+        if (m->channels.size() < 6) return;
+        for (const auto &channel : m->channels)
+            if (channel.values.size() < m->points.size()) return;
+        std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>> frame;
+        for (size_t i = 0; i < m->points.size(); ++i) {
+            if (std::abs(m->points[i].z - 1.0) > 1e-6) return;
+            const int id = static_cast<int>(m->channels[0].values[i]);
+            const int camera = static_cast<int>(m->channels[1].values[i]);
+            if (camera < 0 || camera >= NUM_OF_CAM) return;
+            Eigen::Matrix<double, 7, 1> value;
+            value << m->points[i].x, m->points[i].y, m->points[i].z,
+                     m->channels[2].values[i], m->channels[3].values[i],
+                     m->channels[4].values[i], m->channels[5].values[i];
+            frame[id].emplace_back(camera, value);
+        }
+        estimator_->inputFeature(vins::seconds(m->header.stamp), frame);
+    }
+    std::unique_ptr<Estimator> estimator_;
+    std::deque<Image::ConstSharedPtr> images0_, images1_;
+    int max_queue_ = 100;
+    double sync_tolerance_ = 0.003;
+    rclcpp::Subscription<Imu>::SharedPtr sub_imu_;
+    rclcpp::Subscription<Image>::SharedPtr sub_image0_, sub_image1_;
+    rclcpp::Subscription<Cloud>::SharedPtr sub_feature_;
+    rclcpp::Subscription<Bool>::SharedPtr sub_restart_, sub_imu_switch_, sub_cam_switch_;
+    rclcpp::TimerBase::SharedPtr sync_timer_;
+};
+
+int main(int argc, char **argv)
+{
+    rclcpp::init(argc, argv);
+    int result = 0;
+    try {
+        auto node = std::make_shared<VinsNode>();
+        node->start(argc, argv);
+        rclcpp::spin(node);
+    } catch (const std::exception &e) {
+        RCLCPP_ERROR(vins::logger(), "%s", e.what());
+        result = 1;
+    }
+    rclcpp::shutdown();
+    return result;
+}

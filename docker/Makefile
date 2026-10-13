@@ -1,16 +1,8 @@
-all: help
-
+.PHONY: help build clean
 help:
-	@echo ""
-	@echo "-- Help Menu"
-	@echo ""
-	@echo "   1. make build              - build all images"
-	# @echo "   1. make pull             - pull all images"
-	@echo "   1. make clean              - remove all images"
-	@echo ""
-
+	@echo "make build: build the ROS 2 Jazzy image"
+	@echo "make clean: remove the image"
 build:
-	@docker build --tag ros:vins-fusion -f ./Dockerfile ..
-
+	docker build --tag vins-fusion:jazzy -f Dockerfile ..
 clean:
-	@docker rmi -f ros:vins-fusion
+	docker image rm vins-fusion:jazzy

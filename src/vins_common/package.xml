@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>vins_common</name><version>1.0.0</version>
+  <description>Shared ROS 2 runtime utilities for VINS-Fusion.</description>
+  <maintainer email="qintonguav@gmail.com">VINS-Fusion maintainers</maintainer>
+  <license>GPL-3.0-only</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>libopencv-dev</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

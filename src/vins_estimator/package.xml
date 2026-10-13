@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>vins</name>
+  <version>1.0.0</version>
+  <description>Visual inertial state estimation for ROS 2 Jazzy.</description>
+  <maintainer email="qintonguav@gmail.com">VINS-Fusion maintainers</maintainer>
+  <license>GPL-3.0-only</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>vins_common</depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>camera_models</depend>
+  <depend>cv_bridge</depend>
+  <depend>tf2_ros</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>eigen</depend>
+  <depend>ceres-solver</depend>
+  <depend>libopencv-dev</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>loop_fusion</exec_depend>
+  <exec_depend>global_fusion</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>python3-numpy</test_depend>
+  <test_depend>python3-opencv</test_depend>
+  <test_depend>std_srvs</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -1,0 +1,35 @@
+# VINS-Fusion algorithm configuration (ROS 2 parameter YAML).
+# Passed to the nodes through the `config_file` parameter or `--params-file`.
+/**:
+  ros__parameters:
+    imu: 0
+    num_of_cam: 2
+    imu_topic: "/djiros/imu"
+    image0_topic: "/stereo/left/image"
+    image1_topic: "/stereo/right/image"
+    output_path: "./output/"
+    cam0_calib: "left.yaml"
+    cam1_calib: "right.yaml"
+    image_width: 640
+    image_height: 512
+    estimate_extrinsic: 0
+    body_T_cam0: [
+      -0.026001622181574202, -0.00520858729097301, -0.9996483312957406, -0.12886997952961168,
+      0.9996548156677538, 0.0036294078574090616, -0.026020701583033656, -0.12147595522352593,
+      0.0037636626038181076, -0.999979848805483, 0.005112418876396019, 0.03288156119127258,
+      0.0, 0.0, 0.0, 1.0]
+    body_T_cam1: [
+      -0.023877053002065107, -0.012793564889566844, -0.9996330381881908, -0.1069652669520982,
+      0.9996804853967111, 0.007991524653214732, -0.02398046393865988, 0.0038910400198456374,
+      0.00829538769033017, -0.9998862236430373, 0.012598663101044294, 0.03195626820511115,
+      0.0, 0.0, 0.0, 1.0]
+    multiple_thread: 1
+    max_cnt: 150
+    min_dist: 30
+    freq: 10
+    F_threshold: 1.0
+    show_track: 1
+    flow_back: 1
+    max_solver_time: 0.04
+    max_num_iterations: 8
+    keyframe_parallax: 10.0

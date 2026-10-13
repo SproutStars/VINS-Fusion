@@ -1,0 +1,38 @@
+# VINS-Fusion algorithm configuration (ROS 2 parameter YAML).
+# Passed to the nodes through the `config_file` parameter or `--params-file`.
+/**:
+  ros__parameters:
+    imu: 1
+    num_of_cam: 1
+    imu_topic: "/mynteye/imu/data_raw"
+    image0_topic: "/mynteye/left/image_raw"
+    output_path: "./output/"
+    cam0_calib: "left_mei.yaml"
+    image_width: 752
+    image_height: 480
+    estimate_extrinsic: 1
+    body_T_cam0: [
+      0.004281244149002439, -0.9999700150747368, -0.0064528985710044385, 5.258335607158979e-05,
+      0.9999690093573452, 0.004238427061257655, 0.006634460108875743, -0.04217470654416256,
+      -0.006606911035158319, -0.006481102335053651, 0.9999571711023908, 0.019238715201769417,
+      0.0, 0.0, 0.0, 1.0]
+    multiple_thread: 1
+    max_cnt: 150
+    min_dist: 30
+    freq: 10
+    F_threshold: 1.0
+    show_track: 1
+    flow_back: 1
+    max_solver_time: 0.04
+    max_num_iterations: 8
+    keyframe_parallax: 10.0
+    acc_n: 0.1
+    gyr_n: 0.01
+    acc_w: 0.001
+    gyr_w: 0.0001
+    g_norm: 9.8
+    estimate_td: 0
+    td: 0.0
+    load_previous_pose_graph: 0
+    pose_graph_save_path: "./output/pose_graph/"
+    save_image: 1

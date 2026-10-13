@@ -1,0 +1,39 @@
+# VINS-Fusion algorithm configuration (ROS 2 parameter YAML).
+# Passed to the nodes through the `config_file` parameter or `--params-file`.
+/**:
+  ros__parameters:
+    imu: 1
+    num_of_cam: 2
+    imu_topic: "/data_generator/imu"
+    image0_topic: "/cam0/image_raw"
+    image1_topic: "/cam1/image_raw"
+    output_path: "./output/"
+    cam0_calib: "cam0_mei.yaml"
+    cam1_calib: "cam1_mei.yaml"
+    image_width: 600
+    image_height: 600
+    estimate_extrinsic: 0
+    body_T_cam0: [
+      0.0, 0.0, -1.0, -0.02,
+      -1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.02,
+      0.0, 0.0, 0.0, 1.0]
+    body_T_cam1: [
+      0.0, 0.0, -1.0, 0.0,
+      -1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.3,
+      0.0, 0.0, 0.0, 1.0]
+    multiple_thread: 0
+    max_solver_time: 0.04
+    max_num_iterations: 8
+    keyframe_parallax: 10.0
+    acc_n: 0.2
+    gyr_n: 0.02
+    acc_w: 0.0002
+    gyr_w: 2e-05
+    g_norm: 9.805
+    estimate_td: 0
+    td: 0.0
+    save_image: 0
+    visualize_imu_forward: 1
+    visualize_camera_size: 0.4

@@ -1,0 +1,45 @@
+# VINS-Fusion algorithm configuration (ROS 2 parameter YAML).
+# Passed to the nodes through the `config_file` parameter or `--params-file`.
+/**:
+  ros__parameters:
+    imu: 1
+    num_of_cam: 2
+    imu_topic: "/camera/imu"
+    image0_topic: "/camera/infra1/image_rect_raw"
+    image1_topic: "/camera/infra2/image_rect_raw"
+    output_path: "./output/"
+    cam0_calib: "left.yaml"
+    cam1_calib: "right.yaml"
+    image_width: 640
+    image_height: 480
+    estimate_extrinsic: 1
+    body_T_cam0: [
+      -0.005758630585728675, -0.004046331878772902, 0.9999752323793346, 0.0203292679503559,
+      -0.9999828721416042, -0.0010224590553211677, -0.005762811892528363, 0.007932520963961565,
+      0.001045751980915166, -0.9999912908499791, -0.0040403746097850135, 0.002855982464514802,
+      0.0, 0.0, 0.0, 1.0]
+    body_T_cam1: [
+      -0.0010021770212322867, 0.0003631348032273052, 0.9999994318870054, 0.015285779565991807,
+      -0.999992163429265, -0.003830342261592401, -0.0010007788055728661, -0.052435791444330505,
+      0.0038299766679101843, -0.9999925982782445, 0.0003669706384934468, 0.008693130245019906,
+      0.0, 0.0, 0.0, 1.0]
+    multiple_thread: 1
+    max_cnt: 150
+    min_dist: 30
+    freq: 10
+    F_threshold: 1.0
+    show_track: 0
+    flow_back: 1
+    max_solver_time: 0.04
+    max_num_iterations: 8
+    keyframe_parallax: 10.0
+    acc_n: 0.1
+    gyr_n: 0.01
+    acc_w: 0.001
+    gyr_w: 0.0001
+    g_norm: 9.805
+    estimate_td: 1
+    td: 0.0
+    load_previous_pose_graph: 0
+    pose_graph_save_path: "./output/pose_graph/"
+    save_image: 0
