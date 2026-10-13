@@ -21,7 +21,7 @@ def generate_launch_description():
         DeclareLaunchArgument("global_fusion", default_value="false"),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("output_path", default_value=PathJoinSubstitution([
-            EnvironmentVariable("HOME"), ".ros", "vins_fusion"])),
+            share, "..", "..", "output"])),
         Node(
             package="vins",
             executable="vins_node",
