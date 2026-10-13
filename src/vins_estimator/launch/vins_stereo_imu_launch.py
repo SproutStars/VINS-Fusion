@@ -8,10 +8,14 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     share = FindPackageShare("vins")
+    rviz = IncludeLaunchDescription(PythonLaunchDescriptionSource(
+        PathJoinSubstitution([share, "launch", "vins_rviz.launch.py"])))
+    
     return LaunchDescription([
         DeclareLaunchArgument("config_file", default_value=PathJoinSubstitution([
             share, "config", "euroc", "euroc_stereo_imu_config.yaml"])),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(
             PathJoinSubstitution([share, "launch", "vins.launch.py"])),
             launch_arguments={"config_file": LaunchConfiguration("config_file")}.items()),
+        rviz,
     ])

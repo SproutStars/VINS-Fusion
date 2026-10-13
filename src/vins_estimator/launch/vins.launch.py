@@ -23,19 +23,19 @@ def generate_launch_description():
         DeclareLaunchArgument("output_path", default_value=PathJoinSubstitution([
             EnvironmentVariable("HOME"), ".ros", "vins_fusion"])),
         Node(package="vins", executable="vins_node", name="vins_estimator",
-             output="screen", parameters=[{"config_file": config,
-                 "use_sim_time": clock, "output_path": output}]),
+            output="screen", parameters=[{"config_file": config,
+                "use_sim_time": clock, "output_path": output}]),
         Node(package="loop_fusion", executable="loop_fusion_node", name="loop_fusion",
              output="screen", condition=IfCondition(LaunchConfiguration("loop_fusion")),
              parameters=[{"config_file": config, "use_sim_time": clock,
-                 "output_path": output, "pose_graph_save_path": PathJoinSubstitution([
-                     output, "pose_graph"])}]),
+                "output_path": output, "pose_graph_save_path": PathJoinSubstitution([
+                    output, "pose_graph"])}]),
         Node(package="global_fusion", executable="global_fusion_node", name="global_fusion",
-             output="screen", condition=IfCondition(LaunchConfiguration("global_fusion")),
-             parameters=[{"use_sim_time": clock, "output_file": PathJoinSubstitution([
-                 output, "vio_global.csv"])}]),
+            output="screen", condition=IfCondition(LaunchConfiguration("global_fusion")),
+            parameters=[{"use_sim_time": clock, "output_file": PathJoinSubstitution([
+                output, "vio_global.csv"])}]),
         Node(package="rviz2", executable="rviz2", output="screen",
-             condition=IfCondition(LaunchConfiguration("rviz")),
-             arguments=["-d", PathJoinSubstitution([share, "config", "vins_ros2.rviz"])],
-             parameters=[{"use_sim_time": clock}]),
+            condition=IfCondition(LaunchConfiguration("rviz")),
+            arguments=["-d", PathJoinSubstitution([share, "config", "vins_ros2.rviz"])],
+            parameters=[{"use_sim_time": clock}]),
     ])

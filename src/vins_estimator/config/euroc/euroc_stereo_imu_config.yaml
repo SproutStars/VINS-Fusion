@@ -7,11 +7,11 @@
     imu_topic: "/imu0"
     image0_topic: "/cam0/image_raw"
     image1_topic: "/cam1/image_raw"
-    output_path: "~/output/"
-    cam0_calib: "camera0_info.yaml"
-    cam1_calib: "camera1_info.yaml"
-    image_width: 1280
-    image_height: 960
+    output_path: "./output/"
+    cam0_calib: "cam0_pinhole.yaml"
+    cam1_calib: "cam1_pinhole.yaml"
+    image_width: 752
+    image_height: 480
     estimate_extrinsic: 0
     body_T_cam0: [
       0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
@@ -25,7 +25,7 @@
       0.0, 0.0, 0.0, 1.0]
     multiple_thread: 1
     max_cnt: 150
-    min_dist: 30
+    min_dist: 25
     freq: 10
     F_threshold: 1.0
     show_track: 1
@@ -38,8 +38,8 @@
     acc_w: 0.001
     gyr_w: 0.0001
     g_norm: 9.81007
-    estimate_td: 0
+    estimate_td: 1
     td: 0.0
     load_previous_pose_graph: 0
-    pose_graph_save_path: "~/output/pose_graph/"
+    pose_graph_save_path: "./output/pose_graph/"
     save_image: 1
