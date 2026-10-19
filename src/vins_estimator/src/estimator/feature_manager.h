@@ -10,6 +10,8 @@
 #ifndef FEATURE_MANAGER_H
 #define FEATURE_MANAGER_H
 
+#include <unordered_map>
+#include <iterator>
 #include <list>
 #include <algorithm>
 #include <vector>
@@ -80,6 +82,8 @@ class FeatureManager
 {
   public:
     FeatureManager(Matrix3d _Rs[]);
+    FeatureManager(const FeatureManager &) = delete;
+    FeatureManager &operator=(const FeatureManager &) = delete;
 
     void setRic(Matrix3d _ric[]);
     void clearState();
@@ -108,6 +112,9 @@ class FeatureManager
     int long_track_num;
 
   private:
+    // Preserve list order (and thus solver parameter order); only lookup is hashed.
+    std::unordered_map<int, list<FeaturePerId>::iterator> feature_index_;
+    void eraseFeature(list<FeaturePerId>::iterator it);
     double compensatedParallax2(const FeaturePerId &it_per_id, int frame_count);
     const Matrix3d *Rs;
     Matrix3d ric[2];

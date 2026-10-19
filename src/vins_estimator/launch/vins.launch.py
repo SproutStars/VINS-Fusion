@@ -22,6 +22,8 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("output_path", default_value=PathJoinSubstitution([
             share, "..", "..", "output"])),
+        DeclareLaunchArgument("opencv_threads", default_value="1",
+                              description="OpenCV worker threads; 1 minimizes CPU for mono EuRoC"),
         Node(
             package="vins",
             executable="vins_node",
@@ -30,7 +32,9 @@ def generate_launch_description():
             parameters=[{
                 "config_file": config,
                 "use_sim_time": clock,
-                "output_path": output
+                "output_path": output,
+                "opencv_threads": ParameterValue(
+                    LaunchConfiguration("opencv_threads"), value_type=int)
                 }]),
         Node(
             package="loop_fusion",

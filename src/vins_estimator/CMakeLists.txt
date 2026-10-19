@@ -23,6 +23,21 @@ find_package(cv_bridge REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
+# Opt-in host tuning. -march=native changes the floating-point instruction mix
+# (notably FMA) and caused deterministic divergence on EuRoC V2_02_medium, so
+# portable code generation remains the default. Do not ship native binaries.
+option(VINS_ENABLE_NATIVE_OPTIMIZATION
+  "Build with -march=native (numeric results may change; not for release)" OFF)
+if(VINS_ENABLE_NATIVE_OPTIMIZATION)
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-march=native" VINS_HAS_MARCH_NATIVE)
+  if(VINS_HAS_MARCH_NATIVE)
+    add_compile_options(-march=native)
+  else()
+    message(WARNING "VINS_ENABLE_NATIVE_OPTIMIZATION requested but -march=native is unsupported")
+  endif()
+endif()
+
 add_library(vins_lib
 src/estimator/parameters.cpp
     src/estimator/estimator.cpp
@@ -68,6 +83,15 @@ install(TARGETS vins_lib vins_node kitti_odom_test kitti_gps_test
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_runtime_utils test/test_runtime_utils.cpp)
+  target_include_directories(test_runtime_utils PRIVATE src)
+  target_link_libraries(test_runtime_utils Threads::Threads)
+  ament_add_gtest(test_feature_tracker test/test_feature_tracker.cpp)
+  target_link_libraries(test_feature_tracker vins_lib)
+  ament_target_dependencies(test_feature_tracker vins_common)
+  ament_add_gtest(test_feature_index test/test_feature_index.cpp)
+  target_link_libraries(test_feature_index vins_lib)
+  ament_target_dependencies(test_feature_index vins_common)
   ament_add_gtest(test_pose_manifold test/test_pose_manifold.cpp)
   target_include_directories(test_pose_manifold PRIVATE src)
   target_link_libraries(test_pose_manifold vins_lib Ceres::ceres Eigen3::Eigen)

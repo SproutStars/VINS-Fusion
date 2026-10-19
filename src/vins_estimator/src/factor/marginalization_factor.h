@@ -11,7 +11,6 @@
 
 #include <vins_common/ros_utils.hpp>
 #include <cstdlib>
-#include <pthread.h>
 #include <ceres/ceres.h>
 #include <unordered_map>
 
@@ -47,8 +46,8 @@ struct ThreadsStruct
     std::vector<ResidualBlockInfo *> sub_factors;
     Eigen::MatrixXd A;
     Eigen::VectorXd b;
-    std::unordered_map<long, int> parameter_block_size; //global size
-    std::unordered_map<long, int> parameter_block_idx; //local size
+    const std::unordered_map<long, int> *parameter_block_size = nullptr;
+    const std::unordered_map<long, int> *parameter_block_idx = nullptr;
 };
 
 class MarginalizationInfo

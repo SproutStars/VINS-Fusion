@@ -30,14 +30,14 @@ using namespace camodocal;
 using namespace Eigen;
 
 bool inBorder(const cv::Point2f &pt);
-void reduceVector(vector<cv::Point2f> &v, vector<uchar> status);
-void reduceVector(vector<int> &v, vector<uchar> status);
+void reduceVector(vector<cv::Point2f> &v, const vector<uchar> &status);
+void reduceVector(vector<int> &v, const vector<uchar> &status);
 
 class FeatureTracker
 {
 public:
     FeatureTracker();
-    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> trackImage(double _cur_time, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat());
+    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> trackImage(double _cur_time, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat(), bool extract_features = true, bool draw_tracks = true);
     void setMask();
     void readIntrinsicParameter(const vector<string> &calib_file);
     void showUndistortion(const string &name);
@@ -81,4 +81,7 @@ public:
     bool stereo_cam;
     int n_id;
     bool hasPrediction;
+
+private:
+    vector<pair<int, pair<cv::Point2f, int>>> mask_order_;
 };

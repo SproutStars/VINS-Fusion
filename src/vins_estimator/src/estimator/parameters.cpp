@@ -39,6 +39,8 @@ int NUM_OF_CAM;
 int STEREO;
 int USE_IMU;
 int MULTIPLE_THREAD;
+double BACKEND_FREQ = 10.0;
+int MAX_FEATURE_QUEUE = 10;
 map<int, Eigen::Vector3d> pts_gt;
 std::string IMAGE0_TOPIC, IMAGE1_TOPIC;
 std::string FISHEYE_MASK;
@@ -79,6 +81,10 @@ void readParameters(std::string config_file, const std::string &output_path)
     FLOW_BACK = config.getInt("flow_back");
 
     MULTIPLE_THREAD = config.getInt("multiple_thread");
+    BACKEND_FREQ = config.getDouble("freq", 10.0);
+    MAX_FEATURE_QUEUE = config.getInt("max_feature_queue_size", 10);
+    if (!std::isfinite(BACKEND_FREQ) || BACKEND_FREQ < 0.0 || MAX_FEATURE_QUEUE < 1)
+        throw std::invalid_argument("freq must be nonnegative and max_feature_queue_size positive");
 
     USE_IMU = config.getInt("imu");
     printf("USE_IMU: %d\n", USE_IMU);

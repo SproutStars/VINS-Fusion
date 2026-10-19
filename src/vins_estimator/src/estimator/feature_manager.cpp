@@ -31,8 +31,15 @@ void FeatureManager::setRic(Matrix3d _ric[])
     }
 }
 
+void FeatureManager::eraseFeature(list<FeaturePerId>::iterator it)
+{
+    feature_index_.erase(it->feature_id);
+    feature.erase(it);
+}
+
 void FeatureManager::clearState()
 {
+    feature_index_.clear();
     feature.clear();
 }
 
@@ -72,14 +79,13 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         }
 
         int feature_id = id_pts.first;
-        auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
-                          {
-            return it.feature_id == feature_id;
-                          });
+        const auto found = feature_index_.find(feature_id);
+        auto it = found == feature_index_.end() ? feature.end() : found->second;
 
         if (it == feature.end())
         {
-            feature.push_back(FeaturePerId(feature_id, frame_count));
+            feature.emplace_back(feature_id, frame_count);
+            feature_index_.emplace(feature_id, std::prev(feature.end()));
             feature.back().feature_per_frame.push_back(f_per_fra);
             new_feature_num++;
         }
@@ -168,7 +174,7 @@ void FeatureManager::removeFailures()
     {
         it_next++;
         if (it->solve_flag == 2)
-            feature.erase(it);
+            eraseFeature(it);
     }
 }
 
@@ -443,7 +449,7 @@ void FeatureManager::removeOutlier(set<int> &outlierIndex)
         itSet = outlierIndex.find(index);
         if(itSet != outlierIndex.end())
         {
-            feature.erase(it);
+            eraseFeature(it);
             //printf("remove outlier %d \n", index);
         }
     }
@@ -464,7 +470,7 @@ void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3
             it->feature_per_frame.erase(it->feature_per_frame.begin());
             if (it->feature_per_frame.size() < 2)
             {
-                feature.erase(it);
+                eraseFeature(it);
                 continue;
             }
             else
@@ -483,7 +489,7 @@ void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3
         /*
         if (it->endFrame() < WINDOW_SIZE - 1)
         {
-            feature.erase(it);
+            eraseFeature(it);
         }
         */
     }
@@ -502,7 +508,7 @@ void FeatureManager::removeBack()
         {
             it->feature_per_frame.erase(it->feature_per_frame.begin());
             if (it->feature_per_frame.size() == 0)
-                feature.erase(it);
+                eraseFeature(it);
         }
     }
 }
@@ -524,7 +530,7 @@ void FeatureManager::removeFront(int frame_count)
                 continue;
             it->feature_per_frame.erase(it->feature_per_frame.begin() + j);
             if (it->feature_per_frame.size() == 0)
-                feature.erase(it);
+                eraseFeature(it);
         }
     }
 }

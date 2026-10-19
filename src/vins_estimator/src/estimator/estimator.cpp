@@ -22,6 +22,7 @@ Estimator::Estimator(): f_manager{Rs}
 Estimator::~Estimator()
 {
     stopping_ = true;
+    measurements_ready_.notify_all();
     if (processThread.joinable()) processThread.join();
     clearState();
 }
@@ -30,12 +31,12 @@ Estimator::~Estimator()
 void Estimator::clearState()
 {
     mProcess.lock();
-    while(!accBuf.empty())
-        accBuf.pop();
-    while(!gyrBuf.empty())
-        gyrBuf.pop();
-    while(!featureBuf.empty())
-        featureBuf.pop();
+    {
+        std::lock_guard<std::mutex> lock(mBuf);
+        while (!accBuf.empty()) accBuf.pop();
+        while (!gyrBuf.empty()) gyrBuf.pop();
+        while (!featureBuf.empty()) featureBuf.pop();
+    }
 
     prevTime = -1;
     curTime = 0;
@@ -161,40 +162,24 @@ void Estimator::changeSensorType(int use_imu, int use_stereo)
 void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
 {
     inputImageCnt++;
-    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame;
-    TicToc featureTrackerTime;
-
-    if(_img1.empty())
-        featureFrame = featureTracker.trackImage(t, _img);
-    else
-        featureFrame = featureTracker.trackImage(t, _img, _img1);
-    //printf("featureTracker time: %f\n", featureTrackerTime.toc());
-
-    if (SHOW_TRACK)
+    // Tracking remains full-rate; only backend observation packaging is gated.
+    const bool submit = !MULTIPLE_THREAD || backend_gate_.accept(t);
+    const bool draw = SHOW_TRACK && trackImageRequested();
+    auto featureFrame = featureTracker.trackImage(t, _img, _img1, submit, draw);
+    if (draw) pubTrackImage(featureTracker.getTrackImage(), t);
+    if (!submit) return;
     {
-        cv::Mat imgTrack = featureTracker.getTrackImage();
-        pubTrackImage(imgTrack, t);
-    }
-    
-    if(MULTIPLE_THREAD)  
-    {     
-        if(inputImageCnt % 2 == 0)
-        {
-            mBuf.lock();
-            featureBuf.push(make_pair(t, featureFrame));
-            mBuf.unlock();
+        std::lock_guard<std::mutex> lock(mBuf);
+        if (featureBuf.size() >= static_cast<size_t>(MAX_FEATURE_QUEUE)) {
+            featureBuf.pop();
+            if (++dropped_features_ == 1 || dropped_features_ % 100 == 0)
+                RCLCPP_WARN(vins::logger(), "Backend overloaded: dropped %zu queued feature frames", dropped_features_);
         }
+        featureBuf.emplace(t, std::move(featureFrame));
     }
-    else
-    {
-        mBuf.lock();
-        featureBuf.push(make_pair(t, featureFrame));
-        mBuf.unlock();
-        TicToc processTime;
-        processMeasurements();
-        printf("process time: %f\n", processTime.toc());
-    }
-    
+    measurements_ready_.notify_one();
+    if (!MULTIPLE_THREAD) processMeasurements();
+
 }
 
 void Estimator::inputIMU(double t, const Vector3d &linearAcceleration, const Vector3d &angularVelocity)
@@ -204,6 +189,7 @@ void Estimator::inputIMU(double t, const Vector3d &linearAcceleration, const Vec
     gyrBuf.push(make_pair(t, angularVelocity));
     //printf("input imu with time %f \n", t);
     mBuf.unlock();
+    measurements_ready_.notify_one();
 
     if (solver_flag == NON_LINEAR)
     {
@@ -216,12 +202,13 @@ void Estimator::inputIMU(double t, const Vector3d &linearAcceleration, const Vec
 
 void Estimator::inputFeature(double t, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame)
 {
-    mBuf.lock();
-    featureBuf.push(make_pair(t, featureFrame));
-    mBuf.unlock();
-
-    if(!MULTIPLE_THREAD)
-        processMeasurements();
+    {
+        std::lock_guard<std::mutex> lock(mBuf);
+        if (featureBuf.size() >= static_cast<size_t>(MAX_FEATURE_QUEUE)) featureBuf.pop();
+        featureBuf.emplace(t, featureFrame);
+    }
+    measurements_ready_.notify_one();
+    if (!MULTIPLE_THREAD) processMeasurements();
 }
 
 
@@ -273,80 +260,52 @@ void Estimator::processMeasurements()
 {
     while (!stopping_ && rclcpp::ok())
     {
-        //printf("process measurments\n");
-        pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 7, 1> > > > > feature;
+        decltype(featureBuf)::value_type feature;
         vector<pair<double, Eigen::Vector3d>> accVector, gyrVector;
-        bool have_feature = false;
         {
-            std::lock_guard<std::mutex> lock(mBuf);
-            have_feature = !featureBuf.empty();
-            if (have_feature) feature = featureBuf.front();
-        }
-        if(have_feature)
-        {
-            curTime = feature.first + td;
-            while(!stopping_ && rclcpp::ok())
-            {
-                if ((!USE_IMU  || IMUAvailable(feature.first + td)))
-                    break;
-                else
-                {
-                    printf("wait for imu ... \n");
-                    if (! MULTIPLE_THREAD)
-                        return;
-                    std::chrono::milliseconds dura(5);
-                    std::this_thread::sleep_for(dura);
-                }
-            }
+            std::unique_lock<std::mutex> lock(mBuf);
+            auto ready = [this] {
+                return !featureBuf.empty() && (!USE_IMU ||
+                    (!accBuf.empty() && featureBuf.front().first + td <= accBuf.back().first));
+            };
+            if (MULTIPLE_THREAD)
+                measurements_ready_.wait(lock, [&] { return stopping_ || !rclcpp::ok() || ready(); });
+            else if (!ready())
+                return;
             if (stopping_ || !rclcpp::ok()) return;
-            mBuf.lock();
-            if(USE_IMU)
-                getIMUInterval(prevTime, curTime, accVector, gyrVector);
-
+            feature = std::move(featureBuf.front());
             featureBuf.pop();
-            mBuf.unlock();
-
-            if(USE_IMU)
-            {
-                if(!initFirstPoseFlag)
-                    initFirstIMUPose(accVector);
-                for(size_t i = 0; i < accVector.size(); i++)
-                {
-                    double dt;
-                    if(i == 0)
-                        dt = accVector[i].first - prevTime;
-                    else if (i == accVector.size() - 1)
-                        dt = curTime - accVector[i - 1].first;
-                    else
-                        dt = accVector[i].first - accVector[i - 1].first;
-                    processIMU(accVector[i].first, dt, accVector[i].second, gyrVector[i].second);
-                }
-            }
-            mProcess.lock();
-            processImage(feature.second, feature.first);
-            prevTime = curTime;
-
-            printStatistics(*this, 0);
-
-            std_msgs::msg::Header header;
-            header.frame_id = "world";
-            header.stamp = vins::stamp(feature.first);
-
-            if (!rclcpp::ok()) { mProcess.unlock(); return; }
-            pubOdometry(*this, header);
-            pubKeyPoses(*this, header);
-            pubCameraPose(*this, header);
-            pubPointCloud(*this, header);
-            pubKeyframe(*this);
-            pubTF(*this, header);
-            mProcess.unlock();
+            curTime = feature.first + td;
+            if (USE_IMU) getIMUInterval(prevTime, curTime, accVector, gyrVector);
         }
-
-        if (! MULTIPLE_THREAD)
-            break;
-
-        std::chrono::milliseconds dura(2);
-        std::this_thread::sleep_for(dura);
+        TicToc process_time;
+        if (USE_IMU)
+        {
+            if (!initFirstPoseFlag) initFirstIMUPose(accVector);
+            for (size_t i = 0; i < accVector.size(); ++i)
+            {
+                double dt;
+                if (i == 0) dt = accVector[i].first - prevTime;
+                else if (i == accVector.size() - 1) dt = curTime - accVector[i - 1].first;
+                else dt = accVector[i].first - accVector[i - 1].first;
+                processIMU(accVector[i].first, dt, accVector[i].second, gyrVector[i].second);
+            }
+        }
+        std::lock_guard<std::mutex> lock(mProcess);
+        processImage(feature.second, feature.first);
+        prevTime = curTime;
+        printStatistics(*this, process_time.toc());
+        std_msgs::msg::Header header;
+        header.frame_id = "world";
+        header.stamp = vins::stamp(feature.first);
+        if (!rclcpp::ok()) return;
+        pubOdometry(*this, header);
+        pubKeyPoses(*this, header);
+        pubCameraPose(*this, header);
+        pubPointCloud(*this, header);
+        pubKeyframe(*this);
+        pubTF(*this, header);
+        if (!MULTIPLE_THREAD) break;
     }
 }
 

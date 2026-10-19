@@ -21,6 +21,7 @@
 #include "utility/tic_toc.h"
 #include "utility/utility.h"
 #include "parameters.h"
+#include "brief_extractor.h"
 #include "ThirdParty/DBoW/DBoW2.h"
 #include "ThirdParty/DVision/DVision.h"
 
@@ -30,15 +31,6 @@ using namespace Eigen;
 using namespace std;
 using namespace DVision;
 
-
-class BriefExtractor
-{
-public:
-  virtual void operator()(const cv::Mat &im, vector<cv::KeyPoint> &keys, vector<BRIEF::bitset> &descriptors) const;
-  BriefExtractor(const std::string &pattern_file);
-
-  DVision::BRIEF m_brief;
-};
 
 class KeyFrame
 {

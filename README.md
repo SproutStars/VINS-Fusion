@@ -186,3 +186,9 @@ docker build -f docker/Dockerfile -t vins-fusion:jazzy .
 
 容器使用 host 网络访问 ROS 2 话题；此脚本不启动 GUI。数据集目录可用额外的
 `docker run -v` 参数挂载。容器运行的输出写入 Docker 命名卷 `vins-fusion-output`。
+
+## 性能评测
+
+工程优化范围、回归测试与 `~/vicon_room2/bags` 的可复现比较方法见
+[性能优化与 EuRoC 回归测试](docs/PERFORMANCE.md)。保留算法参数不变，分别检查
+CPU 时间、延迟分位数、峰值内存与轨迹精度，避免以丢帧或精度退化换取表面加速。

@@ -10,6 +10,7 @@
 #include <vins_common/ros_utils.hpp>
 
 #include "visualization.h"
+#include "runtime_utils.h"
 
 
 using namespace Eigen;
@@ -36,10 +37,45 @@ static Vector3d last_path(0.0, 0.0, 0.0);
 size_t pub_counter = 0;
 std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
+namespace
+{
+std::ofstream result_file;
+size_t result_rows = 0;
+vins::BoundedHistory<geometry_msgs::msg::PoseStamped> path_history;
+vins::FrameRateGate path_gate;
+double path_publish_rate = 1.0;
+
+template<class T>
+bool hasSubscribers(const std::shared_ptr<rclcpp::Publisher<T>> &publisher)
+{
+    return publisher && (publisher->get_subscription_count() != 0 ||
+                         publisher->get_intra_process_subscription_count() != 0);
+}
+}  // namespace
+
+void resetVisualization()
+{
+    path.poses.clear();
+    path_history.clear();
+    // Permit immediate publication after a restart, even at the same timestamp.
+    path_gate.reset(path_publish_rate);
+}
+
+bool trackImageRequested() { return hasSubscribers(pub_image_track); }
+
 void registerPub(const rclcpp::Node::SharedPtr &n)
 {
+    const int path_capacity = n->declare_parameter<int>("path_max_poses", 2000);
+    path_publish_rate = n->declare_parameter<double>("path_publish_rate", 1.0);
+    if (path_capacity < 0) throw std::invalid_argument("path_max_poses must be nonnegative");
+    path_history.reset(static_cast<size_t>(path_capacity));
+    path_gate.reset(path_publish_rate);
+    result_file.open(VINS_RESULT_PATH, std::ios::app);
+    if (!result_file) throw std::runtime_error("Cannot open trajectory: " + VINS_RESULT_PATH);
+    result_file.setf(std::ios::fixed, std::ios::floatfield);
+    result_rows = 0;
     pub_latest_odometry = n->create_publisher<nav_msgs::msg::Odometry>("~/imu_propagate", rclcpp::QoS(100));
-    pub_path = n->create_publisher<nav_msgs::msg::Path>("~/path", rclcpp::QoS(100));
+    pub_path = n->create_publisher<nav_msgs::msg::Path>("~/path", rclcpp::QoS(1));
     pub_odometry = n->create_publisher<nav_msgs::msg::Odometry>("~/odometry", rclcpp::QoS(100));
     pub_point_cloud = n->create_publisher<sensor_msgs::msg::PointCloud>("~/point_cloud", rclcpp::QoS(100));
     pub_margin_cloud = n->create_publisher<sensor_msgs::msg::PointCloud>("~/margin_cloud", rclcpp::QoS(100));
@@ -49,7 +85,7 @@ void registerPub(const rclcpp::Node::SharedPtr &n)
     pub_keyframe_pose = n->create_publisher<nav_msgs::msg::Odometry>("~/keyframe_pose", rclcpp::QoS(100));
     pub_keyframe_point = n->create_publisher<sensor_msgs::msg::PointCloud>("~/keyframe_point", rclcpp::QoS(100));
     pub_extrinsic = n->create_publisher<nav_msgs::msg::Odometry>("~/extrinsic", rclcpp::QoS(100));
-    pub_image_track = n->create_publisher<sensor_msgs::msg::Image>("~/image_track", rclcpp::QoS(100));
+    pub_image_track = n->create_publisher<sensor_msgs::msg::Image>("~/image_track", rclcpp::QoS(1));
 
     tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(n);
     cameraposevisual.setScale(0.1);
@@ -58,6 +94,8 @@ void registerPub(const rclcpp::Node::SharedPtr &n)
 
 void unregisterPub()
 {
+    result_file.close();
+    resetVisualization();
     tf_broadcaster.reset();
     pub_odometry.reset();
     pub_latest_odometry.reset();
@@ -75,6 +113,7 @@ void unregisterPub()
 
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, double t)
 {
+    if (!hasSubscribers(pub_latest_odometry)) return;
     nav_msgs::msg::Odometry odometry;
     odometry.header.stamp = vins::stamp(t);
     odometry.header.frame_id = "world";
@@ -93,6 +132,7 @@ void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, co
 
 void pubTrackImage(const cv::Mat &imgTrack, const double t)
 {
+    if (!trackImageRequested()) return;
     std_msgs::msg::Header header;
     header.frame_id = "world";
     header.stamp = vins::stamp(t);
@@ -141,7 +181,7 @@ void printStatistics(const Estimator &estimator, double t)
     last_path = estimator.Ps[WINDOW_SIZE];
     RCLCPP_DEBUG(vins::logger(), "sum of path %f", sum_of_path);
     if (ESTIMATE_TD)
-        RCLCPP_INFO(vins::logger(), "td %f", estimator.td);
+        RCLCPP_DEBUG(vins::logger(), "td %f", estimator.td);
 }
 
 void pubOdometry(const Estimator &estimator, const std_msgs::msg::Header &header)
@@ -170,14 +210,16 @@ void pubOdometry(const Estimator &estimator, const std_msgs::msg::Header &header
         pose_stamped.header = header;
         pose_stamped.header.frame_id = "world";
         pose_stamped.pose = odometry.pose.pose;
-        path.header = header;
-        path.header.frame_id = "world";
-        path.poses.push_back(pose_stamped);
-        pub_path->publish(path);
+        path_history.push(pose_stamped);
+        if (path_history.size() && hasSubscribers(pub_path) && path_gate.accept(vins::seconds(header.stamp))) {
+            path.header = header;
+            path.header.frame_id = "world";
+            path.poses.assign(path_history.items().begin(), path_history.items().end());
+            pub_path->publish(path);
+        }
 
         // write result to file
-        ofstream foutC(VINS_RESULT_PATH, ios::app);
-        foutC.setf(ios::fixed, ios::floatfield);
+        auto &foutC = result_file;
         foutC.precision(0);
         foutC << vins::seconds(header.stamp) * 1e9 << ",";
         foutC.precision(5);
@@ -190,16 +232,17 @@ void pubOdometry(const Estimator &estimator, const std_msgs::msg::Header &header
               << tmp_Q.z() << ","
               << estimator.Vs[WINDOW_SIZE].x() << ","
               << estimator.Vs[WINDOW_SIZE].y() << ","
-              << estimator.Vs[WINDOW_SIZE].z() << "," << endl;
-        foutC.close();
+              << estimator.Vs[WINDOW_SIZE].z() << ",\n";
+        if (++result_rows % 50 == 0) foutC.flush();
         Eigen::Vector3d tmp_T = estimator.Ps[WINDOW_SIZE];
-        printf("time: %f, t: %f %f %f q: %f %f %f %f \n", vins::seconds(header.stamp), tmp_T.x(), tmp_T.y(), tmp_T.z(),
+        RCLCPP_DEBUG(vins::logger(), "time: %f, t: %f %f %f q: %f %f %f %f", vins::seconds(header.stamp), tmp_T.x(), tmp_T.y(), tmp_T.z(),
                                                           tmp_Q.w(), tmp_Q.x(), tmp_Q.y(), tmp_Q.z());
     }
 }
 
 void pubKeyPoses(const Estimator &estimator, const std_msgs::msg::Header &header)
 {
+    if (!hasSubscribers(pub_key_poses)) return;
     if (estimator.key_poses.size() == 0)
         return;
     visualization_msgs::msg::Marker key_poses;
@@ -234,6 +277,7 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::msg::Header &header
 
 void pubCameraPose(const Estimator &estimator, const std_msgs::msg::Header &header)
 {
+    if (!hasSubscribers(pub_camera_pose) && !hasSubscribers(pub_camera_pose_visual)) return;
     int idx2 = WINDOW_SIZE - 1;
 
     if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
@@ -270,6 +314,7 @@ void pubCameraPose(const Estimator &estimator, const std_msgs::msg::Header &head
 
 void pubPointCloud(const Estimator &estimator, const std_msgs::msg::Header &header)
 {
+    if (!hasSubscribers(pub_point_cloud) && !hasSubscribers(pub_margin_cloud)) return;
     sensor_msgs::msg::PointCloud point_cloud, loop_point_cloud;
     point_cloud.header = header;
     loop_point_cloud.header = header;
@@ -373,6 +418,7 @@ void pubTF(const Estimator &estimator, const std_msgs::msg::Header &header)
 
 void pubKeyframe(const Estimator &estimator)
 {
+    if (!hasSubscribers(pub_keyframe_pose) && !hasSubscribers(pub_keyframe_point)) return;
     // pub camera pose, 2D-3D points of keyframe
     if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR && estimator.marginalization_flag == 0)
     {

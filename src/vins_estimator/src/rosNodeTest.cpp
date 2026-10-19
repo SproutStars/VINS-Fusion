@@ -10,6 +10,9 @@
 #include <sensor_msgs/image_encodings.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <deque>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include "estimator/estimator.h"
 #include "utility/visualization.h"
 
@@ -21,7 +24,7 @@ class VinsNode final : public rclcpp::Node
     using Bool = std_msgs::msg::Bool;
 public:
     VinsNode() : Node("vins_estimator") {}
-    ~VinsNode() override { estimator_.reset(); unregisterPub(); }
+    ~VinsNode() override { stopTracking(); estimator_.reset(); last_frame_ = {}; unregisterPub(); }
 
     void start(int argc, char **argv)
     {
@@ -34,6 +37,11 @@ public:
         max_queue_ = declare_parameter<int>("image_queue_size", 100);
         if (max_queue_ < 1 || sync_tolerance_ < 0.0)
             throw std::invalid_argument("Invalid queue size or stereo synchronization tolerance");
+        tracking_queue_size_ = declare_parameter<int>("tracking_queue_size", 5);
+        const int opencv_threads = declare_parameter<int>("opencv_threads", 1);
+        if (tracking_queue_size_ < 1 || opencv_threads < 0)
+            throw std::invalid_argument("tracking_queue_size must be positive and opencv_threads nonnegative");
+        cv::setNumThreads(opencv_threads);
         registerPub(shared_from_this());
         estimator_ = std::make_unique<Estimator>();
         estimator_->setParameter();
@@ -65,7 +73,7 @@ public:
                 switchSensors(USE_IMU, m->data);
                 images0_.clear(); images1_.clear();
             });
-        sync_timer_ = create_wall_timer(std::chrono::milliseconds(2), [this] { syncImages(); });
+        startTracking();
         RCLCPP_INFO(get_logger(), "Ready: %s, image=%s, imu=%s", STEREO ? "stereo" : "mono", IMAGE0_TOPIC.c_str(), IMU_TOPIC.c_str());
     }
 
@@ -74,43 +82,100 @@ private:
     {
         if (queue.size() >= static_cast<size_t>(max_queue_)) queue.pop_front();
         queue.push_back(std::move(image));
+        syncImages();
     }
+    struct FramePair {
+        Image::ConstSharedPtr left, right;
+    };
     static cv::Mat decode(const Image::ConstSharedPtr &image)
     {
-        if (image->encoding == "8UC1") {
-            Image copy = *image;
-            copy.encoding = sensor_msgs::image_encodings::MONO8;
-            return cv_bridge::toCvCopy(copy, sensor_msgs::image_encodings::MONO8)->image;
-        }
-        return cv_bridge::toCvCopy(image, sensor_msgs::image_encodings::MONO8)->image;
+        // CvShare can alias ROS-owned pixels. FramePair ownership is retained
+        // through the NEXT tracking call because FeatureTracker keeps prev_img.
+        const auto encoding = image->encoding == "8UC1" ? image->encoding :
+            sensor_msgs::image_encodings::MONO8;
+        return cv_bridge::toCvShare(image, encoding)->image;
     }
-    void syncImages()
+    void track(FramePair frame)
     {
-        if (images0_.empty() || (STEREO && images1_.empty())) return;
-        if (STEREO) {
-            const double dt = vins::seconds(images0_.front()->header.stamp) - vins::seconds(images1_.front()->header.stamp);
-            if (dt < -sync_tolerance_) { images0_.pop_front(); return; }
-            if (dt > sync_tolerance_) { images1_.pop_front(); return; }
-        }
-        auto left = images0_.front(); images0_.pop_front();
-        Image::ConstSharedPtr right;
-        if (STEREO) { right = images1_.front(); images1_.pop_front(); }
         try {
-            estimator_->inputImage(vins::seconds(left->header.stamp), decode(left), right ? decode(right) : cv::Mat());
+            estimator_->inputImage(vins::seconds(frame.left->header.stamp), decode(frame.left),
+                                   frame.right ? decode(frame.right) : cv::Mat());
         } catch (const cv::Exception &e) {
             RCLCPP_ERROR(get_logger(), "Image conversion/tracking failed: %s", e.what());
         } catch (const cv_bridge::Exception &e) {
             RCLCPP_ERROR(get_logger(), "Image conversion failed: %s", e.what());
         }
+        last_frame_ = std::move(frame);
+    }
+    void startTracking()
+    {
+        tracking_stopping_ = false;
+        if (!MULTIPLE_THREAD) return;
+        tracking_thread_ = std::thread([this] {
+            while (true) {
+                FramePair frame;
+                {
+                    std::unique_lock<std::mutex> lock(tracking_mutex_);
+                    tracking_ready_.wait(lock, [this] { return tracking_stopping_ || !tracking_frames_.empty(); });
+                    if (tracking_stopping_) return;
+                    frame = std::move(tracking_frames_.front());
+                    tracking_frames_.pop_front();
+                }
+                track(std::move(frame));
+            }
+        });
+    }
+    void stopTracking()
+    {
+        {
+            std::lock_guard<std::mutex> lock(tracking_mutex_);
+            tracking_stopping_ = true;
+            tracking_frames_.clear();
+        }
+        tracking_ready_.notify_all();
+        if (tracking_thread_.joinable()) tracking_thread_.join();
+    }
+    void dispatch(FramePair frame)
+    {
+        if (!MULTIPLE_THREAD) { track(std::move(frame)); return; }
+        {
+            std::lock_guard<std::mutex> lock(tracking_mutex_);
+            if (tracking_frames_.size() >= static_cast<size_t>(tracking_queue_size_)) {
+                tracking_frames_.pop_front();
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                                    "Tracking queue overflow: dropping stale image pair");
+            }
+            tracking_frames_.push_back(std::move(frame));
+        }
+        tracking_ready_.notify_one();
+    }
+    void syncImages()
+    {
+        // Called only by the single-threaded ROS executor. The worker never
+        // touches synchronization queues or sensor-switch/restart state.
+        while (!images0_.empty() && (!STEREO || !images1_.empty())) {
+            if (STEREO) {
+                const double dt = vins::seconds(images0_.front()->header.stamp) - vins::seconds(images1_.front()->header.stamp);
+                if (dt < -sync_tolerance_) { images0_.pop_front(); continue; }
+                if (dt > sync_tolerance_) { images1_.pop_front(); continue; }
+            }
+            FramePair frame{images0_.front(), {}};
+            images0_.pop_front();
+            if (STEREO) { frame.right = images1_.front(); images1_.pop_front(); }
+            dispatch(std::move(frame));
+        }
     }
     void restart()
     {
         RCLCPP_WARN(get_logger(), "Restarting estimator");
-        estimator_.reset(); // Stops and joins the old processing thread first.
+        stopTracking();
+        estimator_.reset(); // Join both workers before replacing their estimator.
+        last_frame_ = {};
         images0_.clear(); images1_.clear();
-        path.poses.clear();
+        resetVisualization();
         estimator_ = std::make_unique<Estimator>();
         estimator_->setParameter();
+        startTracking();
     }
     void switchSensors(bool imu, bool stereo)
     {
@@ -123,14 +188,17 @@ private:
             return;
         }
         if (imu == static_cast<bool>(USE_IMU) && stereo == static_cast<bool>(STEREO)) return;
-        // Join the worker before changing sensor flags or discarding queues.
+        // Join both workers before changing flags or discarding shared state.
+        stopTracking();
         estimator_.reset();
+        last_frame_ = {};
         USE_IMU = imu;
         STEREO = stereo;
         images0_.clear(); images1_.clear();
-        path.poses.clear();
+        resetVisualization();
         estimator_ = std::make_unique<Estimator>();
         estimator_->setParameter();
+        startTracking();
     }
     void feature(const Cloud::ConstSharedPtr &m)
     {
@@ -159,7 +227,13 @@ private:
     rclcpp::Subscription<Image>::SharedPtr sub_image0_, sub_image1_;
     rclcpp::Subscription<Cloud>::SharedPtr sub_feature_;
     rclcpp::Subscription<Bool>::SharedPtr sub_restart_, sub_imu_switch_, sub_cam_switch_;
-    rclcpp::TimerBase::SharedPtr sync_timer_;
+    FramePair last_frame_;
+    std::deque<FramePair> tracking_frames_;
+    std::mutex tracking_mutex_;
+    std::condition_variable tracking_ready_;
+    std::thread tracking_thread_;
+    bool tracking_stopping_ = false;
+    int tracking_queue_size_ = 5;
 };
 
 int main(int argc, char **argv)

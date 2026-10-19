@@ -41,6 +41,8 @@ extern rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_po
 extern int IMAGE_ROW, IMAGE_COL;
 
 void unregisterPub();
+void resetVisualization();
+bool trackImageRequested();
 
 void registerPub(const rclcpp::Node::SharedPtr &n);
 

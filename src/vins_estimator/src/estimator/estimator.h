@@ -13,6 +13,8 @@
  
 #include <thread>
 #include <mutex>
+#include <condition_variable>
+#include "../utility/runtime_utils.h"
 #include <std_msgs/msg/header.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <ceres/ceres.h>
@@ -42,6 +44,9 @@
 class Estimator
 {
     std::atomic<bool> stopping_{false};
+    std::condition_variable measurements_ready_;
+    vins::FrameRateGate backend_gate_{BACKEND_FREQ, true};
+    size_t dropped_features_ = 0;
   public:
     Estimator();
     ~Estimator();

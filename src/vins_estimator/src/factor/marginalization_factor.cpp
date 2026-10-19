@@ -11,6 +11,8 @@
 #include <vins_common/ros_utils.hpp>
 
 #include "marginalization_factor.h"
+#include "../utility/runtime_utils.h"
+#include <array>
 
 void ResidualBlockInfo::Evaluate()
 {
@@ -94,7 +96,7 @@ MarginalizationInfo::~MarginalizationInfo()
     //RCLCPP_WARN(vins::logger(), "release marginlizationinfo");
     
     for (auto it = parameter_block_data.begin(); it != parameter_block_data.end(); ++it)
-        delete it->second;
+        delete[] it->second;
 
     for (int i = 0; i < (int)factors.size(); i++)
     {
@@ -159,25 +161,24 @@ int MarginalizationInfo::globalSize(int size) const
     return size == 6 ? 7 : size;
 }
 
-void* ThreadsConstructA(void* threadsstruct)
+void constructNormalEquations(ThreadsStruct *p)
 {
-    ThreadsStruct* p = ((ThreadsStruct*)threadsstruct);
     for (auto it : p->sub_factors)
     {
         for (int i = 0; i < static_cast<int>(it->parameter_blocks.size()); i++)
         {
-            int idx_i = p->parameter_block_idx[reinterpret_cast<long>(it->parameter_blocks[i])];
-            int size_i = p->parameter_block_size[reinterpret_cast<long>(it->parameter_blocks[i])];
+            int idx_i = p->parameter_block_idx->at(reinterpret_cast<long>(it->parameter_blocks[i]));
+            int size_i = p->parameter_block_size->at(reinterpret_cast<long>(it->parameter_blocks[i]));
             if (size_i == 7)
                 size_i = 6;
-            Eigen::MatrixXd jacobian_i = it->jacobians[i].leftCols(size_i);
+            const auto jacobian_i = it->jacobians[i].leftCols(size_i);
             for (int j = i; j < static_cast<int>(it->parameter_blocks.size()); j++)
             {
-                int idx_j = p->parameter_block_idx[reinterpret_cast<long>(it->parameter_blocks[j])];
-                int size_j = p->parameter_block_size[reinterpret_cast<long>(it->parameter_blocks[j])];
+                int idx_j = p->parameter_block_idx->at(reinterpret_cast<long>(it->parameter_blocks[j]));
+                int size_j = p->parameter_block_size->at(reinterpret_cast<long>(it->parameter_blocks[j]));
                 if (size_j == 7)
                     size_j = 6;
-                Eigen::MatrixXd jacobian_j = it->jacobians[j].leftCols(size_j);
+                const auto jacobian_j = it->jacobians[j].leftCols(size_j);
                 if (i == j)
                     p->A.block(idx_i, idx_j, size_i, size_j) += jacobian_i.transpose() * jacobian_j;
                 else
@@ -189,7 +190,7 @@ void* ThreadsConstructA(void* threadsstruct)
             p->b.segment(idx_i, size_i) += jacobian_i.transpose() * it->residuals;
         }
     }
-    return threadsstruct;
+
 }
 
 void MarginalizationInfo::marginalize()
@@ -255,35 +256,31 @@ void MarginalizationInfo::marginalize()
     //multi thread
 
 
-    TicToc t_thread_summing;
-    pthread_t tids[NUM_THREADS];
-    ThreadsStruct threadsstruct[NUM_THREADS];
-    int i = 0;
-    for (auto it : factors)
-    {
-        threadsstruct[i].sub_factors.push_back(it);
-        i++;
-        i = i % NUM_THREADS;
+    // Each estimator processing thread owns its own pool and reusable buffers.
+    // A pool never retains factor pointers beyond this synchronous barrier.
+    struct Workspace {
+        std::array<ThreadsStruct, NUM_THREADS> partial;
+        vins::WorkerPool pool{NUM_THREADS};
+    };
+    thread_local Workspace workspace;
+    auto &partial = workspace.partial;
+    for (auto &worker : partial) {
+        worker.sub_factors.clear();
+        worker.A.setZero(pos, pos);
+        worker.b.setZero(pos);
+        worker.parameter_block_size = &parameter_block_size;
+        worker.parameter_block_idx = &parameter_block_idx;
     }
-    for (int i = 0; i < NUM_THREADS; i++)
-    {
-        TicToc zero_matrix;
-        threadsstruct[i].A = Eigen::MatrixXd::Zero(pos,pos);
-        threadsstruct[i].b = Eigen::VectorXd::Zero(pos);
-        threadsstruct[i].parameter_block_size = parameter_block_size;
-        threadsstruct[i].parameter_block_idx = parameter_block_idx;
-        int ret = pthread_create( &tids[i], NULL, ThreadsConstructA ,(void*)&(threadsstruct[i]));
-        if (ret != 0)
-        {
-            RCLCPP_WARN(vins::logger(), "pthread_create error");
-            throw std::runtime_error("VINS invariant violated");
-        }
+    size_t worker = 0;
+    for (auto *factor : factors) {
+        partial[worker].sub_factors.push_back(factor);
+        worker = (worker + 1) % NUM_THREADS;
     }
-    for( int i = NUM_THREADS - 1; i >= 0; i--)  
-    {
-        pthread_join( tids[i], NULL ); 
-        A += threadsstruct[i].A;
-        b += threadsstruct[i].b;
+    workspace.pool.run([&](size_t index) { constructNormalEquations(&partial[index]); });
+    for (int i = NUM_THREADS - 1; i >= 0; --i) {
+        A += partial[i].A;
+        b += partial[i].b;
+        partial[i].sub_factors.clear();
     }
     //RCLCPP_DEBUG(vins::logger(), "thread summing up costs %f ms", t_thread_summing.toc());
     //RCLCPP_INFO(vins::logger(), "A diff %f , b diff %f ", (A - tmp_A).sum(), (b - tmp_b).sum());
