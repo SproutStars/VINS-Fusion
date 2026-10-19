@@ -35,28 +35,42 @@ source install/setup.bash
 | `loop_fusion` | 回环检测和位姿图优化 | `loop_fusion_node` |
 | `global_fusion` | GPS 全局融合 | `global_fusion_node` |
 
+源码目录以 `src/` 为根：算法估计、回环、GPS 融合、相机模型和公共工具分别位于
+`vins_estimator`、`loop_fusion`、`global_fusion`、`camera_models` 和 `vins_common`；
+launch 文件集中在 `src/vins_estimator/launch`。公共 C++ 工具统一到
+`vins_common/include/vins_common/utility.hpp` 和
+`vins_common/include/vins_common/tic_toc.hpp`，旧头文件路径保留以兼容现有代码。
+
 Ubuntu 24.04 的 Ceres 2.2 已删除 `LocalParameterization`。本实现使用 `Manifold`，
 并将 VINS 的解析 Jacobian 在切空间与环境空间之间转换；不能简单替换类名。
 
 ## 启动
 
-单目 + IMU（默认 EuRoC）：
+`vins.launch.py` 是唯一完整入口，由 `mode` 选择默认 EuRoC 配置：
+
+```bash
+# 默认单目 + IMU
+ros2 launch vins vins.launch.py
+
+# 双目 + IMU、双目无 IMU
+ros2 launch vins vins.launch.py mode:=stereo_imu
+ros2 launch vins vins.launch.py mode:=stereo
+```
+
+三个旧入口保留原文件名，只负责把对应 `mode` 转发给 `vins.launch.py`，
+原有命令可以继续使用：
 
 ```bash
 ros2 launch vins vins_mono_imu_launch.py
-```
-
-双目 + IMU、双目无 IMU：
-
-```bash
 ros2 launch vins vins_stereo_imu_launch.py
 ros2 launch vins vins_stereo_launch.py
 ```
 
-指定实际相机配置，同时开启回环和 RViz：
+显式 `config_file` 的优先级高于 `mode` 推导出的默认配置。指定实际相机配置，
+同时开启回环和 RViz：
 
 ```bash
-ros2 launch vins vins.launch.py \
+ros2 launch vins vins.launch.py mode:=stereo_imu \
   config_file:=/absolute/path/to/config.yaml \
   loop_fusion:=true rviz:=true
 ```
@@ -65,12 +79,14 @@ ros2 launch vins vins.launch.py \
 
 | 参数 | 默认值 | 含义 |
 | --- | --- | --- |
-| `config_file` | 安装包中的 EuRoC 单目 IMU 配置 | 算法 YAML（ROS 2 参数格式，兼容旧版 OpenCV 格式） |
+| `mode` | `mono_imu` | 默认配置模式，可选 `mono_imu`、`stereo_imu`、`stereo` |
+| `config_file` | 由 `mode` 决定的安装包 EuRoC 配置 | 算法 YAML（ROS 2 参数格式，兼容旧版 OpenCV 格式）；显式值优先 |
 | `use_sim_time` | `false` | 使用 rosbag 的 `/clock` |
 | `loop_fusion` | `false` | 启动回环节点 |
 | `global_fusion` | `false` | 启动 GPS 融合，需要 `/gps` |
-| `rviz` | `false` | 启动 RViz 2 |
-| `output_path` | `$HOME/.ros/vins_fusion` | 轨迹及位姿图输出目录，自动创建 |
+| `rviz` | `true` | 启动 RViz 2 |
+| `output_path` | `FindPackageShare(vins)/../../output`（通常为 `install/vins/output`） | 轨迹及位姿图输出目录，自动创建 |
+| `opencv_threads` | `1` | OpenCV 工作线程数；单目 EuRoC 默认限制为 1 |
 
 也可直接运行节点；仍支持旧版的配置文件位置参数：
 
@@ -162,20 +178,21 @@ GPS 数据需要搭配 `global_fusion_node`；可在另一个终端启动它。K
 ## 验证
 
 ```bash
-colcon test --packages-select vins --event-handlers console_direct+
+colcon test --packages-select vins_common vins loop_fusion --event-handlers console_direct+ --return-code-on-test-failure
 colcon test-result --verbose
 
-# 在已 source install/setup.bash 的终端中验证节点通信。
-# 需要 rclpy、python3-numpy、python3-opencv。
-python3 scripts/ros2_smoke_test.py
+# launch 结构与参数单元测试；不启动节点或 GUI。
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+/usr/bin/python3 -m unittest discover -s scripts/tests -v
 ```
 
-测试覆盖位姿流形的单位四元数、Plus/Minus 往返、Jacobian 数值差分、投影及 IMU 因子的
-坐标转换和 ROS 时间单位。集成测试用合成双目图像和 GPS 数据验证特征跟踪、
-滑动窗口优化、边缘化、重启、回环服务、全局融合输出、双目 IMU 预积分、运行时 IMU 切换及等待 IMU 时的退出；
-使用独立的 ROS_DOMAIN_ID（默认 73）和临时输出目录，无需数据集。
-这些验证不能替代完整数据集精度评测；实机或
-EuRoC 回放时还需检查初始化、轨迹、回环及 GPS 融合结果。
+`colcon test` 运行已构建的 C++ 单元测试。Python 单测检查 launch 入口的默认
+`mono_imu`、三种 `mode` 的默认配置路径、三个旧入口的转发、显式 `config_file`
+覆盖，以及关键默认值和节点条件。当前自动测试覆盖公共工具、特征跟踪与位姿流形、
+运行时工具、回环描述子和基准脚本的局部逻辑，不启动完整 VINS 流水线，也不能替代
+数据集精度评测或实机/EuRoC 回放验证；实机或回放时仍需检查初始化、轨迹、回环及
+GPS 融合结果。
 
 ## Docker
 

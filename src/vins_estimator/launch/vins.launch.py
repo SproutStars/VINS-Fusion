@@ -2,7 +2,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -13,9 +13,18 @@ def generate_launch_description():
     config = LaunchConfiguration("config_file")
     clock = ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)
     output = LaunchConfiguration("output_path")
+    default_config = PathJoinSubstitution([
+        share, "config", "euroc",
+        ["euroc_", LaunchConfiguration("mode"), "_config.yaml"],
+    ])
     return LaunchDescription([
-        DeclareLaunchArgument("config_file", default_value=PathJoinSubstitution([
-            share, "config", "euroc", "euroc_mono_imu_config.yaml"])),
+        DeclareLaunchArgument(
+            "mode", default_value="mono_imu",
+            choices=["mono_imu", "stereo_imu", "stereo"],
+            description="VINS mode used to select the default EuRoC config file"),
+        DeclareLaunchArgument(
+            "config_file", default_value=default_config,
+            description="Algorithm YAML; an explicit value overrides the mode default"),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("loop_fusion", default_value="false"),
         DeclareLaunchArgument("global_fusion", default_value="false"),

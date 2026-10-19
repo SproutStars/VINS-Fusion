@@ -38,6 +38,27 @@ if(VINS_ENABLE_NATIVE_OPTIMIZATION)
   endif()
 endif()
 
+set(VINS_AMENT_DEPENDENCIES
+  vins_common
+  rclcpp
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
+  visualization_msgs
+  camera_models
+  cv_bridge
+  tf2_ros
+  ament_index_cpp
+)
+
+set(VINS_LINK_LIBRARIES
+  Eigen3::Eigen
+  Ceres::ceres
+  Threads::Threads
+  ${OpenCV_LIBS}
+)
+
 add_library(vins_lib
 src/estimator/parameters.cpp
     src/estimator/estimator.cpp
@@ -47,7 +68,6 @@ src/estimator/parameters.cpp
     src/factor/projectionTwoFrameTwoCamFactor.cpp
     src/factor/projectionOneFrameTwoCamFactor.cpp
     src/factor/marginalization_factor.cpp
-    src/utility/utility.cpp
     src/utility/visualization.cpp
     src/utility/CameraPoseVisualization.cpp
     src/initial/solve_5pts.cpp
@@ -56,27 +76,24 @@ src/estimator/parameters.cpp
     src/initial/initial_ex_rotation.cpp
     src/featureTracker/feature_tracker.cpp
 )
-ament_target_dependencies(vins_lib vins_common rclcpp std_msgs sensor_msgs geometry_msgs nav_msgs visualization_msgs camera_models cv_bridge tf2_ros ament_index_cpp)
-target_link_libraries(vins_lib Eigen3::Eigen Ceres::ceres Threads::Threads ${OpenCV_LIBS})
+ament_target_dependencies(vins_lib ${VINS_AMENT_DEPENDENCIES})
+target_link_libraries(vins_lib ${VINS_LINK_LIBRARIES})
 target_include_directories(vins_lib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<INSTALL_INTERFACE:include/vins>)
 
 add_executable(vins_node
 src/rosNodeTest.cpp
 )
-ament_target_dependencies(vins_node vins_common rclcpp std_msgs sensor_msgs geometry_msgs nav_msgs visualization_msgs camera_models cv_bridge tf2_ros ament_index_cpp)
-target_link_libraries(vins_node Eigen3::Eigen Ceres::ceres Threads::Threads ${OpenCV_LIBS} vins_lib)
-
 add_executable(kitti_odom_test
 src/KITTIOdomTest.cpp
 )
-ament_target_dependencies(kitti_odom_test vins_common rclcpp std_msgs sensor_msgs geometry_msgs nav_msgs visualization_msgs camera_models cv_bridge tf2_ros ament_index_cpp)
-target_link_libraries(kitti_odom_test Eigen3::Eigen Ceres::ceres Threads::Threads ${OpenCV_LIBS} vins_lib)
-
 add_executable(kitti_gps_test
 src/KITTIGPSTest.cpp
 )
-ament_target_dependencies(kitti_gps_test vins_common rclcpp std_msgs sensor_msgs geometry_msgs nav_msgs visualization_msgs camera_models cv_bridge tf2_ros ament_index_cpp)
-target_link_libraries(kitti_gps_test Eigen3::Eigen Ceres::ceres Threads::Threads ${OpenCV_LIBS} vins_lib)
+
+foreach(vins_target IN ITEMS vins_node kitti_odom_test kitti_gps_test)
+  ament_target_dependencies(${vins_target} ${VINS_AMENT_DEPENDENCIES})
+  target_link_libraries(${vins_target} ${VINS_LINK_LIBRARIES} vins_lib)
+endforeach()
 
 install(TARGETS vins_lib vins_node kitti_odom_test kitti_gps_test
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION lib/${PROJECT_NAME})
