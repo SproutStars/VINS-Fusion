@@ -3,6 +3,7 @@
  * Licensed under the GNU General Public License v3.0.
  *******************************************************/
 #include <vins_common/ros_utils.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <cv_bridge/cv_bridge.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -42,6 +43,40 @@ public:
         if (tracking_queue_size_ < 1 || opencv_threads < 0)
             throw std::invalid_argument("tracking_queue_size must be positive and opencv_threads nonnegative");
         cv::setNumThreads(opencv_threads);
+        parameter_callback_ = add_on_set_parameters_callback(
+            [this](const std::vector<rclcpp::Parameter> & parameters) {
+                rcl_interfaces::msg::SetParametersResult result;
+                result.successful = true;
+                for (const auto & parameter : parameters) {
+                    const auto & name = parameter.get_name();
+                    if (name == "config_file" || name == "output_path" ||
+                        name == "image0_topic" || name == "image1_topic" ||
+                        name == "imu_topic") {
+                        result.successful = false;
+                        result.reason = name + " is fixed after startup; stop and relaunch the node";
+                        return result;
+                    }
+                    if (name == "tracking_queue_size" && parameter.as_int() < 1) {
+                        result.successful = false;
+                        result.reason = "tracking_queue_size must be positive";
+                        return result;
+                    }
+                    if (name == "opencv_threads" && parameter.as_int() < 0) {
+                        result.successful = false;
+                        result.reason = "opencv_threads must be nonnegative";
+                        return result;
+                    }
+                }
+                for (const auto & parameter : parameters) {
+                    if (parameter.get_name() == "tracking_queue_size") {
+                        std::lock_guard<std::mutex> lock(tracking_mutex_);
+                        tracking_queue_size_ = static_cast<int>(parameter.as_int());
+                    } else if (parameter.get_name() == "opencv_threads") {
+                        cv::setNumThreads(static_cast<int>(parameter.as_int()));
+                    }
+                }
+                return result;
+            });
         registerPub(shared_from_this());
         estimator_ = std::make_unique<Estimator>();
         estimator_->setParameter();
@@ -167,7 +202,9 @@ private:
     }
     void restart()
     {
-        RCLCPP_WARN(get_logger(), "Restarting estimator");
+        RCLCPP_WARN(get_logger(),
+                    "Restarting estimator with already-loaded configuration; "
+                    "edit the YAML and relaunch the node to apply parameter changes");
         stopTracking();
         estimator_.reset(); // Join both workers before replacing their estimator.
         last_frame_ = {};
@@ -234,6 +271,7 @@ private:
     std::thread tracking_thread_;
     bool tracking_stopping_ = false;
     int tracking_queue_size_ = 5;
+    rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr parameter_callback_;
 };
 
 int main(int argc, char **argv)

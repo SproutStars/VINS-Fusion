@@ -116,6 +116,64 @@ python3 scripts/compare_benchmarks.py \
 6. `opencv_threads` 是 ROS 参数，需通过 launch 或 `--parameter opencv_threads:=1`
    传入；算法文件由 `config_file` 读取，其中任意字段不会自动成为节点参数。
 
+## 参数修改与运行时恢复
+
+算法 YAML 不是“每次参数变化就重载”的配置中心：`readParameters()` 只在进程启动时
+读取它。`ros2 param set /vins_estimator max_cnt ...` 会失败，因为 `max_cnt` 没有声明
+为 ROS 参数；即使使用 `tracking_queue_size` 这类已声明参数，也不应假设算法内部状态
+会随之重建。`/vins_restart` 只重新创建 estimator 并复用启动时已加载的全局参数，
+**不会重新读取 YAML**。
+
+因此修改 `max_cnt`、噪声、外参、标定或后端预算后，正确恢复流程是：
+
+1. 修改 YAML，确保字段位于 `ros__parameters` 下；
+2. 完全停止并重新启动 `vins_node`/`vins.launch.py`；
+3. 从 bag 起点重新回放，而不是在已发散的轨迹上继续；
+4. 查看启动日志中的 `Feature tracker: max_cnt=...` 和 bag 回放指标。
+
+代价不高的运行期 ROS 参数仅限 `opencv_threads`、`tracking_queue_size` 等节点参数；
+其中 `tracking_queue_size` 已由 launch 显式暴露。话题、输出路径和 `config_file`
+在启动后固定，运行期修改会被拒绝并提示重启节点。
+
+### `max_cnt` 回归（2026-10-20，x86 Release）
+
+同一二进制、同一 `V2_01_easy`、1 倍速完整回放的结果：
+
+| max_cnt | ATE RMSE m | CPU s | P95 ms | 结果 |
+|---:|---:|---:|---:|---|
+| 200 | 0.253 | 31.49 | 29.16 | 正常 |
+| 150 | 0.241 | 27.38 | 24.39 | 正常 |
+| 120 | 0.217 | 24.67 | 26.40 | 正常 |
+| 100 | 7024.47 | 13.79 | 11.30 | 确定性发散，不可用 |
+
+`max_cnt=150` 在 `V2_02_medium`/`V2_03_difficult` 上也正常（ATE 0.315 m/0.791 m），
+可作为显式性能 profile；默认配置仍保留 200，避免把低特征数配置静默用于新数据。
+参数回调不能把已经发散的滤波器“恢复”到原轨迹；VINS 的结果依赖历史状态，回退参数
+必须同时重置状态并从序列起点重放。
+
+### `max_solver_time` 的作用与回归（2026-10-20，x86 Release）
+
+`max_solver_time` 只作为 Ceres 的**墙钟时间保险丝**：滑窗优化将其传给
+`max_solver_time_in_seconds`，旧帧边缘化时使用 `0.8 x max_solver_time`。它不是精度
+参数，正常情况下求解在预算内完成，改动它不会改变结果；只有某次求解（尤其关键帧
+边缘化）真的超过预算时，Ceres 以 `TIME_LIMIT` 返回，而 VINS 当前不检查终止类型，
+仍把截断解写回状态并参与边缘化线性化，残差会进入先验并累积成漂移。启动日志现在会
+打印 `Backend: max_solver_time=... max_num_iterations=...`，命中预算时输出节流告警。
+
+同一二进制、`V2_01_easy` 完整 1x 回放的隔离实验（只改变一个变量）：
+
+| max_cnt | max_solver_time | ATE RMSE m | 结果 |
+|---:|---:|---:|---|
+| 200 | 0.04 | 0.253 | 基线 |
+| 200 | 0.03 | 0.253 | 与基线逐位一致，x86 上未触及预算 |
+| 110 | 0.04 | 6394.04 | 严重漂移 |
+| 110 | 0.03 | 6394.04 | 与上一行逐位一致 |
+
+因此那次“改 `max_solver_time` 后漂移”的实际原因是同时把 `max_cnt` 降到了 110；
+`max_solver_time=0.03` 在本机没有可测影响。若在 ARM 等慢平台上确实命中
+`TIME_LIMIT`，应优先增加预算或降低负载（见远程 ARM 报告），而不是接受截断解；调参
+时每次只改一个参数，并用启动日志确认实际生效值。
+
 ## 未实施的后续方向
 
 以下方向可能继续降低 CPU 或内存，但会改变线程/锁语义或优化问题结构，本轮未实施：

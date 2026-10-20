@@ -1094,6 +1094,14 @@ void Estimator::optimization()
     TicToc t_solver;
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
+    // Ceres 2.2 reports the wall-clock limit as NO_CONVERGENCE with this message.
+    if (summary.message.find("Maximum solver time reached") != std::string::npos) {
+        static rclcpp::Clock throttle_clock(RCL_STEADY_TIME);
+        RCLCPP_WARN_THROTTLE(vins::logger(), throttle_clock, 5000,
+            "Ceres hit max_solver_time=%.0f ms after %zu iterations; the truncated "
+            "solution is still used and can bias the marginalization prior",
+            options.max_solver_time_in_seconds * 1000.0, summary.iterations.size());
+    }
     //cout << summary.BriefReport() << endl;
     RCLCPP_DEBUG(vins::logger(), "Iterations : %d", static_cast<int>(summary.iterations.size()));
     //printf("solver costs: %f \n", t_solver.toc());

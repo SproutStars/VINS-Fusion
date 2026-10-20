@@ -79,6 +79,8 @@ void readParameters(std::string config_file, const std::string &output_path)
     F_THRESHOLD = config.getDouble("F_threshold");
     SHOW_TRACK = config.getInt("show_track");
     FLOW_BACK = config.getInt("flow_back");
+    RCLCPP_INFO(vins::logger(), "Feature tracker: max_cnt=%d min_dist=%d flow_back=%d",
+                MAX_CNT, MIN_DIST, FLOW_BACK);
 
     MULTIPLE_THREAD = config.getInt("multiple_thread");
     BACKEND_FREQ = config.getDouble("freq", 10.0);
@@ -100,6 +102,10 @@ void readParameters(std::string config_file, const std::string &output_path)
 
     SOLVER_TIME = config.getDouble("max_solver_time");
     NUM_ITERATIONS = config.getInt("max_num_iterations");
+    if (!std::isfinite(SOLVER_TIME) || SOLVER_TIME <= 0.0 || NUM_ITERATIONS < 1)
+        throw std::invalid_argument("max_solver_time must be positive and max_num_iterations at least 1");
+    RCLCPP_INFO(vins::logger(), "Backend: max_solver_time=%.3f s max_num_iterations=%d",
+                SOLVER_TIME, NUM_ITERATIONS);
     MIN_PARALLAX = config.getDouble("keyframe_parallax");
     MIN_PARALLAX = MIN_PARALLAX / FOCAL_LENGTH;
 

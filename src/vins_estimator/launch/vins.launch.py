@@ -33,6 +33,8 @@ def generate_launch_description():
             share, "..", "..", "output"])),
         DeclareLaunchArgument("opencv_threads", default_value="1",
                               description="OpenCV worker threads; 1 minimizes CPU for mono EuRoC"),
+        DeclareLaunchArgument("tracking_queue_size", default_value="5",
+                              description="Maximum queued image pairs before stale frames are dropped"),
         Node(
             package="vins",
             executable="vins_node",
@@ -43,7 +45,9 @@ def generate_launch_description():
                 "use_sim_time": clock,
                 "output_path": output,
                 "opencv_threads": ParameterValue(
-                    LaunchConfiguration("opencv_threads"), value_type=int)
+                    LaunchConfiguration("opencv_threads"), value_type=int),
+                "tracking_queue_size": ParameterValue(
+                    LaunchConfiguration("tracking_queue_size"), value_type=int)
                 }]),
         Node(
             package="loop_fusion",
