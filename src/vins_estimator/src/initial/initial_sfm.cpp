@@ -11,6 +11,9 @@
 
 #include "initial_sfm.h"
 
+#include <array>
+#include <vector>
+
 GlobalSFM::GlobalSFM(){}
 
 void GlobalSFM::triangulatePoint(Eigen::Matrix<double, 3, 4> &Pose0, Eigen::Matrix<double, 3, 4> &Pose1,
@@ -129,6 +132,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 			  const Matrix3d relative_R, const Vector3d relative_T,
 			  vector<SFMFeature> &sfm_f, map<int, Vector3d> &sfm_tracked_points)
 {
+	if (frame_num <= 0 || q == nullptr || T == nullptr || l < 0 || l >= frame_num)
+		return false;
 	feature_num = sfm_f.size();
 	//cout << "set 0 and " << l << " as known " << endl;
 	// have relative_r relative_t
@@ -147,8 +152,11 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	Matrix3d c_Rotation[frame_num];
 	Vector3d c_Translation[frame_num];
 	Quaterniond c_Quat[frame_num];
-	double c_rotation[frame_num][4];
-	double c_translation[frame_num][3];
+	// Ceres stores these addresses as parameter blocks. Keep each block in a
+	// separately owned, non-overlapping allocation instead of adjacent
+	// variable-length stack arrays.
+	std::vector<std::array<double, 4>> c_rotation(static_cast<size_t>(frame_num));
+	std::vector<std::array<double, 3>> c_translation(static_cast<size_t>(frame_num));
 	Eigen::Matrix<double, 3, 4> Pose[frame_num];
 
 	c_Quat[l] = q[l].inverse();
@@ -254,15 +262,15 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		c_rotation[i][1] = c_Quat[i].x();
 		c_rotation[i][2] = c_Quat[i].y();
 		c_rotation[i][3] = c_Quat[i].z();
-		problem.AddParameterBlock(c_rotation[i], 4, local_parameterization);
-		problem.AddParameterBlock(c_translation[i], 3);
+		problem.AddParameterBlock(c_rotation[i].data(), 4, local_parameterization);
+		problem.AddParameterBlock(c_translation[i].data(), 3);
 		if (i == l)
 		{
-			problem.SetParameterBlockConstant(c_rotation[i]);
+			problem.SetParameterBlockConstant(c_rotation[i].data());
 		}
 		if (i == l || i == frame_num - 1)
 		{
-			problem.SetParameterBlockConstant(c_translation[i]);
+			problem.SetParameterBlockConstant(c_translation[i].data());
 		}
 	}
 
@@ -277,8 +285,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 												sfm_f[i].observation[j].second.x(),
 												sfm_f[i].observation[j].second.y());
 
-    		problem.AddResidualBlock(cost_function, NULL, c_rotation[l], c_translation[l], 
-    								sfm_f[i].position);	 
+			problem.AddResidualBlock(cost_function, NULL, c_rotation[l].data(), c_translation[l].data(),
+								sfm_f[i].position);
 		}
 
 	}

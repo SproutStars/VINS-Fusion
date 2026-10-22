@@ -11,8 +11,12 @@
 #include <vins_common/ros_utils.hpp>
 
 #include "marginalization_factor.h"
+#include "../estimator/parameters.h"
 #include "../utility/runtime_utils.h"
+#include <algorithm>
 #include <array>
+#include <cstddef>
+#include <memory>
 
 void ResidualBlockInfo::Evaluate()
 {
@@ -259,25 +263,48 @@ void MarginalizationInfo::marginalize()
     // Each estimator processing thread owns its own pool and reusable buffers.
     // A pool never retains factor pointers beyond this synchronous barrier.
     struct Workspace {
-        std::array<ThreadsStruct, NUM_THREADS> partial;
-        vins::WorkerPool pool{NUM_THREADS};
+        int count = 0;
+        std::array<ThreadsStruct, MAX_MARGINALIZATION_THREADS> partial;
+        std::unique_ptr<vins::WorkerPool> pool;
     };
     thread_local Workspace workspace;
+
+    const int num_threads = std::clamp(MARGINALIZATION_THREADS, 1, MAX_MARGINALIZATION_THREADS);
+    const size_t num_workers = static_cast<size_t>(num_threads);
+    if (workspace.count != num_threads) {
+        workspace.pool.reset();
+        workspace.count = 0;
+        if (num_threads > 1)
+            workspace.pool = std::make_unique<vins::WorkerPool>(num_workers);
+        workspace.count = num_threads;
+    }
+
     auto &partial = workspace.partial;
-    for (auto &worker : partial) {
+    const size_t factors_per_worker = (factors.size() + num_workers - 1) / num_workers;
+    for (size_t i = 0; i < num_workers; ++i) {
+        ThreadsStruct &worker = partial[i];
         worker.sub_factors.clear();
+        if (worker.sub_factors.capacity() < factors_per_worker)
+            worker.sub_factors.reserve(factors_per_worker);
         worker.A.setZero(pos, pos);
         worker.b.setZero(pos);
         worker.parameter_block_size = &parameter_block_size;
         worker.parameter_block_idx = &parameter_block_idx;
     }
+
     size_t worker = 0;
     for (auto *factor : factors) {
         partial[worker].sub_factors.push_back(factor);
-        worker = (worker + 1) % NUM_THREADS;
+        worker = (worker + 1) % num_workers;
     }
-    workspace.pool.run([&](size_t index) { constructNormalEquations(&partial[index]); });
-    for (int i = NUM_THREADS - 1; i >= 0; --i) {
+
+    if (num_threads == 1) {
+        constructNormalEquations(&partial[0]);
+    } else {
+        workspace.pool->run([&](size_t index) { constructNormalEquations(&partial[index]); });
+    }
+
+    for (size_t i = num_workers; i-- > 0;) {
         A += partial[i].A;
         b += partial[i].b;
         partial[i].sub_factors.clear();

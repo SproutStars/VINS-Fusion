@@ -9,8 +9,26 @@
 
 #include <vins_common/ros_utils.hpp>
 
+#include <array>
+#include <cstddef>
+#include <cstring>
+#include <set>
+
 #include "estimator.h"
+#include "solver_timeout.h"
 #include "../utility/visualization.h"
+
+namespace
+{
+struct CeresParameterSnapshot
+{
+    std::array<double, (WINDOW_SIZE + 1) * SIZE_POSE> pose;
+    std::array<double, (WINDOW_SIZE + 1) * SIZE_SPEEDBIAS> speed_bias;
+    std::array<double, NUM_OF_F * SIZE_FEATURE> feature;
+    std::array<double, 2 * SIZE_POSE> ex_pose;
+    std::array<double, 1> td;
+};
+}
 
 Estimator::Estimator(): f_manager{Rs}
 {
@@ -90,8 +108,70 @@ void Estimator::clearState()
     f_manager.clearState();
 
     failure_occur = 0;
+    restart_requested_ = false;
+    suppress_state_publication_ = false;
 
     mProcess.unlock();
+}
+
+bool Estimator::restartAfterSolverFailure()
+{
+    if (!restart_requested_)
+        return false;
+
+    restart_requested_ = false;
+    RCLCPP_WARN(vins::logger(),
+        "Resetting estimator state after solver failure; current-frame observations and IMU "
+        "preintegration inputs were already consumed, so the next frame starts a clean "
+        "initialization instead of extending a stale image-frame history");
+    clearState();
+    setParameter();
+    return true;
+}
+
+bool Estimator::runOptimization()
+{
+    return optimization();
+}
+
+void Estimator::maintainInitializationHistoryAfterFailure()
+{
+    slideWindow();
+
+    // MARGIN_SECOND_NEW does not evict all_image_frame entries, and a
+    // MARGIN_OLD slide can leave the discarded oldest frame behind. Keep only
+    // headers that belong to the active window so the next initialization pass
+    // cannot index pose/velocity arrays using stale image frames.
+    trimInitializationHistoryToActiveWindow();
+
+    const size_t max_history = static_cast<size_t>(frame_count + 1);
+    if (all_image_frame.size() > max_history)
+    {
+        RCLCPP_WARN(vins::logger(),
+            "Initialization image history still has %zu frames after trimming (limit %zu); "
+            "scheduling a controlled estimator reset",
+            all_image_frame.size(), max_history);
+        scheduleControlledRestart();
+    }
+}
+
+void Estimator::trimInitializationHistoryToActiveWindow()
+{
+    std::set<double> active_headers;
+    for (int i = 0; i <= frame_count; ++i)
+        active_headers.insert(Headers[i]);
+
+    for (auto frame_it = all_image_frame.begin(); frame_it != all_image_frame.end();)
+    {
+        auto next_it = std::next(frame_it);
+        if (active_headers.find(frame_it->first) == active_headers.end())
+        {
+            delete frame_it->second.pre_integration;
+            frame_it->second.pre_integration = nullptr;
+            all_image_frame.erase(frame_it);
+        }
+        frame_it = next_it;
+    }
 }
 
 void Estimator::setParameter()
@@ -291,20 +371,42 @@ void Estimator::processMeasurements()
                 processIMU(accVector[i].first, dt, accVector[i].second, gyrVector[i].second);
             }
         }
-        std::lock_guard<std::mutex> lock(mProcess);
-        processImage(feature.second, feature.first);
-        prevTime = curTime;
-        printStatistics(*this, process_time.toc());
-        std_msgs::msg::Header header;
-        header.frame_id = "world";
-        header.stamp = vins::stamp(feature.first);
-        if (!rclcpp::ok()) return;
-        pubOdometry(*this, header);
-        pubKeyPoses(*this, header);
-        pubCameraPose(*this, header);
-        pubPointCloud(*this, header);
-        pubKeyframe(*this);
-        pubTF(*this, header);
+        bool restart_after_failure = false;
+        bool suppress_publication = false;
+        {
+            std::lock_guard<std::mutex> lock(mProcess);
+            processImage(feature.second, feature.first);
+            restart_after_failure = restart_requested_;
+            suppress_publication = suppress_state_publication_;
+            if (!restart_after_failure)
+            {
+                // Frame inputs were consumed even when the solve failed, so the
+                // IMU timeline must still advance on a retryable failure.
+                prevTime = curTime;
+            }
+            if (!restart_after_failure && !suppress_publication)
+            {
+                printStatistics(*this, process_time.toc());
+                std_msgs::msg::Header header;
+                header.frame_id = "world";
+                header.stamp = vins::stamp(feature.first);
+                if (!rclcpp::ok()) return;
+                pubOdometry(*this, header);
+                pubKeyPoses(*this, header);
+                pubCameraPose(*this, header);
+                pubPointCloud(*this, header);
+                pubKeyframe(*this);
+                pubTF(*this, header);
+            }
+        }
+        if (restart_after_failure)
+        {
+            // clearState()/setParameter() lock mProcess themselves, so the
+            // reset must happen after releasing the processImage lock.
+            restartAfterSolverFailure();
+            if (!MULTIPLE_THREAD) break;
+            continue;
+        }
         if (!MULTIPLE_THREAD) break;
     }
 }
@@ -380,6 +482,30 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 {
     RCLCPP_DEBUG(vins::logger(), "new image coming ------------------------------------------");
     RCLCPP_DEBUG(vins::logger(), "Adding feature points %lu", image.size());
+    suppress_state_publication_ = false;
+    const auto log_initialization_failure = [this](const char *stage)
+    {
+        suppress_state_publication_ = true;
+        RCLCPP_WARN(vins::logger(),
+            "Solver failed during %s; Ceres parameter blocks were rolled back, and "
+            "double2vector, outlier rejection and state publication were skipped. The "
+            "marginalization prior was not replaced. The initialization window is slid to keep "
+            "the image-frame history bounded before the next retry; current-frame "
+            "feature/image/IMU inputs were already advanced and are not rollback-capable",
+            stage);
+    };
+    const auto log_odometry_failure = [this](const char *stage)
+    {
+        suppress_state_publication_ = true;
+        RCLCPP_WARN(vins::logger(),
+            "Solver failed during %s; Ceres parameter blocks were rolled back, and "
+            "double2vector, outlier rejection, state publication and window sliding were skipped. "
+            "The marginalization prior was not replaced. Current-frame feature/image/IMU inputs "
+            "were already advanced and are not rollback-capable, so a controlled estimator reset "
+            "is scheduled before the next frame",
+            stage);
+        scheduleControlledRestart();
+    };
     if (f_manager.addFeatureCheckParallax(frame_count, image, td))
     {
         marginalization_flag = MARGIN_OLD;
@@ -396,6 +522,12 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     RCLCPP_DEBUG(vins::logger(), "number of feature: %d", f_manager.getFeatureCount());
     Headers[frame_count] = header;
 
+    // These frame-level inputs are consumed before the solver runs. They are
+    // intentionally not part of the solver rollback: a failed solve may leave
+    // the current feature/image/IMU observations advanced, but it must not
+    // replace the marginalization prior. INITIAL retries still apply the
+    // window-maintenance slide below so all_image_frame stays bounded;
+    // NON_LINEAR failures skip sliding and request a controlled reset.
     ImageFrame imageframe(image, header);
     imageframe.pre_integration = tmp_pre_integration;
     all_image_frame.insert(make_pair(header, imageframe));
@@ -434,11 +566,27 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 }
                 if(result)
                 {
-                    optimization();
+                    if (!runOptimization())
+                    {
+                        log_initialization_failure("monocular IMU initialization");
+                        maintainInitializationHistoryAfterFailure();
+                        return;
+                    }
                     updateLatestStates();
                     solver_flag = NON_LINEAR;
                     slideWindow();
                     RCLCPP_INFO(vins::logger(), "Initialization finish!");
+                }
+                else if (restart_requested_)
+                {
+                    // initialStructure() already found an inconsistent history.
+                    // Do not touch the window again; processMeasurements() will
+                    // perform the controlled reset after releasing mProcess.
+                    suppress_state_publication_ = true;
+                    RCLCPP_WARN(vins::logger(),
+                        "Initialization requested a controlled reset; skipping window sliding "
+                        "for the current frame");
+                    return;
                 }
                 else
                     slideWindow();
@@ -452,10 +600,30 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
             if (frame_count == WINDOW_SIZE)
             {
+                if (all_image_frame.size() != static_cast<size_t>(frame_count + 1))
+                {
+                    suppress_state_publication_ = true;
+                    RCLCPP_WARN(vins::logger(),
+                        "Stereo IMU initialization image history has %zu frames for an active "
+                        "window of %d; scheduling a controlled estimator reset",
+                        all_image_frame.size(), frame_count + 1);
+                    scheduleControlledRestart();
+                    return;
+                }
                 map<double, ImageFrame>::iterator frame_it;
                 int i = 0;
                 for (frame_it = all_image_frame.begin(); frame_it != all_image_frame.end(); frame_it++)
                 {
+                    if (i > frame_count ||
+                        (i > 0 && frame_it->second.pre_integration == nullptr))
+                    {
+                        suppress_state_publication_ = true;
+                        RCLCPP_WARN(vins::logger(),
+                            "Stereo IMU initialization has an invalid image frame at window "
+                            "index %d; scheduling a controlled estimator reset", i);
+                        scheduleControlledRestart();
+                        return;
+                    }
                     frame_it->second.R = Rs[i];
                     frame_it->second.T = Ps[i];
                     i++;
@@ -465,7 +633,12 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 {
                     pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]);
                 }
-                optimization();
+                if (!runOptimization())
+                {
+                    log_initialization_failure("stereo IMU initialization");
+                    maintainInitializationHistoryAfterFailure();
+                    return;
+                }
                 updateLatestStates();
                 solver_flag = NON_LINEAR;
                 slideWindow();
@@ -478,11 +651,23 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         {
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
             f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
-            optimization();
+            const bool initial_solve_ok = runOptimization();
+            if (!initial_solve_ok)
+                log_initialization_failure("stereo-only initialization");
 
             if(frame_count == WINDOW_SIZE)
             {
-                optimization();
+                if (!initial_solve_ok)
+                {
+                    maintainInitializationHistoryAfterFailure();
+                    return;
+                }
+                if (!runOptimization())
+                {
+                    log_initialization_failure("stereo-only initialization refinement");
+                    maintainInitializationHistoryAfterFailure();
+                    return;
+                }
                 updateLatestStates();
                 solver_flag = NON_LINEAR;
                 slideWindow();
@@ -508,7 +693,11 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         if(!USE_IMU)
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
         f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
-        optimization();
+        if (!runOptimization())
+        {
+            log_odometry_failure("nonlinear odometry");
+            return;
+        }
         set<int> removeIndex;
         outliersRejection(removeIndex);
         f_manager.removeOutlier(removeIndex);
@@ -522,11 +711,11 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
         if (failureDetection())
         {
-            RCLCPP_WARN(vins::logger(), "failure detection!");
+            suppress_state_publication_ = true;
+            RCLCPP_WARN(vins::logger(),
+                "Failure detection triggered; scheduling a controlled estimator reset");
             failure_occur = 1;
-            clearState();
-            setParameter();
-            RCLCPP_WARN(vins::logger(), "system reboot!");
+            scheduleControlledRestart();
             return;
         }
 
@@ -548,6 +737,15 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
+    if (frame_count < 0 || frame_count > WINDOW_SIZE || all_image_frame.empty())
+    {
+        RCLCPP_WARN(vins::logger(),
+            "Initialization has an invalid frame history (frame_count=%d, image_frames=%zu); "
+            "scheduling a controlled estimator reset",
+            frame_count, all_image_frame.size());
+        scheduleControlledRestart();
+        return false;
+    }
     //check imu observibility
     {
         map<double, ImageFrame>::iterator frame_it;
@@ -619,6 +817,15 @@ bool Estimator::initialStructure()
     frame_it = all_image_frame.begin( );
     for (int i = 0; frame_it != all_image_frame.end( ); frame_it++)
     {
+        if (i > frame_count)
+        {
+            RCLCPP_WARN(vins::logger(),
+                "Initialization image history has frames beyond the active window "
+                "(index=%d, frame_count=%d); scheduling a controlled estimator reset",
+                i, frame_count);
+            scheduleControlledRestart();
+            return false;
+        }
         // provide initial guess
         cv::Mat r, rvec, t, D, tmp_r;
         if((frame_it->first) == Headers[i])
@@ -632,6 +839,14 @@ bool Estimator::initialStructure()
         if((frame_it->first) > Headers[i])
         {
             i++;
+            if (i > frame_count)
+            {
+                RCLCPP_WARN(vins::logger(),
+                    "Initialization frame timestamps do not match the active window; "
+                    "scheduling a controlled estimator reset");
+                scheduleControlledRestart();
+                return false;
+            }
         }
         Matrix3d R_inital = (Q[i].inverse()).toRotationMatrix();
         Vector3d P_inital = - R_inital * T[i];
@@ -703,14 +918,30 @@ bool Estimator::visualInitialAlign()
         return false;
     }
 
+    // Old image frames can outlive the active window when initialization was
+    // retried. Clear stale keyframe flags first so the velocity slot below can
+    // never be indexed past the active window.
+    for (auto &frame_entry : all_image_frame)
+        frame_entry.second.is_key_frame = false;
+
     // change state
     for (int i = 0; i <= frame_count; i++)
     {
-        Matrix3d Ri = all_image_frame[Headers[i]].R;
-        Vector3d Pi = all_image_frame[Headers[i]].T;
+        auto frame_entry = all_image_frame.find(Headers[i]);
+        if (frame_entry == all_image_frame.end())
+        {
+            RCLCPP_WARN(vins::logger(),
+                "Initialization window header %d is missing from all_image_frame; "
+                "scheduling a controlled estimator reset",
+                i);
+            scheduleControlledRestart();
+            return false;
+        }
+        Matrix3d Ri = frame_entry->second.R;
+        Vector3d Pi = frame_entry->second.T;
         Ps[i] = Pi;
         Rs[i] = Ri;
-        all_image_frame[Headers[i]].is_key_frame = true;
+        frame_entry->second.is_key_frame = true;
     }
 
     double s = (x.tail<1>())(0);
@@ -727,8 +958,26 @@ bool Estimator::visualInitialAlign()
         if(frame_i->second.is_key_frame)
         {
             kv++;
+            if (kv > frame_count || kv > WINDOW_SIZE)
+            {
+                RCLCPP_WARN(vins::logger(),
+                    "Initialization velocity index %d exceeds the active window (frame_count=%d); "
+                    "scheduling a controlled estimator reset",
+                    kv, frame_count);
+                scheduleControlledRestart();
+                return false;
+            }
             Vs[kv] = frame_i->second.R * x.segment<3>(kv * 3);
         }
+    }
+    if (kv != frame_count)
+    {
+        RCLCPP_WARN(vins::logger(),
+            "Initialization found %d keyframes for %d active frames; scheduling a controlled "
+            "estimator reset",
+            kv + 1, frame_count + 1);
+        scheduleControlledRestart();
+        return false;
     }
 
     Matrix3d R0 = Utility::g2R(g);
@@ -969,11 +1218,61 @@ bool Estimator::failureDetection()
     return false;
 }
 
-void Estimator::optimization()
+bool Estimator::optimization()
 {
     TicToc t_whole, t_prepare;
-    vector2double();
+    const bool stage_timing_enabled = STAGE_TIMING;
+    TicToc stage_timer;
+    double stage_vector2double_ms = 0.0;
+    double stage_problem_ms = 0.0;
+    double stage_solve_ms = 0.0;
+    double stage_double2vector_ms = 0.0;
+    double stage_marginalization_ms = 0.0;
+    static double stage_vector2double_total_ms = 0.0;
+    static double stage_problem_total_ms = 0.0;
+    static double stage_solve_total_ms = 0.0;
+    static double stage_double2vector_total_ms = 0.0;
+    static double stage_marginalization_total_ms = 0.0;
+    static std::size_t stage_timing_samples = 0;
+    auto finish_stage_timing = [&]()
+    {
+        if (!stage_timing_enabled)
+            return;
+        stage_vector2double_total_ms += stage_vector2double_ms;
+        stage_problem_total_ms += stage_problem_ms;
+        stage_solve_total_ms += stage_solve_ms;
+        stage_double2vector_total_ms += stage_double2vector_ms;
+        stage_marginalization_total_ms += stage_marginalization_ms;
+        ++stage_timing_samples;
+        if (stage_timing_samples >= static_cast<std::size_t>(STAGE_TIMING_INTERVAL))
+        {
+            const double samples = static_cast<double>(stage_timing_samples);
+            RCLCPP_INFO(vins::logger(),
+                "optimization stage timing (%zu samples): vector2double=%.3f ms, problem=%.3f ms, "
+                "solve=%.3f ms, double2vector=%.3f ms, marginalization=%.3f ms",
+                stage_timing_samples,
+                stage_vector2double_total_ms / samples,
+                stage_problem_total_ms / samples,
+                stage_solve_total_ms / samples,
+                stage_double2vector_total_ms / samples,
+                stage_marginalization_total_ms / samples);
+            stage_vector2double_total_ms = 0.0;
+            stage_problem_total_ms = 0.0;
+            stage_solve_total_ms = 0.0;
+            stage_double2vector_total_ms = 0.0;
+            stage_marginalization_total_ms = 0.0;
+            stage_timing_samples = 0;
+        }
+    };
 
+    if (stage_timing_enabled)
+        stage_timer.tic();
+    vector2double();
+    if (stage_timing_enabled)
+        stage_vector2double_ms = stage_timer.toc();
+
+    if (stage_timing_enabled)
+        stage_timer.tic();
     ceres::Problem problem;
     ceres::LossFunction *loss_function;
     //loss_function = NULL;
@@ -990,20 +1289,14 @@ void Estimator::optimization()
     if(!USE_IMU)
         problem.SetParameterBlockConstant(para_Pose[0]);
 
+    const bool estimate_ex_pose =
+        (ESTIMATE_EXTRINSIC && frame_count == WINDOW_SIZE && Vs[0].norm() > 0.2) || openExEstimation;
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::Manifold *local_parameterization = new PoseManifold();
         problem.AddParameterBlock(para_Ex_Pose[i], SIZE_POSE, local_parameterization);
-        if ((ESTIMATE_EXTRINSIC && frame_count == WINDOW_SIZE && Vs[0].norm() > 0.2) || openExEstimation)
-        {
-            //RCLCPP_INFO(vins::logger(), "estimate extinsic param");
-            openExEstimation = 1;
-        }
-        else
-        {
-            //RCLCPP_INFO(vins::logger(), "fix extinsic param");
+        if (!estimate_ex_pose)
             problem.SetParameterBlockConstant(para_Ex_Pose[i]);
-        }
     }
     problem.AddParameterBlock(para_Td[0], 1);
 
@@ -1077,6 +1370,37 @@ void Estimator::optimization()
 
     RCLCPP_DEBUG(vins::logger(), "visual measurement count: %d", f_m_cnt);
     //printf("prepare for ceres: %f \n", t_prepare.toc());
+    if (stage_timing_enabled)
+        stage_problem_ms = stage_timer.toc();
+
+    const bool transactional_solver = (SOLVER_TIMEOUT_POLICY != "warn");
+    CeresParameterSnapshot parameter_snapshot{};
+    std::memcpy(parameter_snapshot.pose.data(), para_Pose, sizeof(para_Pose));
+    std::memcpy(parameter_snapshot.speed_bias.data(), para_SpeedBias, sizeof(para_SpeedBias));
+    std::memcpy(parameter_snapshot.feature.data(), para_Feature, sizeof(para_Feature));
+    std::memcpy(parameter_snapshot.ex_pose.data(), para_Ex_Pose, sizeof(para_Ex_Pose));
+    std::memcpy(parameter_snapshot.td.data(), para_Td, sizeof(para_Td));
+    auto restore_parameter_snapshot = [&]()
+    {
+        std::memcpy(para_Pose, parameter_snapshot.pose.data(), sizeof(para_Pose));
+        std::memcpy(para_SpeedBias, parameter_snapshot.speed_bias.data(), sizeof(para_SpeedBias));
+        std::memcpy(para_Feature, parameter_snapshot.feature.data(), sizeof(para_Feature));
+        std::memcpy(para_Ex_Pose, parameter_snapshot.ex_pose.data(), sizeof(para_Ex_Pose));
+        std::memcpy(para_Td, parameter_snapshot.td.data(), sizeof(para_Td));
+    };
+    static std::size_t timeout_count = 0;
+    static std::size_t retry_attempt_count = 0;
+    static std::size_t retry_success_count = 0;
+    static std::size_t revert_count = 0;
+    bool reverted = false;
+    auto rollback_parameters = [&]()
+    {
+        if (reverted)
+            return;
+        restore_parameter_snapshot();
+        reverted = true;
+        ++revert_count;
+    };
 
     ceres::Solver::Options options;
 
@@ -1091,27 +1415,147 @@ void Estimator::optimization()
         options.max_solver_time_in_seconds = SOLVER_TIME * 4.0 / 5.0;
     else
         options.max_solver_time_in_seconds = SOLVER_TIME;
+    const double first_solver_budget = options.max_solver_time_in_seconds;
     TicToc t_solver;
     ceres::Solver::Summary summary;
+    if (stage_timing_enabled)
+        stage_timer.tic();
     ceres::Solve(options, &problem, &summary);
-    // Ceres 2.2 reports the wall-clock limit as NO_CONVERGENCE with this message.
-    if (summary.message.find("Maximum solver time reached") != std::string::npos) {
-        static rclcpp::Clock throttle_clock(RCL_STEADY_TIME);
-        RCLCPP_WARN_THROTTLE(vins::logger(), throttle_clock, 5000,
-            "Ceres hit max_solver_time=%.0f ms after %zu iterations; the truncated "
-            "solution is still used and can bias the marginalization prior",
-            options.max_solver_time_in_seconds * 1000.0, summary.iterations.size());
+    if (stage_timing_enabled)
+        stage_solve_ms += stage_timer.toc();
+    const double first_solver_elapsed_s = t_solver.toc() / 1000.0;
+
+    const bool timed_out = vins::solverTimedOut(summary, first_solver_elapsed_s, first_solver_budget);
+    bool solved = summary.IsSolutionUsable();
+
+    if (timed_out)
+    {
+        ++timeout_count;
+
+        if (!transactional_solver)
+        {
+            static rclcpp::Clock throttle_clock(RCL_STEADY_TIME);
+            if (solved)
+            {
+                RCLCPP_WARN_THROTTLE(vins::logger(), throttle_clock, 5000,
+                    "Ceres hit max_solver_time=%.0f ms after %.1f ms and %zu iterations "
+                    "(policy=warn); accepting the truncated but usable solution, which can bias "
+                    "the marginalization prior",
+                    first_solver_budget * 1000.0, first_solver_elapsed_s * 1000.0,
+                    summary.iterations.size());
+            }
+            else
+            {
+                RCLCPP_WARN_THROTTLE(vins::logger(), throttle_clock, 5000,
+                    "Ceres hit max_solver_time=%.0f ms after %.1f ms and %zu iterations "
+                    "(policy=warn); the solution is unusable and will be rolled back",
+                    first_solver_budget * 1000.0, first_solver_elapsed_s * 1000.0,
+                    summary.iterations.size());
+            }
+        }
+        else if (SOLVER_TIMEOUT_POLICY == "retry")
+        {
+            ++retry_attempt_count;
+            restore_parameter_snapshot();
+
+            const double retry_solver_budget = first_solver_budget * SOLVER_TIMEOUT_RETRY_MULTIPLIER;
+            options.max_solver_time_in_seconds = retry_solver_budget;
+            ceres::Solver::Summary retry_summary;
+            TicToc retry_solver_timer;
+            if (stage_timing_enabled)
+                stage_timer.tic();
+            ceres::Solve(options, &problem, &retry_summary);
+            if (stage_timing_enabled)
+                stage_solve_ms += stage_timer.toc();
+            const double retry_solver_elapsed_s = retry_solver_timer.toc() / 1000.0;
+
+            const bool retry_timed_out =
+                vins::solverTimedOut(retry_summary, retry_solver_elapsed_s, retry_solver_budget);
+            solved = !retry_timed_out && retry_summary.IsSolutionUsable();
+            if (solved)
+            {
+                ++retry_success_count;
+            }
+            else
+            {
+                rollback_parameters();
+            }
+
+            RCLCPP_WARN(vins::logger(),
+                "Ceres timeout (policy=retry): first solve hit max_solver_time=%.0f ms after "
+                "%.1f ms and %zu iterations; retry with %.0f ms %s after %.1f ms and %zu "
+                "iterations; solver parameter rollback=%s",
+                first_solver_budget * 1000.0, first_solver_elapsed_s * 1000.0,
+                summary.iterations.size(), retry_solver_budget * 1000.0,
+                solved ? "succeeded" : "failed", retry_solver_elapsed_s * 1000.0,
+                retry_summary.iterations.size(), reverted ? "true" : "false");
+        }
+        else
+        {
+            rollback_parameters();
+            solved = false;
+            RCLCPP_WARN(vins::logger(),
+                "Ceres timeout (policy=%s): hit max_solver_time=%.0f ms after %.1f ms and "
+                "%zu iterations; retry_attempted=false, solver parameter rollback=true. "
+                "Marginalization prior and sliding window remain unchanged; current-frame "
+                "feature/image/IMU inputs were already advanced and are not rolled back",
+                SOLVER_TIMEOUT_POLICY.c_str(), first_solver_budget * 1000.0,
+                first_solver_elapsed_s * 1000.0, summary.iterations.size());
+        }
+
+        if (timeout_count % 100 == 0)
+        {
+            RCLCPP_INFO(vins::logger(),
+                "Ceres timeout cumulative summary (policy=%s): timeouts=%zu retry_attempts=%zu "
+                "retry_successes=%zu reverts=%zu",
+                SOLVER_TIMEOUT_POLICY.c_str(), timeout_count, retry_attempt_count,
+                retry_success_count, revert_count);
+        }
     }
+    else if (!solved)
+    {
+        rollback_parameters();
+        RCLCPP_WARN(vins::logger(),
+            "Ceres solution unusable (policy=%s) after %.1f ms and %zu iterations with "
+            "max_solver_time=%.0f ms; solver parameter rollback=true. Marginalization prior "
+            "and sliding window remain unchanged; current-frame feature/image/IMU inputs "
+            "were already advanced and are not rolled back",
+            SOLVER_TIMEOUT_POLICY.c_str(), first_solver_elapsed_s * 1000.0,
+            summary.iterations.size(), first_solver_budget * 1000.0);
+    }
+
     //cout << summary.BriefReport() << endl;
     RCLCPP_DEBUG(vins::logger(), "Iterations : %d", static_cast<int>(summary.iterations.size()));
     //printf("solver costs: %f \n", t_solver.toc());
 
+    if (!solved)
+    {
+        rollback_parameters();
+        RCLCPP_WARN(vins::logger(),
+            "Optimization failed: reverted solver parameter blocks only; marginalization prior "
+            "and sliding window were not advanced, and no state will be published. Current-frame "
+            "feature/image/IMU inputs were already advanced and are not part of this rollback");
+        finish_stage_timing();
+        return false;
+    }
+
+    if (stage_timing_enabled)
+        stage_timer.tic();
     double2vector();
+    if (stage_timing_enabled)
+        stage_double2vector_ms = stage_timer.toc();
+    if (estimate_ex_pose)
+        openExEstimation = 1;
     //printf("frame_count: %d \n", frame_count);
 
     if(frame_count < WINDOW_SIZE)
-        return;
-    
+    {
+        finish_stage_timing();
+        return true;
+    }
+
+    if (stage_timing_enabled)
+        stage_timer.tic();
     TicToc t_whole_marginalization;
     if (marginalization_flag == MARGIN_OLD)
     {
@@ -1298,8 +1742,12 @@ void Estimator::optimization()
             
         }
     }
+    if (stage_timing_enabled)
+        stage_marginalization_ms = stage_timer.toc();
+    finish_stage_timing();
     //printf("whole marginalization costs: %f \n", t_whole_marginalization.toc());
     //printf("whole time for ceres: %f \n", t_whole.toc());
+    return true;
 }
 
 void Estimator::slideWindow()
@@ -1312,6 +1760,14 @@ void Estimator::slideWindow()
         back_P0 = Ps[0];
         if (frame_count == WINDOW_SIZE)
         {
+            if (all_image_frame.find(t_0) == all_image_frame.end())
+            {
+                RCLCPP_WARN(vins::logger(),
+                    "Cannot slide initialization window because oldest header %.9f is missing "
+                    "from all_image_frame; scheduling a controlled estimator reset", t_0);
+                scheduleControlledRestart();
+                return;
+            }
             for (int i = 0; i < WINDOW_SIZE; i++)
             {
                 Headers[i] = Headers[i + 1];
@@ -1350,10 +1806,14 @@ void Estimator::slideWindow()
 
             if (true || solver_flag == INITIAL)
             {
-                map<double, ImageFrame>::iterator it_0;
-                it_0 = all_image_frame.find(t_0);
-                delete it_0->second.pre_integration;
-                all_image_frame.erase(all_image_frame.begin(), it_0);
+                auto it_0 = all_image_frame.find(t_0);
+                auto erase_end = std::next(it_0);
+                for (auto frame_it = all_image_frame.begin(); frame_it != erase_end; ++frame_it)
+                {
+                    delete frame_it->second.pre_integration;
+                    frame_it->second.pre_integration = nullptr;
+                }
+                all_image_frame.erase(all_image_frame.begin(), erase_end);
             }
             slideWindowOld();
         }

@@ -11,7 +11,60 @@
 
 #include <vins_common/ros_utils.hpp>
 
+#include <algorithm>
+#include <cmath>
+
 #include "feature_tracker.h"
+
+namespace
+{
+constexpr int kKltWinSize = 21;
+constexpr int kKltMaxLevel = 3;
+
+cv::TermCriteria kltTermCriteria()
+{
+    return cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.01);
+}
+
+void buildFlowPyramid(const cv::Mat &img, vector<cv::Mat> &pyramid,
+                      bool with_derivatives)
+{
+    pyramid.clear();
+    if (img.empty())
+        return;
+    // The cache must own its pixels: callers may recycle the input frame as
+    // soon as trackImage() returns. Reusing the input ROI would make level 0
+    // alias a later image while the upper levels still describe the old frame.
+    //
+    // GFTT deliberately uses image-only pyramids. Retaining the four
+    // interleaved CV_16SC2 derivative buffers changes the process heap layout:
+    // goodFeaturesToTrack() allocates 752x480 CV_32F temporaries at the heap
+    // top, which glibc then trims back on every call (M_TRIM_THRESHOLD),
+    // turning a ~1.75 ms detection into ~4.45 ms. calcOpticalFlowPyrLK()
+    // accepts image-only pyramids and computes derivatives internally, so the
+    // GFTT path keeps pyramid reuse without that allocator pathology.
+    cv::buildOpticalFlowPyramid(img, pyramid, cv::Size(kKltWinSize, kKltWinSize),
+                                kKltMaxLevel, with_derivatives,
+                                cv::BORDER_REFLECT_101, cv::BORDER_CONSTANT, false);
+}
+
+void calcFlow(const vector<cv::Mat> &prev_pyr, const vector<cv::Mat> &cur_pyr,
+              const vector<cv::Point2f> &prev_pts, vector<cv::Point2f> &cur_pts,
+              vector<uchar> &status, vector<float> &err, int max_level,
+              int flags = 0)
+{
+    cv::calcOpticalFlowPyrLK(prev_pyr, cur_pyr, prev_pts, cur_pts, status, err,
+                             cv::Size(kKltWinSize, kKltWinSize), max_level,
+                             kltTermCriteria(), flags);
+}
+
+float pointDistanceSquared(const cv::Point2f &a, const cv::Point2f &b)
+{
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    return dx * dx + dy * dy;
+}
+}  // namespace
 
 bool FeatureTracker::inBorder(const cv::Point2f &pt)
 {
@@ -52,6 +105,161 @@ FeatureTracker::FeatureTracker()
     stereo_cam = 0;
     n_id = 0;
     hasPrediction = false;
+}
+
+void FeatureTracker::detectFeatures(const cv::Mat &img, const cv::Mat &mask, int max_features,
+                                    vector<cv::Point2f> &points)
+{
+    points.clear();
+    if (max_features <= 0 || img.empty())
+        return;
+
+    if (FEATURE_DETECTOR == "fast_grid")
+        detectFastGridFeatures(img, mask, max_features, points);
+    else
+        cv::goodFeaturesToTrack(img, points, max_features, 0.01, MIN_DIST, mask);
+}
+
+void FeatureTracker::detectFastGridFeatures(const cv::Mat &img, const cv::Mat &mask, int max_features,
+                                            vector<cv::Point2f> &points)
+{
+    points.clear();
+    if (max_features <= 0 || img.empty() || img.channels() != 1)
+        return;
+
+    const int grid_x = std::max(1, std::min(GRID_X, img.cols));
+    const int grid_y = std::max(1, std::min(GRID_Y, img.rows));
+    const int grid_count = grid_x * grid_y;
+    if (grid_count <= 0)
+        return;
+
+    // VINS masks use 255 for allowed pixels and 0 for forbidden pixels,
+    // matching setMask(). This is the inverse of OpenVINS' Grider_GRID mask.
+    const auto mask_allows = [&mask](const cv::Point2f &pt) {
+        if (mask.empty())
+            return true;
+        const int x = cvRound(pt.x);
+        const int y = cvRound(pt.y);
+        return x >= 0 && y >= 0 && x < mask.cols && y < mask.rows &&
+               mask.at<uchar>(y, x) >= 128;
+    };
+    const auto response_desc = [](const cv::KeyPoint &a, const cv::KeyPoint &b) {
+        return a.response > b.response;
+    };
+
+    // Keep only the best candidates from each cell. This avoids sorting or
+    // refining every FAST corner in the image while still letting sparse
+    // cells be backfilled by their next-best candidates.
+    vector<vector<cv::KeyPoint>> candidates(grid_count);
+    for (int gy = 0; gy < grid_y; ++gy)
+    {
+        const int y0 = gy * img.rows / grid_y;
+        const int y1 = (gy + 1) * img.rows / grid_y;
+        for (int gx = 0; gx < grid_x; ++gx)
+        {
+            const int x0 = gx * img.cols / grid_x;
+            const int x1 = (gx + 1) * img.cols / grid_x;
+            // cv::FAST needs a 3-pixel border around a candidate.
+            if (x1 - x0 < 7 || y1 - y0 < 7)
+                continue;
+
+            const cv::Rect roi(x0, y0, x1 - x0, y1 - y0);
+            vector<cv::KeyPoint> cell_pts;
+            cv::FAST(img(roi), cell_pts, FAST_THRESHOLD, true);
+
+            vector<cv::KeyPoint> valid;
+            valid.reserve(cell_pts.size());
+            for (cv::KeyPoint &pt : cell_pts)
+            {
+                pt.pt.x += static_cast<float>(x0);
+                pt.pt.y += static_cast<float>(y0);
+                if (mask_allows(pt.pt))
+                    valid.push_back(pt);
+            }
+
+            const size_t keep = std::min(valid.size(), static_cast<size_t>(max_features));
+            if (keep > 0)
+            {
+                std::partial_sort(valid.begin(), valid.begin() + keep, valid.end(), response_desc);
+                valid.resize(keep);
+            }
+            candidates[gy * grid_x + gx] = std::move(valid);
+        }
+    }
+
+    // Draw one candidate from each cell per round. This distributes the
+    // requested features over the image before taking a second point from any
+    // already-covered cell.
+    vector<size_t> cursor(grid_count, 0);
+    vector<cv::Point2f> selected;
+    selected.reserve(max_features);
+    const float min_dist = static_cast<float>(MIN_DIST);
+    const float min_dist_sq = min_dist * min_dist;
+    while (static_cast<int>(selected.size()) < max_features)
+    {
+        bool advanced = false;
+        for (int cell = 0; cell < grid_count && static_cast<int>(selected.size()) < max_features; ++cell)
+        {
+            while (cursor[cell] < candidates[cell].size())
+            {
+                const cv::Point2f pt = candidates[cell][cursor[cell]++].pt;
+                advanced = true;
+
+                if (!mask_allows(pt))
+                    continue;
+                if (MIN_DIST > 0)
+                {
+                    bool too_close = false;
+                    for (const cv::Point2f &chosen : selected)
+                    {
+                        if (pointDistanceSquared(pt, chosen) < min_dist_sq)
+                        {
+                            too_close = true;
+                            break;
+                        }
+                    }
+                    if (too_close)
+                        continue;
+                }
+                selected.push_back(pt);
+                break;
+            }
+        }
+        if (!advanced)
+            break;
+    }
+
+    if (selected.empty())
+        return;
+
+    cv::cornerSubPix(img, selected, cv::Size(5, 5), cv::Size(-1, -1),
+                     cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 20, 0.001));
+
+    // Refinement can move a point across a mask boundary or closer to another
+    // point, so enforce both constraints once more on the final coordinates.
+    points.reserve(selected.size());
+    for (const cv::Point2f &pt : selected)
+    {
+        if (!mask_allows(pt))
+            continue;
+        if (MIN_DIST > 0)
+        {
+            bool too_close = false;
+            for (const cv::Point2f &chosen : points)
+            {
+                if (pointDistanceSquared(pt, chosen) < min_dist_sq)
+                {
+                    too_close = true;
+                    break;
+                }
+            }
+            if (too_close)
+                continue;
+        }
+        points.push_back(pt);
+        if (static_cast<int>(points.size()) >= max_features)
+            break;
+    }
 }
 
 void FeatureTracker::setMask()
@@ -112,6 +320,47 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             clahe->apply(rightImg, rightImg);
     }
     */
+    const bool same_image_geometry = !prev_img.empty() &&
+        prev_img.size() == cur_img.size() && prev_img.type() == cur_img.type();
+    if (!same_image_geometry)
+    {
+        prev_pts.clear();
+        ids.clear();
+        track_cnt.clear();
+        prev_un_pts.clear();
+        prev_un_pts_map.clear();
+        cur_un_pts_map.clear();
+        prev_un_right_pts_map.clear();
+        cur_un_right_pts_map.clear();
+        prev_pyr_.clear();
+    }
+
+    // FAST+grid does not call goodFeaturesToTrack(), so it can retain the
+    // faster derivative-augmented KLT pyramid. The default GFTT path uses an
+    // image-only pyramid to avoid the allocator regression documented above.
+    const bool with_derivatives = FEATURE_DETECTOR == "fast_grid";
+    const size_t expected_pyr_mats =
+        static_cast<size_t>(kKltMaxLevel + 1) * (with_derivatives ? 2u : 1u);
+    if (!prev_pyr_.empty() && prev_pyr_.size() != expected_pyr_mats)
+    {
+        // The detector (and therefore the cache layout) changed at runtime.
+        prev_pts.clear();
+        ids.clear();
+        track_cnt.clear();
+        prev_pyr_.clear();
+    }
+
+    vector<cv::Mat> cur_pyr;
+    buildFlowPyramid(cur_img, cur_pyr, with_derivatives);
+
+    // A missing previous pyramid is a cache-state failure rather than a cue to
+    // rebuild it from a possibly recycled caller buffer. Restart tracking.
+    if (prev_pts.size() > 0 && prev_pyr_.empty())
+    {
+        prev_pts.clear();
+        ids.clear();
+        track_cnt.clear();
+    }
     cur_pts.clear();
 
     if (prev_pts.size() > 0)
@@ -122,9 +371,9 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         if(hasPrediction)
         {
             cur_pts = predict_pts;
-            cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 1,
-            cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW);
-            
+            calcFlow(prev_pyr_, cur_pyr, prev_pts, cur_pts, status, err, 1,
+                     cv::OPTFLOW_USE_INITIAL_FLOW);
+
             int succ_num = 0;
             for (size_t i = 0; i < status.size(); i++)
             {
@@ -132,18 +381,17 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
                     succ_num++;
             }
             if (succ_num < 10)
-               cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 3);
+               calcFlow(prev_pyr_, cur_pyr, prev_pts, cur_pts, status, err, 3);
         }
         else
-            cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 3);
+            calcFlow(prev_pyr_, cur_pyr, prev_pts, cur_pts, status, err, 3);
         // reverse check
         if(FLOW_BACK)
         {
             vector<uchar> reverse_status;
             vector<cv::Point2f> reverse_pts = prev_pts;
-            cv::calcOpticalFlowPyrLK(cur_img, prev_img, cur_pts, reverse_pts, reverse_status, err, cv::Size(21, 21), 1,
-            cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW);
-            //cv::calcOpticalFlowPyrLK(cur_img, prev_img, cur_pts, reverse_pts, reverse_status, err, cv::Size(21, 21), 3);
+            calcFlow(cur_pyr, prev_pyr_, cur_pts, reverse_pts, reverse_status, err, 1,
+                     cv::OPTFLOW_USE_INITIAL_FLOW);
             for(size_t i = 0; i < status.size(); i++)
             {
                 if(status[i] && reverse_status[i] && distance(prev_pts[i], reverse_pts[i]) <= 0.5)
@@ -154,7 +402,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
                     status[i] = 0;
             }
         }
-        
+
         for (int i = 0; i < int(cur_pts.size()); i++)
             if (status[i] && !inBorder(cur_pts[i]))
                 status[i] = 0;
@@ -171,7 +419,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
 
     if (1)
     {
-        //rejectWithF();
+        if (RANSAC_OUTLIER_REJECTION) rejectWithF();
         RCLCPP_DEBUG(vins::logger(), "set mask begins");
         TicToc t_m;
         setMask();
@@ -179,14 +427,16 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
 
         RCLCPP_DEBUG(vins::logger(), "detect feature begins");
         TicToc t_t;
-        int n_max_cnt = MAX_CNT - static_cast<int>(cur_pts.size());
-        if (n_max_cnt > 0)
+        const int n_max_cnt = MAX_CNT - static_cast<int>(cur_pts.size());
+        const bool should_detect = n_max_cnt > 0 &&
+            n_max_cnt > DETECTION_MIN_FEATURE_RATIO * MAX_CNT;
+        if (should_detect)
         {
             if(mask.empty())
                 cout << "mask is empty " << endl;
             if (mask.type() != CV_8UC1)
                 cout << "mask type wrong " << endl;
-            cv::goodFeaturesToTrack(cur_img, n_pts, MAX_CNT - cur_pts.size(), 0.01, MIN_DIST, mask);
+            detectFeatures(cur_img, mask, n_max_cnt, n_pts);
         }
         else
             n_pts.clear();
@@ -213,16 +463,18 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         cur_un_right_pts_map.clear();
         if(!cur_pts.empty())
         {
+            vector<cv::Mat> right_pyr;
+            buildFlowPyramid(rightImg, right_pyr, with_derivatives);
             //printf("stereo image; track feature on right image\n");
             vector<cv::Point2f> reverseLeftPts;
             vector<uchar> status, statusRightLeft;
             vector<float> err;
             // cur left ---- cur right
-            cv::calcOpticalFlowPyrLK(cur_img, rightImg, cur_pts, cur_right_pts, status, err, cv::Size(21, 21), 3);
+            calcFlow(cur_pyr, right_pyr, cur_pts, cur_right_pts, status, err, 3);
             // reverse check cur right ---- cur left
             if(FLOW_BACK)
             {
-                cv::calcOpticalFlowPyrLK(rightImg, cur_img, cur_right_pts, reverseLeftPts, statusRightLeft, err, cv::Size(21, 21), 3);
+                calcFlow(right_pyr, cur_pyr, cur_right_pts, reverseLeftPts, statusRightLeft, err, 3);
                 for(size_t i = 0; i < status.size(); i++)
                 {
                     if(status[i] && statusRightLeft[i] && inBorder(cur_right_pts[i]) && distance(cur_pts[i], reverseLeftPts[i]) <= 0.5)
@@ -251,7 +503,10 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     if(SHOW_TRACK && draw_tracks)
         drawTrack(cur_img, rightImg, ids, cur_pts, cur_right_pts, prevLeftPtsMap);
 
+    // prev_img is retained as a geometry marker; the reusable pixel data and
+    // derivatives live in the owned pyramid (caller buffers may be recycled).
     prev_img = cur_img;
+    prev_pyr_.swap(cur_pyr);
     prev_pts = cur_pts;
     prev_un_pts = cur_un_pts;
     prev_un_pts_map.swap(cur_un_pts_map);
@@ -318,10 +573,21 @@ void FeatureTracker::rejectWithF()
 {
     if (cur_pts.size() >= 8)
     {
+        const size_t correspondence_count = cur_pts.size();
+        if (prev_pts.size() != correspondence_count || ids.size() != correspondence_count ||
+            track_cnt.size() != correspondence_count)
+        {
+            RCLCPP_WARN(vins::logger(),
+                        "Skipping FM RANSAC: inconsistent correspondence sizes "
+                        "cur=%zu prev=%zu ids=%zu track=%zu",
+                        cur_pts.size(), prev_pts.size(), ids.size(), track_cnt.size());
+            return;
+        }
+
         RCLCPP_DEBUG(vins::logger(), "FM ransac begins");
         TicToc t_f;
-        vector<cv::Point2f> un_cur_pts(cur_pts.size()), un_prev_pts(prev_pts.size());
-        for (unsigned int i = 0; i < cur_pts.size(); i++)
+        vector<cv::Point2f> un_cur_pts(correspondence_count), un_prev_pts(correspondence_count);
+        for (size_t i = 0; i < correspondence_count; i++)
         {
             Eigen::Vector3d tmp_p;
             m_camera[0]->liftProjective(Eigen::Vector2d(cur_pts[i].x, cur_pts[i].y), tmp_p);
@@ -336,11 +602,20 @@ void FeatureTracker::rejectWithF()
         }
 
         vector<uchar> status;
-        cv::findFundamentalMat(un_cur_pts, un_prev_pts, cv::FM_RANSAC, F_THRESHOLD, 0.99, status);
-        int size_a = cur_pts.size();
+        const cv::Mat fundamental =
+            cv::findFundamentalMat(un_cur_pts, un_prev_pts, cv::FM_RANSAC, F_THRESHOLD, 0.99, status);
+        if (fundamental.empty() || status.size() != correspondence_count)
+        {
+            RCLCPP_WARN(vins::logger(),
+                        "Skipping FM RANSAC: degenerate model (empty=%d) or status mismatch "
+                        "(%zu statuses for %zu correspondences)",
+                        fundamental.empty(), status.size(), correspondence_count);
+            return;
+        }
+
+        const int size_a = static_cast<int>(correspondence_count);
         reduceVector(prev_pts, status);
         reduceVector(cur_pts, status);
-        reduceVector(cur_un_pts, status);
         reduceVector(ids, status);
         reduceVector(track_cnt, status);
         RCLCPP_DEBUG(vins::logger(), "FM ransac: %d -> %lu: %f", size_a, cur_pts.size(), 1.0 * cur_pts.size() / size_a);

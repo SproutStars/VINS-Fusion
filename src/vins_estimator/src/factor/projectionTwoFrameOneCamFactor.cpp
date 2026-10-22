@@ -44,7 +44,6 @@ ProjectionTwoFrameOneCamFactor::ProjectionTwoFrameOneCamFactor(const Eigen::Vect
 
 bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
-    TicToc tic_toc;
     Eigen::Vector3d Pi(parameters[0][0], parameters[0][1], parameters[0][2]);
     Eigen::Quaterniond Qi(parameters[0][6], parameters[0][3], parameters[0][4], parameters[0][5]);
 
@@ -146,7 +145,6 @@ bool ProjectionTwoFrameOneCamFactor::Evaluate(double const *const *parameters, d
                           sqrt_info * velocity_j.head(2);
         }
     }
-    sum_t += tic_toc.toc();
 
     if (jacobians) {
         if (jacobians[0]) PoseManifold::liftJacobian(parameters[0], jacobians[0], 2);

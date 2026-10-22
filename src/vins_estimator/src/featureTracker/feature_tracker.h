@@ -39,6 +39,9 @@ public:
     FeatureTracker();
     map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> trackImage(double _cur_time, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat(), bool extract_features = true, bool draw_tracks = true);
     void setMask();
+    void detectFeatures(const cv::Mat &img, const cv::Mat &mask, int max_features,
+                        vector<cv::Point2f> &points);
+    const vector<cv::Mat> &previousPyramid() const { return prev_pyr_; }
     void readIntrinsicParameter(const vector<string> &calib_file);
     void showUndistortion(const string &name);
     void rejectWithF();
@@ -83,5 +86,9 @@ public:
     bool hasPrediction;
 
 private:
+    void detectFastGridFeatures(const cv::Mat &img, const cv::Mat &mask, int max_features,
+                                vector<cv::Point2f> &points);
+
     vector<pair<int, pair<cv::Point2f, int>>> mask_order_;
+    vector<cv::Mat> prev_pyr_;
 };

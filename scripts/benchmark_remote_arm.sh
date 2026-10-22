@@ -28,6 +28,7 @@ Options (environment variables with the same names are also accepted):
   --label NAME             Benchmark label; must be new
   --rate R                 Bag playback rate, default 1.0
   --repeats N              Benchmark repetitions, default 1
+  --duration S             Optional bag-time seconds; omit for full sequences
   --jobs N                 Build jobs, only 1 or 2; default 1
   --snapshot-name NAME     Binary snapshot under <output>/binaries
   --config PATH            Remote config YAML (default: EuRoC mono-IMU)
@@ -60,6 +61,7 @@ DATASETS=${DATASETS:-"V2_01_easy V2_02_medium V2_03_difficult"}
 LABEL=${LABEL:-current_head}
 RATE=${RATE:-1.0}
 REPEATS=${REPEATS:-1}
+DURATION=${DURATION:-}
 BUILD_JOBS=${BUILD_JOBS:-1}
 SNAPSHOT_NAME=${SNAPSHOT_NAME:-current_head_vins_node}
 CONFIG_PATH=${CONFIG:-}
@@ -85,6 +87,7 @@ while (( $# > 0 )); do
     --label) LABEL=$2; shift 2 ;;
     --rate) RATE=$2; shift 2 ;;
     --repeats) REPEATS=$2; shift 2 ;;
+    --duration) DURATION=$2; shift 2 ;;
     --jobs) BUILD_JOBS=$2; shift 2 ;;
     --snapshot-name) SNAPSHOT_NAME=$2; shift 2 ;;
     --config) CONFIG_PATH=$2; shift 2 ;;
@@ -104,6 +107,7 @@ case "$BUILD_JOBS" in 1|2) ;; *) die "BUILD_JOBS must be 1 or 2" ;; esac
 [[ "$ROS_DOMAIN_ID" =~ ^[0-9]+$ ]] || die "ROS_DOMAIN_ID must be an integer"
 [[ "$REPEATS" =~ ^[1-9][0-9]*$ ]] || die "REPEATS must be positive"
 [[ "$RATE" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "RATE must be positive"
+[[ -z "$DURATION" || "$DURATION" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "DURATION must be a positive number"
 [[ -n "$DATASETS" ]] || die "DATASETS must not be empty"
 [[ -n "$LABEL" && "$LABEL" != */* ]] || die "LABEL must be a non-empty path component"
 [[ -n "$SNAPSHOT_NAME" && "$SNAPSHOT_NAME" != */* ]] || die "SNAPSHOT_NAME must be a non-empty path component"
@@ -479,9 +483,10 @@ DATASETS=$6
 LABEL=$7
 RATE=$8
 REPEATS=$9
-SNAPSHOT=${10}
-CONFIG_ARG=${11}
-shift 11
+DURATION=${10}
+SNAPSHOT=${11}
+CONFIG_ARG=${12}
+shift 12
 ROS_PARAMETERS=("$@")
 SRC="$REPO/src/VINS-Fusion"
 EVID="$OUTPUT/evidence"
@@ -613,6 +618,9 @@ BENCH_CMD=(/usr/bin/python3 "$SRC/scripts/benchmark_euroc.py"
   --output "$OUTPUT/benchmark" --label "$LABEL"
   --datasets "${DATASET_ARRAY[@]}" --rate "$RATE" --repeats "$REPEATS"
   --domain-id "$DOMAIN")
+if [[ -n "$DURATION" ]]; then
+  BENCH_CMD+=(--duration "$DURATION")
+fi
 for parameter in "${ROS_PARAMETERS[@]}"; do
   BENCH_CMD+=(--parameter "$parameter")
 done
@@ -629,6 +637,7 @@ done
   echo "label=$LABEL"
   echo "rate=$RATE"
   echo "repeats=$REPEATS"
+  echo "duration=${DURATION:-full}"
   printf 'command='; printf '%q ' "${BENCH_CMD[@]}"; printf '\n'
 } | tee "$EVID/benchmark_provenance.txt"
 
@@ -648,7 +657,7 @@ PYTHONDONTWRITEBYTECODE=1 "${BENCH_CMD[@]}"
 echo "benchmark_completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 REMOTE
 )
-  remote_run "$script" "$REMOTE_REPO" "$REMOTE_OUTPUT" "$REMOTE_BAGS" "$BUILD_MODE" "$ROS_DOMAIN_ID" "$DATASETS" "$LABEL" "$RATE" "$REPEATS" "$SNAPSHOT_NAME" "$CONFIG_PATH" "${ROS_PARAMETERS[@]}"
+  remote_run "$script" "$REMOTE_REPO" "$REMOTE_OUTPUT" "$REMOTE_BAGS" "$BUILD_MODE" "$ROS_DOMAIN_ID" "$DATASETS" "$LABEL" "$RATE" "$REPEATS" "$DURATION" "$SNAPSHOT_NAME" "$CONFIG_PATH" "${ROS_PARAMETERS[@]}"
 }
 
 case "$STEP" in

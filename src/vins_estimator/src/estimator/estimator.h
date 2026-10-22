@@ -61,16 +61,26 @@ class Estimator
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header);
     void processMeasurements();
     void changeSensorType(int use_imu, int use_stereo);
+    // Solver entry point used by processImage(). Tests may override this to
+    // exercise failure/recovery paths without running a real Ceres solve.
+    virtual bool runOptimization();
+    bool restartPending() const { return restart_requested_; }
+    bool statePublicationSuppressed() const { return suppress_state_publication_; }
+    bool restartAfterSolverFailure();
+    void maintainInitializationHistoryAfterFailure();
+    void trimInitializationHistoryToActiveWindow();
 
     // internal
     void clearState();
-    bool initialStructure();
+    // Virtual so recovery tests can enter the real processImage() initialization
+    // branch without fabricating a full visual SFM problem.
+    virtual bool initialStructure();
     bool visualInitialAlign();
     bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);
     void slideWindow();
     void slideWindowNew();
     void slideWindowOld();
-    void optimization();
+    bool optimization();
     void vector2double();
     void double2vector();
     bool failureDetection();
@@ -182,4 +192,9 @@ class Estimator
 
     bool initFirstPoseFlag;
     bool initThreadFlag;
+
+  private:
+    void scheduleControlledRestart() { restart_requested_ = true; }
+    bool restart_requested_ = false;
+    bool suppress_state_publication_ = false;
 };

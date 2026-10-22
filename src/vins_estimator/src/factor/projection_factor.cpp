@@ -31,7 +31,6 @@ ProjectionFactor::ProjectionFactor(const Eigen::Vector3d &_pts_i, const Eigen::V
 
 bool ProjectionFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
-    TicToc tic_toc;
     Eigen::Vector3d Pi(parameters[0][0], parameters[0][1], parameters[0][2]);
     Eigen::Quaterniond Qi(parameters[0][6], parameters[0][3], parameters[0][4], parameters[0][5]);
 
@@ -126,7 +125,6 @@ bool ProjectionFactor::Evaluate(double const *const *parameters, double *residua
 #endif
         }
     }
-    sum_t += tic_toc.toc();
 
     if (jacobians) {
         if (jacobians[0]) PoseManifold::liftJacobian(parameters[0], jacobians[0], 2);

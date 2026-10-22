@@ -41,12 +41,22 @@ int USE_IMU;
 int MULTIPLE_THREAD;
 double BACKEND_FREQ = 10.0;
 int MAX_FEATURE_QUEUE = 10;
+int MARGINALIZATION_THREADS = 4;
+std::string SOLVER_TIMEOUT_POLICY = "warn";
+double SOLVER_TIMEOUT_RETRY_MULTIPLIER = 2.0;
+bool STAGE_TIMING = false;
+int STAGE_TIMING_INTERVAL = 100;
+int RANSAC_OUTLIER_REJECTION = 0;
 map<int, Eigen::Vector3d> pts_gt;
 std::string IMAGE0_TOPIC, IMAGE1_TOPIC;
 std::string FISHEYE_MASK;
 std::vector<std::string> CAM_NAMES;
 int MAX_CNT;
 int MIN_DIST;
+std::string FEATURE_DETECTOR;
+int FAST_THRESHOLD;
+int GRID_X, GRID_Y;
+double DETECTION_MIN_FEATURE_RATIO;
 double F_THRESHOLD;
 int SHOW_TRACK;
 int FLOW_BACK;
@@ -76,17 +86,60 @@ void readParameters(std::string config_file, const std::string &output_path)
     IMAGE1_TOPIC = config.getString("image1_topic");
     MAX_CNT = config.getInt("max_cnt");
     MIN_DIST = config.getInt("min_dist");
+    FEATURE_DETECTOR = config.getString("feature_detector", "gftt");
+    FAST_THRESHOLD = config.getInt("fast_threshold", 20);
+    GRID_X = config.getInt("grid_x", 5);
+    GRID_Y = config.getInt("grid_y", 5);
+    DETECTION_MIN_FEATURE_RATIO = config.getDouble("detection_min_feature_ratio", 0.0);
     F_THRESHOLD = config.getDouble("F_threshold");
     SHOW_TRACK = config.getInt("show_track");
     FLOW_BACK = config.getInt("flow_back");
-    RCLCPP_INFO(vins::logger(), "Feature tracker: max_cnt=%d min_dist=%d flow_back=%d",
-                MAX_CNT, MIN_DIST, FLOW_BACK);
+    if (MAX_CNT < 1 || MIN_DIST < 0)
+        throw std::invalid_argument("max_cnt must be positive and min_dist nonnegative");
+    if (FEATURE_DETECTOR != "gftt" && FEATURE_DETECTOR != "fast_grid")
+        throw std::invalid_argument("feature_detector must be 'gftt' or 'fast_grid'");
+    if (FAST_THRESHOLD < 1 || FAST_THRESHOLD > 255)
+        throw std::invalid_argument("fast_threshold must be in [1, 255]");
+    if (GRID_X < 1 || GRID_Y < 1)
+        throw std::invalid_argument("grid_x and grid_y must be positive");
+    if (!std::isfinite(DETECTION_MIN_FEATURE_RATIO) ||
+        DETECTION_MIN_FEATURE_RATIO < 0.0 || DETECTION_MIN_FEATURE_RATIO > 1.0)
+        throw std::invalid_argument("detection_min_feature_ratio must be in [0, 1]");
+    RCLCPP_INFO(vins::logger(),
+                "Feature tracker: max_cnt=%d min_dist=%d flow_back=%d detector=%s "
+                "fast_threshold=%d grid=%dx%d detection_min_feature_ratio=%.3f",
+                MAX_CNT, MIN_DIST, FLOW_BACK, FEATURE_DETECTOR.c_str(), FAST_THRESHOLD,
+                GRID_X, GRID_Y, DETECTION_MIN_FEATURE_RATIO);
 
     MULTIPLE_THREAD = config.getInt("multiple_thread");
     BACKEND_FREQ = config.getDouble("freq", 10.0);
     MAX_FEATURE_QUEUE = config.getInt("max_feature_queue_size", 10);
     if (!std::isfinite(BACKEND_FREQ) || BACKEND_FREQ < 0.0 || MAX_FEATURE_QUEUE < 1)
         throw std::invalid_argument("freq must be nonnegative and max_feature_queue_size positive");
+
+    MARGINALIZATION_THREADS = config.getInt("marginalization_threads", 4);
+    if (MARGINALIZATION_THREADS < 1 || MARGINALIZATION_THREADS > 8)
+        throw std::invalid_argument("marginalization_threads must be in [1, 8]");
+    SOLVER_TIMEOUT_POLICY = config.getString("solver_timeout_policy", "warn");
+    if (SOLVER_TIMEOUT_POLICY != "warn" && SOLVER_TIMEOUT_POLICY != "retry" &&
+        SOLVER_TIMEOUT_POLICY != "revert")
+        throw std::invalid_argument("solver_timeout_policy must be 'warn', 'retry' or 'revert'");
+    SOLVER_TIMEOUT_RETRY_MULTIPLIER = config.getDouble("solver_timeout_retry_multiplier", 2.0);
+    if (!std::isfinite(SOLVER_TIMEOUT_RETRY_MULTIPLIER) || SOLVER_TIMEOUT_RETRY_MULTIPLIER <= 1.0)
+        throw std::invalid_argument("solver_timeout_retry_multiplier must be greater than 1");
+    STAGE_TIMING = config.getBool("stage_timing", false);
+    STAGE_TIMING_INTERVAL = config.getInt("stage_timing_interval", 100);
+    if (STAGE_TIMING_INTERVAL < 1)
+        throw std::invalid_argument("stage_timing_interval must be positive");
+    RANSAC_OUTLIER_REJECTION = config.getInt("ransac_outlier_rejection", 0);
+    if (RANSAC_OUTLIER_REJECTION != 0 && RANSAC_OUTLIER_REJECTION != 1)
+        throw std::invalid_argument("ransac_outlier_rejection must be 0 or 1");
+    RCLCPP_INFO(vins::logger(),
+                "Backend policy: marginalization_threads=%d solver_timeout_policy=%s "
+                "retry_multiplier=%.2f stage_timing=%d interval=%d ransac=%d",
+                MARGINALIZATION_THREADS, SOLVER_TIMEOUT_POLICY.c_str(),
+                SOLVER_TIMEOUT_RETRY_MULTIPLIER, static_cast<int>(STAGE_TIMING),
+                STAGE_TIMING_INTERVAL, RANSAC_OUTLIER_REJECTION);
 
     USE_IMU = config.getInt("imu");
     printf("USE_IMU: %d\n", USE_IMU);

@@ -62,9 +62,20 @@ extern std::string FISHEYE_MASK;
 extern std::vector<std::string> CAM_NAMES;
 extern int MAX_CNT;
 extern int MIN_DIST;
+extern std::string FEATURE_DETECTOR;
+extern int FAST_THRESHOLD;
+extern int GRID_X, GRID_Y;
+extern double DETECTION_MIN_FEATURE_RATIO;
 extern double F_THRESHOLD;
 extern int SHOW_TRACK;
 extern int FLOW_BACK;
+
+extern int MARGINALIZATION_THREADS;
+extern std::string SOLVER_TIMEOUT_POLICY;
+extern double SOLVER_TIMEOUT_RETRY_MULTIPLIER;
+extern bool STAGE_TIMING;
+extern int STAGE_TIMING_INTERVAL;
+extern int RANSAC_OUTLIER_REJECTION;
 
 void readParameters(std::string config_file, const std::string &output_path = "");
 
