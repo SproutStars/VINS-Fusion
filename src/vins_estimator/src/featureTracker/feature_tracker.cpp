@@ -80,6 +80,79 @@ float pointDistanceSquared(const cv::Point2f &a, const cv::Point2f &b)
     const float dy = a.y - b.y;
     return dx * dx + dy * dy;
 }
+// Coarse detection followed by full-resolution refinement. Like OpenVINS'
+// downsampling / refinement and SchurVINS' pyramid-level detection, this avoids
+// computing a full-resolution corner response. Tracking and calibration stay
+// in original pixel coordinates. It is opt-in because the selected points differ.
+void detectPyramidFeatures(
+    const cv::Mat &img, const cv::Mat &mask, int max_features,
+    vector<cv::Point2f> &points, const cv::Mat &half_image)
+{
+    if (img.cols < 24 || img.rows < 24)
+    {
+        cv::goodFeaturesToTrack(img, points, max_features, 0.01, MIN_DIST, mask);
+        return;
+    }
+    cv::Mat detection_half_image;
+    cv::Mat detection_half_mask;
+    cv::Mat coarse = half_image;
+    if (coarse.empty())
+    {
+        cv::pyrDown(img, detection_half_image);
+        coarse = detection_half_image;
+    }
+    CV_Assert(coarse.type() == CV_8UC1 &&
+              coarse.cols == (img.cols + 1) / 2 &&
+              coarse.rows == (img.rows + 1) / 2);
+    // pyrDown samples (2*x, 2*y), including odd image sizes. INTER_NEAREST
+    // resize would shift this mapping on odd sizes; explicitly sample instead.
+    cv::Mat coarse_mask;
+    if (!mask.empty())
+    {
+        CV_Assert(mask.type() == CV_8UC1 && mask.size() == img.size());
+        detection_half_mask.create(coarse.size(), CV_8UC1);
+        for (int y = 0; y < coarse.rows; ++y)
+        {
+            const uchar *source = mask.ptr<uchar>(2 * y);
+            uchar *target = detection_half_mask.ptr<uchar>(y);
+            for (int x = 0; x < coarse.cols; ++x)
+                target[x] = source[2 * x];
+        }
+        coarse_mask = detection_half_mask;
+    }
+    vector<cv::Point2f> candidates;
+    cv::goodFeaturesToTrack(coarse, candidates, max_features, 0.01,
+                            std::max(1.0, MIN_DIST * 0.5), coarse_mask);
+    for (auto &point : candidates)
+        point *= 2.0f;
+    if (candidates.empty())
+        return;
+    cv::cornerSubPix(img, candidates, cv::Size(5, 5), cv::Size(-1, -1),
+                    cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS,
+                                     20, 0.01));
+    // Refinement can cross a mask boundary or reduce the spacing. Validate in
+    // full-resolution coordinates before assigning IDs or adding observations.
+    const float min_dist_sq = static_cast<float>(MIN_DIST) * MIN_DIST;
+    for (const auto &point : candidates)
+    {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
+            point.x < 1 || point.y < 1 ||
+            point.x >= img.cols - 1 || point.y >= img.rows - 1)
+            continue;
+        if (!mask.empty() && mask.at<uchar>(cvRound(point.y), cvRound(point.x)) == 0)
+            continue;
+        bool separated = true;
+        for (const auto &accepted : points)
+            if (pointDistanceSquared(point, accepted) < min_dist_sq)
+            {
+                separated = false;
+                break;
+            }
+        if (separated)
+            points.push_back(point);
+    }
+}
+
 }  // namespace
 
 bool FeatureTracker::inBorder(const cv::Point2f &pt)
@@ -132,6 +205,8 @@ void FeatureTracker::detectFeatures(const cv::Mat &img, const cv::Mat &mask, int
 
     if (FEATURE_DETECTOR == "fast_grid")
         detectFastGridFeatures(img, mask, max_features, points);
+    else if (FEATURE_DETECTOR == "gftt_pyramid")
+        detectPyramidFeatures(img, mask, max_features, points, cv::Mat());
     else
         cv::goodFeaturesToTrack(img, points, max_features, 0.01, MIN_DIST, mask);
 }
@@ -362,10 +437,10 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         prev_pyr_.clear();
     }
 
-    // FAST+grid does not call goodFeaturesToTrack(), so it can retain the
-    // faster derivative-augmented KLT pyramid. The default GFTT path uses an
-    // image-only pyramid to avoid the allocator regression documented above.
-    const bool with_derivatives = FEATURE_DETECTOR == "fast_grid";
+    // Coarse GFTT uses quarter-size response buffers; like FAST+grid it avoids
+    // the full-resolution allocation regression described above. Cache image
+    // derivatives for both forward and backward LK, including the next frame.
+    const bool with_derivatives = FEATURE_DETECTOR != "gftt";
     const size_t expected_pyr_mats =
         static_cast<size_t>(kKltMaxLevel + 1) * (with_derivatives ? 2u : 1u);
     if (!prev_pyr_.empty() && prev_pyr_.size() != expected_pyr_mats)
@@ -486,7 +561,16 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
                 cout << "mask is empty " << endl;
             if (mask.type() != CV_8UC1)
                 cout << "mask type wrong " << endl;
-            detectFeatures(cur_img, mask, n_max_cnt, n_pts);
+            // Interleaved derivative pyramids store the half-size image at 2.
+            const cv::Mat half_image = FEATURE_DETECTOR == "gftt_pyramid" &&
+                cur_pyr.size() > 2 ? cur_pyr[2] : cv::Mat();
+            if (FEATURE_DETECTOR == "gftt_pyramid")
+            {
+                n_pts.clear();
+                detectPyramidFeatures(cur_img, mask, n_max_cnt, n_pts, half_image);
+            }
+            else
+                detectFeatures(cur_img, mask, n_max_cnt, n_pts);
         }
         else
             n_pts.clear();

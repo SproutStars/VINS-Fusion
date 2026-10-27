@@ -601,3 +601,84 @@ TEST(FeatureTrackerRansac, DegenerateFundamentalMatrixLeavesBuffersUntouched)
     EXPECT_EQ(tracker.track_cnt, track_before);
     EXPECT_EQ(tracker.cur_un_pts, cached_before);
 }
+
+TEST(FeatureTrackerPyramidDetection, RefinedPointsRespectOddSizeMaskAndSpacing)
+{
+    TrackerParameterGuard guard;
+    FEATURE_DETECTOR = "gftt_pyramid";
+    MIN_DIST = 12;
+    cv::setNumThreads(1);
+    const cv::Mat image = makeCornerTexture(241, 321);
+    cv::Mat mask(image.size(), CV_8UC1, cv::Scalar(255));
+    mask(cv::Rect(100, 0, 80, image.rows)).setTo(0);
+    FeatureTracker tracker;
+    std::vector<cv::Point2f> points;
+    tracker.detectFeatures(image, mask, 70, points);
+    ASSERT_GT(points.size(), 20u);
+    EXPECT_LE(points.size(), 70u);
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        const auto &p = points[i];
+        ASSERT_GE(p.x, 1); ASSERT_GE(p.y, 1);
+        ASSERT_LT(p.x, image.cols - 1); ASSERT_LT(p.y, image.rows - 1);
+        EXPECT_NE(mask.at<uchar>(cvRound(p.y), cvRound(p.x)), 0);
+        for (size_t j = 0; j < i; ++j)
+            EXPECT_GE(cv::norm(p - points[j]), MIN_DIST - 1e-5);
+    }
+    mask.setTo(0);
+    tracker.detectFeatures(image, mask, 70, points);
+    EXPECT_TRUE(points.empty());
+    tracker.detectFeatures(image, cv::Mat(), 0, points);
+    EXPECT_TRUE(points.empty());
+    tracker.detectFeatures(cv::Mat(), cv::Mat(), 70, points);
+    EXPECT_TRUE(points.empty());
+}
+
+TEST(FeatureTrackerPyramidDetection, UsesFullResolutionCoordinatesAndOwnsCachedPixels)
+{
+    TrackerParameterGuard guard;
+    FEATURE_DETECTOR = "gftt_pyramid";
+    MAX_CNT = 80; MIN_DIST = 12; FLOW_BACK = 1; SHOW_TRACK = 0;
+    RANSAC_OUTLIER_REJECTION = 0; DETECTION_MIN_FEATURE_RATIO = 0;
+    cv::setNumThreads(1);
+    FeatureTracker tracker;
+    tracker.m_camera.emplace_back(new camodocal::PinholeCamera(
+        "left", 321, 241, 0, 0, 0, 0, 200, 200, 160, 120));
+    // A non-periodic texture avoids the checkerboard's equally valid matches
+    // one or more tiles away when testing absolute pixel coordinates.
+    cv::Mat first(241, 321, CV_8UC1);
+    cv::RNG rng(7143);
+    rng.fill(first, cv::RNG::UNIFORM, 0, 256);
+    cv::GaussianBlur(first, first, cv::Size(5, 5), 1.0);
+    const auto observations = tracker.trackImage(1.0, first);
+    ASSERT_GT(observations.size(), 30u);
+    EXPECT_EQ(tracker.previousPyramid().size(), 8u);
+    const cv::Mat saved = tracker.previousPyramid()[0].clone();
+    cv::Mat second;
+    const cv::Mat shift = (cv::Mat_<double>(2, 3) << 1, 0, 2, 0, 1, 1);
+    cv::warpAffine(first, second, shift, first.size(), cv::INTER_LINEAR,
+                   cv::BORDER_REFLECT_101);
+    first.setTo(0);
+    EXPECT_EQ(cv::norm(saved, tracker.previousPyramid()[0], cv::NORM_INF), 0);
+    const auto next = tracker.trackImage(1.05, second);
+    int matched = 0;
+    for (const auto &entry : next)
+    {
+        const auto previous = observations.find(entry.first);
+        if (previous == observations.end()) continue;
+        const auto &pixel = previous->second[0].second;
+        // Reflected image borders are not a rigid translation. Check the
+        // interior so LK patches see the same translated texture.
+        if (pixel[3] < 40 || pixel[3] > 281 || pixel[4] < 40 || pixel[4] > 201)
+            continue;
+        const auto delta = entry.second[0].second - pixel;
+        EXPECT_NEAR(delta[3], 2, 0.15);
+        EXPECT_NEAR(delta[4], 1, 0.15);
+        ++matched;
+    }
+    EXPECT_GT(matched, 25);
+    // Changing detector layout must discard incompatible cached derivatives.
+    FEATURE_DETECTOR = "gftt";
+    tracker.trackImage(1.1, second);
+    EXPECT_EQ(tracker.previousPyramid().size(), 4u);
+}

@@ -132,8 +132,9 @@ void readParameters(std::string config_file, const std::string &output_path)
     FLOW_BACK = config.getInt("flow_back");
     if (MAX_CNT < 1 || MIN_DIST < 0)
         throw std::invalid_argument("max_cnt must be positive and min_dist nonnegative");
-    if (FEATURE_DETECTOR != "gftt" && FEATURE_DETECTOR != "fast_grid")
-        throw std::invalid_argument("feature_detector must be 'gftt' or 'fast_grid'");
+    if (FEATURE_DETECTOR != "gftt" && FEATURE_DETECTOR != "fast_grid" &&
+        FEATURE_DETECTOR != "gftt_pyramid")
+        throw std::invalid_argument("feature_detector must be 'gftt', 'fast_grid' or 'gftt_pyramid'");
     if (FAST_THRESHOLD < 1 || FAST_THRESHOLD > 255)
         throw std::invalid_argument("fast_threshold must be in [1, 255]");
     if (GRID_X < 1 || GRID_Y < 1)

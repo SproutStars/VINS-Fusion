@@ -23,7 +23,11 @@
     multiple_thread: 1
     max_cnt: 150
     min_dist: 25
-    feature_detector: "gftt"   # "gftt" 或 "fast_grid"
+    # gftt：原分辨率检测；fast_grid：网格 FAST。gftt_pyramid 为实验选项：
+    # 在半分辨率金字塔检测后回原图细化，并缓存 LK 导数；会改变特征分布。
+    # 光流和相机标定始终使用原分辨率，默认保留 gftt。
+    # ARM medium 的 Schur EKF 对照出现精度回退，仅供实验；见 docs/ARM_TRACKER_ACCELERATION.md。
+    feature_detector: "gftt"
     fast_threshold: 20
     grid_x: 5
     grid_y: 5

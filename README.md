@@ -209,3 +209,7 @@ docker build -f docker/Dockerfile -t vins-fusion:jazzy .
 工程优化范围、回归测试与 `~/vicon_room2/bags` 的可复现比较方法见
 [性能优化与 EuRoC 回归测试](docs/PERFORMANCE.md)。保留算法参数不变，分别检查
 CPU 时间、延迟分位数、峰值内存与轨迹精度，避免以丢帧或精度退化换取表面加速。
+
+ARM 检测与光流的最新实测见 [检测与光流延迟优化](docs/ARM_TRACKER_ACCELERATION.md)。
+实验选项 `feature_detector: "gftt_pyramid"` 可显著减少前端耗时，但在 Schur EKF
+的 medium 场景出现定位回退，默认保留 `gftt`；报告同时记录 GPU 运行时检查与 Ceres 对照。
