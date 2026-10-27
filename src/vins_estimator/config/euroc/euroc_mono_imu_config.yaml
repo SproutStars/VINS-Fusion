@@ -1,7 +1,7 @@
-# VINS-Fusion algorithm configuration (ROS 2 parameter YAML).
-# Passed to the nodes through the `config_file` parameter.
-# Node-only ROS parameters such as opencv_threads and tracking_queue_size
-# must be passed through launch/--ros-args; they are not read from this file.
+# VINS-Fusion 算法配置文件（ROS 2 参数 YAML）。
+# 通过 `config_file` 参数传递给各节点。
+# opencv_threads、tracking_queue_size 等仅属于节点的 ROS 参数
+# 必须通过 launch/--ros-args 传入，不会从本文件读取。
 /**:
   ros__parameters:
     imu: 1
@@ -21,9 +21,9 @@
       -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949,
       0.0, 0.0, 0.0, 1.0]
     multiple_thread: 1
-    max_cnt: 120
+    max_cnt: 150
     min_dist: 25
-    feature_detector: "gftt"
+    feature_detector: "gftt"   # "gftt" 或 "fast_grid"
     fast_threshold: 20
     grid_x: 5
     grid_y: 5
@@ -34,6 +34,112 @@
     stage_timing: 0
     stage_timing_interval: 100
     ransac_outlier_rejection: 0
+    # 后端选择："ceres"（默认滑动窗口 NLS）或 "schur_ekf"
+    #（面向 ARM 的 Schur 补 EKF，参见 docs/BACKEND_SCHUR_EKF.md）。
+    backend_type: "ceres"
+    schur_window_size: 5
+    # 初始化后先用 Ceres 求解若干图像帧，然后
+    # 再由 EKF 接管。这样可让初始化阶段的零偏/速度收敛。
+    schur_warmup_frames: 0
+    schur_max_features: 120
+    schur_min_observations: 2
+    # 跳过视觉观测不足的帧，而不是执行低秩更新。
+    schur_min_features: 12
+    # 单次更新的最小有效观测数。在完整的 V2_01_easy /
+    # V2_02_medium 上做 A/B 测试时，12 与 24 的 ATE 逐位一致，
+    # 因此采用较宽松的值（可让更多视觉观测稀少的帧参与更新）。
+    schur_min_update_observations: 12
+    schur_pixel_noise: 1.5
+    schur_chi2_multiplier: 5.0
+    schur_triangulation_iterations: 5.0
+    # 秩揭示：丢弃规范/尺度零空间，但若某帧的 Schur
+    # 信息矩阵存在显著负模态，则拒绝该帧。
+    schur_info_rank_rtol: 1.0e-10
+    schur_info_indefinite_tol: 1.0e-6
+    schur_point_block_rtol: 1.0e-8
+    # 若某帧保留的视觉信息条件数超过该阈值，则拒绝该帧
+    #（0 表示禁用检查）。真实 EuRoC 帧的条件数约为 1e2-1e3。
+    schur_condition_limit: 1.0e6
+    # 连续出现视觉观测不足的帧数达到该值后触发重启。这仅是
+    # *次级*兜底：下方的时间判据才是主要保护，通常会先触发。
+    # ARM 后端实际运行频率约为 10 Hz，因此 60 帧相当于 6 秒纯 IMU 传播
+    #（x86 上 20 Hz 时为 3 秒）；而旧值 20 在 ARM 上仅相当于 2 秒，
+    # 会先于时间判据触发。启用 schur_starvation_soft_restart 后，
+    # 该兜底也会执行软重启（保留 IMU/EKF 状态，不调用 clearState()）；
+    # 在软重启模式下，只有 schur_soft_restart_max_seconds 的升级机制
+    # 才会安排完整重启。
+    schur_max_consecutive_failures: 60
+    # 主要饥饿保护，使用传感器时间（帧头时间 + td）。如果自上次
+    # *已应用*的视觉更新以来经过这么多秒，则安排一次受控重启
+    #（受 schur_restart_cooldown_seconds 约束）。取 3.0 秒是因为
+    # ARM 上的视觉饥饿大多会在 1-2 秒内自行恢复，而每次重启都需要
+    # 完整的 Ceres 重新初始化。<= 0 表示禁用时间判据（仅保留帧数兜底）。
+    schur_max_no_update_seconds: 3.0
+    # 视觉饥饿时的过程噪声膨胀。自上次已应用的视觉更新起经过
+    # 这么多秒后，后续每次 IMU 传播都会将过程噪声协方差 Q 乘以
+    # schur_starvation_noise_scale，直到下一次成功更新将缩放系数
+    # 重置为 1.0。这样可在纯 IMU 传播期间让 P 增大，使后续视觉
+    # 更新更不容易被卡方门限拒绝。<= 0 表示禁用。
+    schur_starvation_seconds: 0.25
+    # 视觉饥饿期间使用的 Q 乘数。必须 >= 1.0（1.0 表示不缩放）。
+    schur_starvation_noise_scale: 3.0
+    # 深度饥饿：自上次已应用的视觉更新以来经过这么多秒后
+    #（基础饥饿阶段已激活），将 Q 乘数提升为
+    # schur_starvation_deep_noise_scale。这会让长时间纯 IMU
+    # 传播时 P 增长更快，避免最终视觉更新被过度门限拒绝。
+    # <= 0 表示禁用该升级机制。
+    schur_starvation_deep_seconds: 1.0
+    # 深度饥饿期间使用的 Q 乘数。必须为有限值且 >= 1.0。
+    schur_starvation_deep_noise_scale: 10.0
+    # 重启冷却，使用传感器时间：每经过这么多秒最多执行一次
+    # 受控重启。冷却生效期间，两个重启保护（上述时间判据和
+    # schur_max_consecutive_failures）都会被抑制，仅继续计数，
+    # 因此重启风暴会变成有界次数的重启。
+    # 必须为有限值且 >= 0；0 表示禁用冷却。
+    schur_restart_cooldown_seconds: 8.0
+    # P5 软饥饿重启：为 true 时，由饥饿触发的重启会保留
+    # IMU/EKF 名义状态（q/p/v/ba/bg），仅丢弃克隆窗口和协方差，
+    # 而不是调用 clearState() 并完整重新执行 Ceres 初始化。
+    # 在饥饿期间里程计仍可继续输出。默认 false 保持此前的
+    # 完整重启行为。
+    schur_starvation_soft_restart: false
+    # 软重启的升级兜底，使用传感器时间：若软重启后经过这么多秒
+    # 仍未应用任何视觉更新，则升级一次为完整的受控重启。
+    # <= 0 表示禁用该升级机制。
+    schur_soft_restart_max_seconds: 10.0
+    # P6 饥饿自适应弱更新（“多接受、低权重”）。为 true 时，
+    # 若某帧距上次 *已应用* 的视觉更新之间的传感器时间间隔
+    # 超过 schur_starvation_seconds，则通过斜坡因子放宽卡方门限，
+    # 并以相同因子降低被接受观测的权重，使滤波器能够从门限
+    # 失效中恢复（漂移 -> 残差变大 -> 几乎所有特征轨迹被拒绝 ->
+    # 无校正 -> 漂移加剧），而无需承担一次完整的受控重启。
+    # 该斜坡复用 schur_starvation_seconds 和
+    # schur_starvation_deep_seconds；因子在
+    # schur_weak_update_max_scale 处饱和。默认 false 会逐位
+    # 保持此前的行为。
+    schur_starvation_weak_update: false
+    # 弱更新缩放系数的上限。必须为有限值且 >= 1.0；
+    # 1.0 等同于禁用该特性。该值越大，在长时间饥饿期间
+    # 接受的轨迹越多，但每条观测的置信度也越低。
+    schur_weak_update_max_scale: 10.0
+    # 滤波器初始协方差，由 Ceres 初始化结果设定。
+    # 因初始化阶段的零偏/速度较粗，此处适当放大。
+    schur_init_pos_sigma: 0.5
+    schur_init_vel_sigma: 0.5
+    schur_init_rot_sigma: 0.05
+    schur_init_ba_sigma: 0.5
+    schur_init_bg_sigma: 0.05
+    # EKF 的连续时间 IMU 噪声密度（单位^2/Hz）。这些参数
+    # 有意与 acc_n/gyr_n/acc_w/gyr_w 分开：VINS 通过
+    # IntegrationBase 的 V 矩阵应用后者（按 0.5*dt 缩放），
+    # 该矩阵并非谱密度。若在这里使用 acc_n/gyr_n，会使
+    # 速度过程噪声放大约 1/dt，并导致每次视觉更新都过度
+    # 修正速度。默认值来自 open_vins 的 EuRoC MAV 配置
+    #（config/euroc_mav/kalibr_imu_chain.yaml）。
+    schur_acc_noise: 2.0e-3
+    schur_gyr_noise: 1.6968e-4
+    schur_acc_bias_noise: 3.0e-3
+    schur_gyr_bias_noise: 1.9393e-5
     freq: 10
     F_threshold: 1.0
     show_track: 1
