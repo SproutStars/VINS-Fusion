@@ -1373,6 +1373,16 @@ void Estimator::initSchurBackend()
     starvation_config.restart_cooldown_seconds = SCHUR_RESTART_COOLDOWN_SECONDS;
     schur_starvation_monitor_.configure(starvation_config);
     schur_starvation_monitor_.reset(seed_time);
+    // P7 hold policy: configure and drop any holding state from a previous
+    // filter instance (cumulative diagnostics survive).
+    vins::backend::StarvationHold::Config hold_config;
+    hold_config.enabled = SCHUR_STARVATION_HOLD;
+    hold_config.recovery_min_features = SCHUR_MIN_FEATURES;
+    hold_config.recovery_frames = SCHUR_HOLD_RECOVERY_FRAMES;
+    schur_hold_.configure(hold_config);
+    schur_hold_.deactivate();
+    schur_rebuild_frames_ = 0;
+    schur_rebuild_pending_ = false;
     schur_ekf_active_ = true;
 
     RCLCPP_INFO(vins::logger(),
@@ -1431,7 +1441,11 @@ void Estimator::schurPropagate(double dt, const Eigen::Vector3d &acc,
     // last applied update is known; between frames it is piecewise constant, so
     // every IMU step of a starved stretch uses the same scale. A successful
     // update clears the stage (scale back to 1.0) in the same frame.
-    schur_state_.propagate(acc, gyr, dt, schur_starvation_monitor_.noise_scale());
+    // P7 hold: the hold policy must let P grow naturally instead of being
+    // re-inflated, so the starvation Q multiplier is bypassed while holding.
+    const double noise_scale =
+        schur_hold_.active() ? 1.0 : schur_starvation_monitor_.noise_scale();
+    schur_state_.propagate(acc, gyr, dt, noise_scale);
 }
 
 bool Estimator::schurProcessFrame(
@@ -1451,10 +1465,64 @@ bool Estimator::schurProcessFrame(
     // 1.0 while the gap is at or below SCHUR_STARVATION_SECONDS, ramping to
     // SCHUR_WEAK_UPDATE_MAX_SCALE at SCHUR_STARVATION_DEEP_SECONDS. Disabled or
     // invalid parameters give 1.0, which is a strict no-op.
-    const double weak_scale = vins::backend::weakUpdateScale(
+    double weak_scale = vins::backend::weakUpdateScale(
         schur_starvation_monitor_.starvation_duration(frame_time),
         SCHUR_STARVATION_WEAK_UPDATE, SCHUR_STARVATION_SECONDS,
         SCHUR_STARVATION_DEEP_SECONDS, SCHUR_WEAK_UPDATE_MAX_SCALE);
+
+    // Collect this frame's camera-0 observations once. Column layout is
+    // [x, y, 1, u, v, vx, vy] where (x, y) are normalised coordinates. The hold
+    // policy needs the count before it touches any visual structure.
+    std::vector<std::pair<int, Eigen::Vector2d>> observations;
+    observations.reserve(image.size());
+    for (const auto &feature : image)
+    {
+        for (const auto &observation : feature.second)
+        {
+            if (observation.first != 0)
+                continue;  // the Schur backend consumes camera 0 only
+            const Eigen::Matrix<double, 7, 1> &value = observation.second;
+            observations.emplace_back(feature.first, Eigen::Vector2d(value(0), value(1)));
+        }
+    }
+
+    // P7 hold fast path. While holding, this frame is a pure-IMU frame: no
+    // history entry, no clone augmentation, no visual update and no
+    // marginalisation. The live state keeps propagating (schurPropagate()) and
+    // is written back/published every frame, so odometry stays continuous. Once
+    // the tracker reports enough observations for enough consecutive frames,
+    // the stale clone blocks/history are dropped (live P untouched) and this
+    // same frame starts rebuilding the window by falling through to the normal
+    // path. That frame carries a single history entry, so no track can be
+    // eligible and the stale observations are never absorbed.
+    if (schur_hold_.active())
+    {
+        const vins::backend::StarvationHold::Action hold_action =
+            schur_hold_.observe_frame(frame_time, static_cast<int>(observations.size()));
+        if (hold_action == vins::backend::StarvationHold::Action::kHold)
+        {
+            if (!schurStateFinite())
+            {
+                schur_ekf_active_ = false;
+                RCLCPP_WARN(vins::logger(),
+                            "Schur EKF state became non-finite while holding at t=%.3f; "
+                            "falling back to the Ceres backend", frame_time);
+                return false;
+            }
+            if (schur_hold_.frames() % kSchurStarvationReportFrames == 0)
+                schurReportStarvation(frame_time);
+            ++schur_update_count_;
+            schurWriteBackWindow();
+            schurReportStageTiming(t_update.toc());
+            return true;
+        }
+        schurHoldRecover(frame_time, static_cast<int>(observations.size()));
+        // The monitor was re-anchored, so the weak-update ramp starts at zero.
+        weak_scale = vins::backend::weakUpdateScale(
+            schur_starvation_monitor_.starvation_duration(frame_time),
+            SCHUR_STARVATION_WEAK_UPDATE, SCHUR_STARVATION_SECONDS,
+            SCHUR_STARVATION_DEEP_SECONDS, SCHUR_WEAK_UPDATE_MAX_SCALE);
+    }
     const bool debug_schur = std::getenv("VINS_SCHUR_DEBUG") != nullptr;
     auto covariance_bounds = [](const Eigen::MatrixXd &P, double &trace, double &min_eig,
                                 double &max_eig) {
@@ -1474,21 +1542,10 @@ bool Estimator::schurProcessFrame(
         covariance_bounds(schur_state_.covariance(), p_trace_before, p_min_before, p_max_before);
     const vins::backend::ImuNominal imu_before_update = schur_state_.imu();
 
-    // 1. Record this frame's normalised, undistorted observations. Column
-    //    layout of the feature frame is [x, y, 1, u, v, vx, vy] where (x, y)
-    //    are normalised camera coordinates.
-    std::vector<std::pair<int, Eigen::Vector2d>> observations;
-    observations.reserve(image.size());
-    for (const auto &feature : image)
-    {
-        for (const auto &observation : feature.second)
-        {
-            if (observation.first != 0)
-                continue;  // the Schur backend consumes camera 0 only
-            const Eigen::Matrix<double, 7, 1> &value = observation.second;
-            observations.emplace_back(feature.first, Eigen::Vector2d(value(0), value(1)));
-        }
-    }
+    // 1. Record this frame's normalised, undistorted observations (collected
+    //    above). A frame that just left hold only carries this single entry, so
+    //    no track can pass the min-observation gate and the clone window is
+    //    rebuilt frame by frame without absorbing stale tracks.
     schur_history_.add_frame(schur_frame_index_, 0, observations);
 
     // 2. Append the current pose as the newest clone. Pruning is deferred until
@@ -1619,7 +1676,11 @@ bool Estimator::schurProcessFrame(
         // schurSoftRestart()), so a chain of repeat soft restarts cannot postpone
         // the escalation forever.
         const bool soft_mode = SCHUR_STARVATION_SOFT_RESTART && schur_ekf_active_;
-        if (soft_mode &&
+        // P7 hold mode never restarts: the time criterion and the frame-count
+        // backstop both enter the hold state instead. It takes precedence over
+        // the P5 soft restart (and therefore over its escalation backstop).
+        const bool hold_mode = SCHUR_STARVATION_HOLD && schur_ekf_active_;
+        if (!hold_mode && soft_mode &&
             vins::backend::softRestartEscalationDue(
                 frame_time, schur_soft_restart_time_, SCHUR_SOFT_RESTART_MAX_SECONDS))
         {
@@ -1637,7 +1698,14 @@ bool Estimator::schurProcessFrame(
         }
         else if (starvation.restart)
         {
-            if (soft_mode)
+            if (hold_mode)
+            {
+                // "不重启、只保持": keep the live state and P, stop accepting
+                // visual updates and keep publishing pure-IMU propagation.
+                // schurHoldEnter() logs the gap and dropped clone count.
+                schurHoldEnter(frame_time, starvation.gap_seconds);
+            }
+            else if (soft_mode)
             {
                 // Keep propagating/publishing from the current IMU state; only
                 // the visual structure is dropped. schurSoftRestart() logs the
@@ -1665,16 +1733,26 @@ bool Estimator::schurProcessFrame(
         }
         else if (starvation.cooldown_suppressed)
         {
-            const int suppressed = schur_starvation_monitor_.cooldown_suppressions();
-            if (suppressed == 1 || suppressed % 10 == 0)
-                RCLCPP_WARN(vins::logger(),
-                            "Schur EKF restart suppressed by the cooldown (%.3f s without a "
-                            "visual update, %.3f s of %.3f s cooldown elapsed) at frame %d: "
-                            "suppressed_total=%d streak=%d skipped_total=%d",
-                            starvation.gap_seconds,
-                            frame_time - schur_starvation_monitor_.last_restart_time(),
-                            SCHUR_RESTART_COOLDOWN_SECONDS, schur_frame_index_, suppressed,
-                            schur_consecutive_failures_, schur_skipped_frames_);
+            if (hold_mode)
+            {
+                // The cooldown only bounds restarts; entering hold is free, so a
+                // cooldown-suppressed trigger still enters hold.
+                schurHoldEnter(frame_time, starvation.gap_seconds);
+                restarted = true;
+            }
+            else
+            {
+                const int suppressed = schur_starvation_monitor_.cooldown_suppressions();
+                if (suppressed == 1 || suppressed % 10 == 0)
+                    RCLCPP_WARN(vins::logger(),
+                                "Schur EKF restart suppressed by the cooldown (%.3f s without a "
+                                "visual update, %.3f s of %.3f s cooldown elapsed) at frame %d: "
+                                "suppressed_total=%d streak=%d skipped_total=%d",
+                                starvation.gap_seconds,
+                                frame_time - schur_starvation_monitor_.last_restart_time(),
+                                SCHUR_RESTART_COOLDOWN_SECONDS, schur_frame_index_, suppressed,
+                                schur_consecutive_failures_, schur_skipped_frames_);
+            }
         }
         // Frame-count backstop: only when the time criterion did not restart this
         // frame AND the cooldown is not holding restarts back. The failure streak
@@ -1685,8 +1763,19 @@ bool Estimator::schurProcessFrame(
         const vins::backend::StarvationRestartAction backstop_action =
             vins::backend::frameCountBackstopAction(
                 restarted, schur_starvation_monitor_.cooldown_active(frame_time),
-                schur_consecutive_failures_, SCHUR_MAX_CONSECUTIVE_FAILURES, soft_mode);
-        if (backstop_action == vins::backend::StarvationRestartAction::kSoft)
+                schur_consecutive_failures_, SCHUR_MAX_CONSECUTIVE_FAILURES, soft_mode,
+                hold_mode);
+        if (backstop_action == vins::backend::StarvationRestartAction::kHold)
+        {
+            RCLCPP_ERROR(vins::logger(),
+                         "Schur EKF produced %d consecutive frames without a visual update "
+                         "(%d skipped in total) at frame %d; entering hold "
+                         "(no restart, keeping the IMU/EKF state and covariance)",
+                         schur_consecutive_failures_, schur_skipped_frames_,
+                         schur_frame_index_);
+            schurHoldEnter(frame_time, starvation.gap_seconds);
+        }
+        else if (backstop_action == vins::backend::StarvationRestartAction::kSoft)
         {
             RCLCPP_ERROR(vins::logger(),
                          "Schur EKF produced %d consecutive frames without a visual update "
@@ -1709,9 +1798,31 @@ bool Estimator::schurProcessFrame(
     }
 
     // 6. Drop the oldest clone now that the tracks observing it have been used.
-    schur_state_.prune_clone_window();
-    schur_oldest_frame_ = schur_frame_index_ - (schur_state_.num_clones() - 1);
-    schur_history_.trim(schur_oldest_frame_);
+    //    A frame that just entered hold has no clones left, so skip the index
+    //    bookkeeping (schurHoldRecover() re-seeds it on recovery).
+    if (schur_state_.num_clones() > 0)
+    {
+        schur_state_.prune_clone_window();
+        schur_oldest_frame_ = schur_frame_index_ - (schur_state_.num_clones() - 1);
+        schur_history_.trim(schur_oldest_frame_);
+    }
+
+    // 6b. P7 rebuild accounting: after leaving hold the window is rebuilt one
+    //     clone per frame. Report once it is back to full size so the recovery
+    //     cost is visible in the logs.
+    if (schur_rebuild_pending_)
+    {
+        ++schur_rebuild_frames_;
+        if (schur_state_.num_clones() >= schur_state_.options().window_size)
+        {
+            schur_rebuild_pending_ = false;
+            schur_rebuild_last_frames_ = schur_rebuild_frames_;
+            RCLCPP_INFO(vins::logger(),
+                        "Schur EKF clone window rebuilt after hold in %d frames "
+                        "(%d clones, t=%.3f): visual updates resume from the next frame",
+                        schur_rebuild_frames_, schur_state_.num_clones(), frame_time);
+        }
+    }
 
     if (debug_schur)
     {
@@ -1760,6 +1871,57 @@ bool Estimator::schurProcessFrame(
     schurWriteBackWindow();
     schurReportStageTiming(t_update.toc());
     return true;
+}
+
+void Estimator::schurHoldEnter(double frame_time, double gap_seconds)
+{
+    if (!schur_hold_.enter(frame_time))
+        return;
+    const int frame_index = schur_frame_index_;
+    // Drop only the visual structure. Every clone block is hard-deleted, so the
+    // live 15-dim IMU block of P survives bit-for-bit: no reset(), no
+    // re-inflation. This also keeps the per-IMU propagation cost at 15x15 while
+    // holding instead of growing with a stale window.
+    const int dropped_clones = schur_state_.drop_all_clones();
+    schur_history_.clear();
+    schur_frame_index_ = 0;
+    schur_oldest_frame_ = 0;
+    schur_consecutive_failures_ = 0;
+    // Hold supersedes any pending P5 escalation: nothing is escalated while we
+    // hold, because holding never restarts.
+    schur_soft_restart_time_ = -1.0;
+    RCLCPP_WARN(vins::logger(),
+                "Schur EKF hold entered at frame %d (t=%.3f): %.3f s without a visual "
+                "update (> %.3f s). No restart and no covariance re-inflation: dropped %d "
+                "clones, live state and P kept; pure-IMU propagation continues and the "
+                "estimate keeps being published. Episode=%d",
+                frame_index, frame_time, gap_seconds, SCHUR_MAX_NO_UPDATE_SECONDS,
+                dropped_clones, schur_hold_.episodes());
+}
+
+void Estimator::schurHoldRecover(double frame_time, int observations)
+{
+    const int episode = schur_hold_.episodes();
+    const double duration = schur_hold_.leave(frame_time);
+    // The tracker recovered: drop whatever visual structure is left and start a
+    // fresh frame numbering. The live state and its covariance (which grew
+    // naturally during the hold) are deliberately kept untouched.
+    schur_state_.drop_all_clones();
+    schur_history_.clear();
+    schur_frame_index_ = 0;
+    schur_oldest_frame_ = 0;
+    schur_consecutive_failures_ = 0;
+    // Re-anchor the time criterion so the rebuilt window has a full
+    // SCHUR_MAX_NO_UPDATE_SECONDS grace period to fill before it can fire again.
+    schur_starvation_monitor_.rebaseline(frame_time);
+    schur_rebuild_frames_ = 0;
+    schur_rebuild_pending_ = true;
+    RCLCPP_WARN(vins::logger(),
+                "Schur EKF hold exit after %.3f s (episode=%d, t=%.3f): tracker recovered "
+                "with %d observations (>= %d for %d consecutive frames). Rebuilding the "
+                "clone window from this frame, live state and P kept",
+                duration, episode, frame_time, observations, SCHUR_MIN_FEATURES,
+                SCHUR_HOLD_RECOVERY_FRAMES);
 }
 
 void Estimator::schurSoftRestart(double frame_time, double gap_seconds)
@@ -1877,7 +2039,10 @@ void Estimator::schurReportStarvation(double frame_time) const
                 "deep_escalations=%d cooldown_suppressions=%d noise_scale=%.2f "
                 "weak_update_scale=%.2f max_no_update_gap=%.3f s current_starvation=%.3f s "
                 "consecutive_failures=%d skipped_total=%d "
-                "thresholds(max_no_update=%.2f s cooldown=%.2f s)",
+                "thresholds(max_no_update=%.2f s cooldown=%.2f s) "
+                "hold(enabled=%d active=%d episodes=%d frames=%d current=%.3f s "
+                "total=%.3f s last=%.3f s max=%.3f s streak=%d/%d rebuild=%s "
+                "rebuild_frames=%d)",
                 schur_frame_index_, schur_starvation_monitor_.time_gate_triggers(),
                 schur_starvation_monitor_.deep_escalations(),
                 schur_starvation_monitor_.cooldown_suppressions(),
@@ -1885,7 +2050,14 @@ void Estimator::schurReportStarvation(double frame_time) const
                 schur_starvation_monitor_.max_gap_seconds(),
                 schur_starvation_monitor_.starvation_duration(frame_time),
                 schur_consecutive_failures_, schur_skipped_frames_,
-                SCHUR_MAX_NO_UPDATE_SECONDS, SCHUR_RESTART_COOLDOWN_SECONDS);
+                SCHUR_MAX_NO_UPDATE_SECONDS, SCHUR_RESTART_COOLDOWN_SECONDS,
+                static_cast<int>(SCHUR_STARVATION_HOLD),
+                static_cast<int>(schur_hold_.active()), schur_hold_.episodes(),
+                schur_hold_.frames(), schur_hold_.current_duration(frame_time),
+                schur_hold_.total_duration(), schur_hold_.last_duration(),
+                schur_hold_.max_duration(), schur_hold_.good_streak(),
+                SCHUR_HOLD_RECOVERY_FRAMES, schur_rebuild_pending_ ? "pending" : "idle",
+                schur_rebuild_last_frames_);
 }
 
 bool Estimator::optimization()

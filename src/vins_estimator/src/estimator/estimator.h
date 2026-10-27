@@ -118,6 +118,15 @@ class Estimator
     // from schurProcessFrame() instead of scheduleControlledRestart() when
     // SCHUR_STARVATION_SOFT_RESTART is enabled.
     void schurSoftRestart(double frame_time, double gap_seconds);
+    // P7 hold policy ("不重启、只保持"). enter: stop accepting visual updates and
+    // hard-delete the stale clone blocks/history while keeping the live state and
+    // covariance untouched (no clearState(), no reset(), no P re-inflation).
+    // recover: leave hold, re-seed the history and re-baseline the starvation
+    // monitor so the clone window is rebuilt frame by frame. Neither method
+    // restarts the estimator; processed image frames still write back and publish.
+    // Covariance propagation is driven by processMeasurements(), not inputIMU().
+    void schurHoldEnter(double frame_time, double gap_seconds);
+    void schurHoldRecover(double frame_time, int observations);
     // Copies the filter state back into the Ceres/visualisation window arrays.
     void schurWriteBackWindow();
     bool schurStateFinite() const;
@@ -255,6 +264,11 @@ class Estimator
     // trigger counters so they are reset atomically in initSchurBackend(); a
     // backwards timestamp re-baselines instead of triggering a restart.
     vins::backend::StarvationMonitor schur_starvation_monitor_;
+    // P7 hold policy state machine and rebuild diagnostics.
+    vins::backend::StarvationHold schur_hold_;
+    int schur_rebuild_frames_ = 0;       // frames since the last hold exit
+    int schur_rebuild_last_frames_ = 0;  // frames the last rebuild needed
+    bool schur_rebuild_pending_ = false;
 
   private:
     void scheduleControlledRestart() { restart_requested_ = true; }

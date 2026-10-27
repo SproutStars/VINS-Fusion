@@ -140,6 +140,14 @@ class EkfState
     // Returns the number of clones removed.
     int prune_clone_window();
 
+    // Hard-removes every clone block, leaving exactly the 15-dim live IMU
+    // state. Each removal is a hard delete (see marginalize_oldest_clone()), so
+    // the live 15x15 covariance block is preserved bit-for-bit: P is neither
+    // reset nor re-inflated. This is what the starvation hold policy uses to
+    // drop stale visual structure before rebuilding the window.
+    // Returns the number of clones removed.
+    int drop_all_clones();
+
     // Copies current nominal values into the live IMU FEJ copy only. Clone FEJ
     // values remain frozen at their augmentation poses.
     void refresh_imu_fej();
@@ -268,7 +276,14 @@ class StarvationMonitor
     }
 
     // Records a frame that DID apply a visual update.
-    void note_applied_update(double timestamp)
+    void note_applied_update(double timestamp) { rebaseline(timestamp); }
+
+    // Re-anchors the baseline to `timestamp` without claiming that an update was
+    // applied. Used by the P7 hold policy when the tracker recovers: the rebuilt
+    // clone window needs a full SCHUR_MAX_NO_UPDATE_SECONDS grace period before
+    // the time criterion may fire again. The elapsed gap is folded into the
+    // diagnostic maximum exactly like a real inter-update gap.
+    void rebaseline(double timestamp)
     {
         const double gap = timestamp - last_update_time_;
         if (gap > max_gap_seconds_)
@@ -393,6 +408,131 @@ class StarvationMonitor
     bool has_restart_anchor_ = false;
 };
 
+// ---------------------------------------------------------------------------
+// P7 hold policy ("do not restart, just hold").
+//
+// A starvation-triggered restart on ARM costs a multi-second Ceres
+// re-initialisation with no odometry, and P5 (re-inflate P and immediately
+// absorb the degraded observation) was measured to be worse than the starvation
+// itself. The hold policy is deliberately different from both:
+//   * the time/frame-count criterion does NOT call clearState(), does NOT
+//     re-seed the filter and does NOT touch the covariance: the live IMU state
+//     keeps propagating with the nominal process noise and keeps being
+//     published every frame;
+//   * visual updates and clone augmentation stop, so a stale tracker cannot
+//     corrupt the filter (the clone blocks are hard-deleted, the live 15x15 P
+//     block is preserved);
+//   * once the tracker reports enough observations for enough consecutive
+//     frames, hold is left and the clone window is rebuilt frame by frame.
+//
+// This class owns only the decision logic (ROS-free, unit tested); the Estimator
+// performs the EkfState mutation.
+// ---------------------------------------------------------------------------
+class StarvationHold
+{
+  public:
+    struct Config
+    {
+        bool enabled = false;
+        // Minimum camera-0 observations (tracks) a frame must carry to count
+        // towards recovery. <= 0 accepts any frame.
+        int recovery_min_features = 12;
+        // Consecutive recovered frames required before leaving hold. Values
+        // below 1 are treated as 1.
+        int recovery_frames = 2;
+    };
+
+    enum class Action
+    {
+        kNone = 0,     // not holding
+        kHold = 1,     // still holding: this frame must skip the visual update
+        kRecover = 2,  // leave hold and rebuild the clone window from this frame
+    };
+
+    void configure(const Config &config) { config_ = config; }
+    bool enabled() const { return config_.enabled; }
+    bool active() const { return active_; }
+
+    // Enters hold at sensor time `timestamp`. Returns false when already
+    // holding. Cumulative diagnostics survive a later full restart.
+    bool enter(double timestamp)
+    {
+        if (active_)
+            return false;
+        active_ = true;
+        start_time_ = timestamp;
+        last_time_ = timestamp;
+        good_streak_ = 0;
+        ++episodes_;
+        return true;
+    }
+
+    // Feeds one holding frame and reports whether the window may be rebuilt.
+    Action observe_frame(double timestamp, int observations)
+    {
+        if (!active_)
+            return Action::kNone;
+        ++frames_;
+        last_time_ = timestamp;
+        const bool enough = config_.recovery_min_features <= 0 ||
+                            observations >= config_.recovery_min_features;
+        good_streak_ = enough ? good_streak_ + 1 : 0;
+        if (good_streak_ >= std::max(1, config_.recovery_frames))
+            return Action::kRecover;
+        return Action::kHold;
+    }
+
+    // Leaves hold and returns the hold duration in seconds. Idempotent.
+    double leave(double timestamp)
+    {
+        if (!active_)
+            return 0.0;
+        const double duration = std::max(0.0, timestamp - start_time_);
+        active_ = false;
+        good_streak_ = 0;
+        last_time_ = timestamp;
+        last_duration_ = duration;
+        total_duration_ += duration;
+        if (duration > max_duration_)
+            max_duration_ = duration;
+        return duration;
+    }
+
+    // Drops the holding state without recording a duration. Used when the
+    // filter is re-seeded by a full restart.
+    void deactivate()
+    {
+        active_ = false;
+        good_streak_ = 0;
+        start_time_ = -1.0;
+        last_time_ = -1.0;
+    }
+
+    int episodes() const { return episodes_; }
+    int frames() const { return frames_; }
+    int good_streak() const { return good_streak_; }
+    double start_time() const { return start_time_; }
+    double last_duration() const { return last_duration_; }
+    double total_duration() const { return total_duration_; }
+    double max_duration() const { return max_duration_; }
+    double current_duration(double timestamp) const
+    {
+        return active_ ? std::max(0.0, timestamp - start_time_) : 0.0;
+    }
+
+  private:
+    Config config_;
+    bool active_ = false;
+    double start_time_ = -1.0;
+    double last_time_ = -1.0;
+    double total_duration_ = 0.0;
+    double max_duration_ = 0.0;
+    double last_duration_ = 0.0;
+    int episodes_ = 0;
+    int frames_ = 0;
+    int good_streak_ = 0;
+};
+
 // P5 soft-restart escalation predicate, shared by Estimator::schurProcessFrame
 // and the unit tests (T24) so the rule is ROS-free and directly testable.
 // `soft_restart_time` is the sensor time of the pending (unrecovered) soft
@@ -461,6 +601,7 @@ enum class StarvationRestartAction
     kNone = 0,  // no restart this frame
     kSoft = 1,  // P5 soft restart: keep the IMU/EKF state, drop the visual state
     kFull = 2,  // historical full clearState() + Ceres re-initialisation restart
+    kHold = 3,  // P7 hold: keep propagating/publishing, drop visual updates only
 };
 
 // P5b frame-count-backstop policy, shared by Estimator::schurProcessFrame() and
@@ -474,15 +615,21 @@ enum class StarvationRestartAction
 // The soft-restart escalation anchor is untouched here (schurSoftRestart() only
 // arms it when none is pending), so SCHUR_SOFT_RESTART_MAX_SECONDS still
 // escalates to a full restart.
+// In P7 hold mode (hold_mode) the backstop never restarts either: it enters the
+// hold state, which keeps publishing pure-IMU propagation. hold_mode takes
+// precedence over soft_mode when both are enabled.
 inline StarvationRestartAction frameCountBackstopAction(bool already_restarted,
                                                         bool cooldown_active,
                                                         int consecutive_failures,
                                                         int max_consecutive_failures,
-                                                        bool soft_mode)
+                                                        bool soft_mode,
+                                                        bool hold_mode = false)
 {
     if (already_restarted || cooldown_active ||
         consecutive_failures < max_consecutive_failures)
         return StarvationRestartAction::kNone;
+    if (hold_mode)
+        return StarvationRestartAction::kHold;
     return soft_mode ? StarvationRestartAction::kSoft : StarvationRestartAction::kFull;
 }
 

@@ -107,6 +107,21 @@
     # 仍未应用任何视觉更新，则升级一次为完整的受控重启。
     # <= 0 表示禁用该升级机制。
     schur_soft_restart_max_seconds: 10.0
+    # P7“不重启、只保持”实验策略（ARM 实测出现严重漂移，保持关闭）：为 true 时，时间判据或帧数兜底
+    # 命中后既不调用 clearState()，也不调用 EkfState::reset()，更不重置或
+    # 重膨胀协方差 P。滤波器只停止接受视觉更新与克隆增广，继续按名义过程
+    # 噪声做纯 IMU 递推（P 自然增长）并逐帧照常发布里程计。此处仍由图像帧
+    # 驱动 Schur P 递推；完全无图像时只有 IMU 名义状态预测，且里程计消息
+    # 尚未填入 EKF 协方差。该限制与 ARM 实测结果见 docs/ARM_P7_TRACKER_EVALUATION.md。
+    # 陈旧的克隆块会被硬删除（仅删除视觉行列，保留 15 维 live P）；等 tracker 连续
+    # schur_hold_recovery_frames 帧提供不少于 schur_min_features 个观测后，
+    # 清空历史并从该帧起逐帧重建克隆窗口，恢复首帧不会吸收陈旧轨迹。
+    # 该策略优先级高于 schur_starvation_soft_restart，且不会触发任何重启。
+    # 默认 false 会逐位保持此前的行为。
+    schur_starvation_hold: false
+    # 退出保持状态前，tracker 需要连续满足观测数要求的帧数。
+    # 必须 >= 1；越大越保守（恢复判定越晚，但更不容易被单帧噪声骗过）。
+    schur_hold_recovery_frames: 2
     # P6 饥饿自适应弱更新（“多接受、低权重”）。为 true 时，
     # 若某帧距上次 *已应用* 的视觉更新之间的传感器时间间隔
     # 超过 schur_starvation_seconds，则通过斜坡因子放宽卡方门限，

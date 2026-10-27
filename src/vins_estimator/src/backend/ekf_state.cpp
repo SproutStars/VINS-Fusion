@@ -255,6 +255,17 @@ void EkfState::augment_clone(double timestamp)
     timestamp_ = timestamp;
 }
 
+int EkfState::drop_all_clones()
+{
+    int removed = 0;
+    while (num_clones() > 0)
+    {
+        marginalize_oldest_clone();
+        ++removed;
+    }
+    return removed;
+}
+
 int EkfState::prune_clone_window()
 {
     int removed = 0;

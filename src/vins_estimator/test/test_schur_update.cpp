@@ -1703,8 +1703,15 @@ TEST(SchurUpdate, T27WeakUpdateRescuesGateCollapse)
     std::uniform_real_distribution<double> xy(-0.6, 0.6);
     std::uniform_real_distribution<double> z(3.0, 5.0);
     std::vector<Eigen::Vector3d> points;
+    // Sequence draws explicitly: constructor argument evaluation order differs
+    // between compilers/architectures. Preserve the original x86 fixture.
     for (int i = 0; i < 16; ++i)
-        points.emplace_back(xy(rng), xy(rng), z(rng));
+    {
+        const double pz = z(rng);
+        const double py = xy(rng);
+        const double px = xy(rng);
+        points.emplace_back(px, py, pz);
+    }
 
     // Observations are always generated from the truth poses.
     auto make_tracks = [&]() {
@@ -1734,13 +1741,15 @@ TEST(SchurUpdate, T27WeakUpdateRescuesGateCollapse)
     std::uniform_real_distribution<double> off(-1.0, 1.0);
     for (int i = 0; i < kClones; ++i)
     {
-        p_nom[static_cast<std::size_t>(i)] +=
-            Eigen::Vector3d(0.0145 * off(perturb_rng), 0.0145 * off(perturb_rng),
-                            0.0145 * off(perturb_rng));
+        const double pz = 0.0145 * off(perturb_rng);
+        const double py = 0.0145 * off(perturb_rng);
+        const double px = 0.0145 * off(perturb_rng);
+        p_nom[static_cast<std::size_t>(i)] += Eigen::Vector3d(px, py, pz);
+        const double rz = 0.0145 * off(perturb_rng);
+        const double ry = 0.0145 * off(perturb_rng);
+        const double rx = 0.0145 * off(perturb_rng);
         q_nom[static_cast<std::size_t>(i)] = EkfState::quaternion_multiply(
-            q_true[static_cast<std::size_t>(i)],
-            quat(Eigen::Vector3d(0.0145 * off(perturb_rng), 0.0145 * off(perturb_rng),
-                                 0.0145 * off(perturb_rng))));
+            q_true[static_cast<std::size_t>(i)], quat(Eigen::Vector3d(rx, ry, rz)));
     }
 
     auto scenario_options = []() {

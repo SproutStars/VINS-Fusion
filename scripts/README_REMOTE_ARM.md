@@ -126,13 +126,15 @@ Only the ROS parameter `opencv_threads` changes from 1 to 2. Feature count 200,
 calibration remain unchanged. The camera input is 20 Hz, not 10 Hz. There is no
 `--duration` limit and no automatic max150/max120 follow-up.
 
-After the benchmark exits, read the **complete** existing metrics and count the
-emitted overflow warnings without launching ROS or rewriting metrics. This
-separate read-only command is also intentionally not run during the main run:
+benchmark 退出后，只读取已有 metrics 与 `estimator.log`，不要启动 ROS，也不要
+重写 metrics。下面的只读命令同样不应在主 benchmark 运行期间执行。每个 run 优先
+解析最后一条带累计字段的 `Tracker final stats:`；若旧产物没有 final 行，则回退
+到最后一条 `Tracker periodic stats:`：
 
 ```bash
 ssh -o BatchMode=yes pinydrone0@192.168.5.60 'python3 -' <<'PYREPORT'
 import json
+import re
 from pathlib import Path
 
 root = Path.home() / "vins_remote_eval_20261019/benchmark/arm_cv2_easy"
@@ -149,6 +151,21 @@ for metrics_path in runs:
     log = metrics_path.parent / "estimator.log"
     lines = log.read_text(errors="replace").splitlines()
     warnings = [line for line in lines if "Tracking queue overflow:" in line]
+    overflow_events = None
+    overflow_dropped_pairs = None
+    overflow_stats_source = "missing"
+    for source, prefix in (("final", "Tracker final stats:"),
+                           ("periodic", "Tracker periodic stats:")):
+        for line in reversed([item for item in lines if prefix in item]):
+            match = re.search(
+                r"overflow_events=(\d+) overflow_dropped_pairs=(\d+)", line)
+            if match:
+                overflow_events = int(match.group(1))
+                overflow_dropped_pairs = int(match.group(2))
+                overflow_stats_source = source
+                break
+        if overflow_events is not None:
+            break
     print(json.dumps({
         "run": metrics_path.parent.name,
         "bag_expected_images": expected,
@@ -157,36 +174,59 @@ for metrics_path in runs:
         "observer_image_coverage_percent": 100 * received / expected,
         "latency_misses": metrics["latency_misses"],
         "estimator_log": str(log),
+        "exact_overflow_events": overflow_events,
+        "exact_overflow_dropped_pairs": overflow_dropped_pairs,
+        "overflow_stats_source": overflow_stats_source,
         "tracking_overflow_warning_lines": len(warnings),
         "first_overflow_warning": warnings[0] if warnings else None,
         "last_overflow_warning": warnings[-1] if warnings else None,
-        "warning_throttle_ms": 5000,
-        "exact_dropped_images": None,
     }, indent=2))
 PYREPORT
 ```
 
-The tracking overflow warning uses a **5000 ms throttle on the node clock**
-(`rosNodeTest.cpp`, `dispatch`). Warning-line counts are **not exact dropped
-image counts**; first/last warning lines retain the original log timestamps.
-Input coverage must accompany every candidate comparison: expected raw-bag
-counts are easy **2280**, medium **2348**, difficult **1922**. Difficult already
-has missing images in the original recording; 1922 is its actual bag count,
-not a theoretical 20 Hz duration product. Compare `received_images` with those
-counts and report `latency_misses` from the unmodified metrics alongside latency
-percentiles. Unmatched poses do not contribute to those latency percentiles.
-These are observer counts, not proof of estimator delivery or tracker ingestion;
-even equal counts alone do not prove all original frame stamps arrived uniquely.
+精确丢帧量必须看周期或 final stats 中的累计字段，不能数告警行：
+`overflow_events` 是 tracking queue 达到上限并执行丢弃策略的累计次数，
+`overflow_dropped_pairs` 是实际丢弃的 stereo frame pair 累计数。`latest` 策略
+一次 overflow 可能清掉多帧，因此 dropped pair 可以大于 event 数。周期日志消费
+的是窗口计时/均值，不会清零这两个累计值；`Tracker final stats` 可能显示
+`frames=0`，但 `total_frames` 与 overflow 累计仍然有效。可直接检查原始行：
 
-The reported current-head medium run observed **2319/2348 images (29 fewer)**.
+```bash
+grep -E 'Tracker (periodic|final) stats:' estimator.log | tail -5
+grep 'overflow_events=' estimator.log | tail -1
+```
+
+`Tracking queue overflow` 告警现在只在该进程第 1 次以及每 100 次 overflow 时
+输出，不再按 5 s 时间节流；它只是提示，不是精确丢帧计数。旧产物中的
+“5 s 节流告警行数”不能与新累计字段直接等同。
+
+tracker 的默认语义保持不变：`tracking_queue_policy=drop_oldest`（opt-in
+`latest` 时才丢弃排队旧帧、只处理最新帧）、`tracker_detection_interval=1`
+（每帧按原逻辑补点；大于 1 时常规检测最多每 N 帧一次，但特征亏空超过
+`0.5*MAX_CNT` 仍会紧急检测）、`tracker_stats_interval=100`。stats 中
+`queue_wait_ms`/`decode_ms`/`track_ms`/`pyramid_ms`/`flow_ms`/`detect_ms`/
+`input_image_ms` 均为 `mean/max`：分别表示入队到 worker 开始的等待、图像解码、
+`trackImage()` 总耗时、KLT 金字塔构建、时序/双目光流、特征拒绝与检测，以及整个
+`Estimator::inputImage()` 调用；不是百分位。
+
+Input coverage 仍必须伴随每次候选比较：raw bag 期望帧数为 easy **2280**、
+medium **2348**、difficult **1922**。Difficult 原始记录本身已有缺帧，1922 是
+实际 bag 帧数，不是 20 Hz × 时长算出的理论值。比较各次 run 的
+`received_images`，并将未修改 metrics 中的 `latency_misses` 与延迟百分位一起
+报告。未匹配位姿不进入这些延迟百分位。这些是 observer 计数，不能证明 estimator
+送达或 tracker 实际接收；即使总数相等，也不能证明所有原始帧时间戳都唯一送达。
+
+此前报告的历史 current-head medium run（旧 5 s 节流口径）观测到
+**2319/2348 images (29 fewer)**。
 The cause is undetermined; absence of a player starvation log does not establish
 loss-free playback/delivery. Treat this as a coverage limitation in comparisons,
 not as proven tracker loss or a clean full-frame-input baseline. Do not change
 the existing benchmark's QoS, counters, or timing to conceal this difference.
 
-Likewise, `received_images - output_poses` is not a tracker-drop counter:
-initialization and backend frame decimation also affect it. Fewer warning lines
-alone do not prove improved real-time behavior.
+同样，`received_images - output_poses` 不是 tracker 丢帧计数：初始化和后端抽帧
+也会影响它。旧告警行变少本身不能证明实时性改善；必须比较精确
+`overflow_events`、`overflow_dropped_pairs`、queue wait 与 track/detect 的
+mean/max，并同时报告输入覆盖和延迟。
 
 ### Initialization and trajectory coverage
 
@@ -228,10 +268,22 @@ only one variable. Do not silently combine cv2 and feature reduction.
   inspects real executables/argv tokens rather than fuzzy-searching an
   ancestor shell's command line; a snapshot argument containing
   `vins_node` does not trigger a false positive.
-- The build is limited to `camera_models vins_common vins` with
-  `--packages-select`. `vins` lists `loop_fusion`/`global_fusion` only as
-  `exec_depend`, and its `CMakeLists.txt` has no build-time reference to
-  them, so the mono benchmark does not rebuild those packages.
+- The build uses `--packages-up-to vins` to include its declared dependency
+  closure. On a fresh isolated workspace, colcon also needs the `package.sh`
+  files for the `loop_fusion`/`global_fusion` runtime dependencies. These
+  packages are built but their nodes are never launched by this wrapper.
 - The wrapper never edits calibration/config files, CPU governor, or
   flight-controller state. Explicit `--parameter` ROS overrides are recorded.
 - Run build, test, and benchmark separately when collecting measurements.
+
+
+## 2026-10-27 P7 / tracker 验证
+
+最新的独立工作区、二进制哈希、逐轮结果和限制见
+[ARM_P7_TRACKER_EVALUATION.md](../docs/ARM_P7_TRACKER_EVALUATION.md)。
+P7 已出现严重漂移，保持默认关闭；隔帧补点与 `latest` 队列也不能仅凭延迟降低推荐。
+上面的 Stage 2 是旧快照实验，不能与本轮数据混用。
+
+计算整段 tracker 耗时时，应汇总所有 `Tracker periodic stats` 和 `Tracker final stats`：
+对每个 `mean` 取 `sum(frames * mean) / sum(frames)`，`max` 取所有窗口最大值，
+并检查 `sum(frames) == final.total_frames`。最终行仅可直接读取**累计**溢出计数。

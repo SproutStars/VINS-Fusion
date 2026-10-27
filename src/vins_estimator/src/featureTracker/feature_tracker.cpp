@@ -12,6 +12,7 @@
 #include <vins_common/ros_utils.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 #include "feature_tracker.h"
@@ -20,6 +21,15 @@ namespace
 {
 constexpr int kKltWinSize = 21;
 constexpr int kKltMaxLevel = 3;
+// With a temporal detection gate enabled, a deficit this large is treated as
+// urgent and bypasses the interval so tracking cannot starve for many frames.
+constexpr double kUrgentDetectionDeficitRatio = 0.5;
+
+double elapsedMs(const std::chrono::steady_clock::time_point &start)
+{
+    return std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - start).count();
+}
 
 cv::TermCriteria kltTermCriteria()
 {
@@ -29,9 +39,15 @@ cv::TermCriteria kltTermCriteria()
 void buildFlowPyramid(const cv::Mat &img, vector<cv::Mat> &pyramid,
                       bool with_derivatives)
 {
-    pyramid.clear();
     if (img.empty())
+    {
+        pyramid.clear();
         return;
+    }
+    // Do not clear the vector first: buildOpticalFlowPyramid() reuses existing
+    // level Mats when their geometry/type match. The caller alternates two
+    // persistent vectors (current and previous), so steady-state frames avoid
+    // allocating and freeing the pyramid buffers on every call.
     // The cache must own its pixels: callers may recycle the input frame as
     // soon as trackImage() returns. Reusing the input ROI would make level 0
     // alias a later image while the upper levels still describe the old frame.
@@ -306,7 +322,18 @@ double FeatureTracker::distance(cv::Point2f &pt1, cv::Point2f &pt2)
 
 map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackImage(double _cur_time, const cv::Mat &_img, const cv::Mat &_img1, bool extract_features, bool draw_tracks)
 {
-    TicToc t_r;
+    // Per-stage diagnostics use steady-clock timestamps. The
+    // node aggregates these and only logs at a low rate.
+    const auto track_start = std::chrono::steady_clock::now();
+    FeatureTrackerTimings timings;
+    int tracked_feature_count = 0;
+    int detected_feature_count = 0;
+    const auto finish_timings = [&]() {
+        timings.total_ms = elapsedMs(track_start);
+        timings.tracked_features = tracked_feature_count;
+        timings.detected_features = detected_feature_count;
+        last_timings_ = timings;
+    };
     cur_time = _cur_time;
     cur_img = _img;
     row = cur_img.rows;
@@ -350,8 +377,14 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         prev_pyr_.clear();
     }
 
-    vector<cv::Mat> cur_pyr;
-    buildFlowPyramid(cur_img, cur_pyr, with_derivatives);
+    const auto pyramid_start = std::chrono::steady_clock::now();
+    // A detector switch can change the expected interleaved layout. Drop stale
+    // derivative Mats before asking OpenCV to reuse the scratch vector.
+    if (scratch_pyr_.size() != expected_pyr_mats)
+        scratch_pyr_.clear();
+    buildFlowPyramid(cur_img, scratch_pyr_, with_derivatives);
+    timings.pyramid_ms += elapsedMs(pyramid_start);
+    vector<cv::Mat> &cur_pyr = scratch_pyr_;
 
     // A missing previous pyramid is a cache-state failure rather than a cue to
     // rebuild it from a possibly recycled caller buffer. Restart tracking.
@@ -363,6 +396,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     }
     cur_pts.clear();
 
+    const auto flow_start = std::chrono::steady_clock::now();
     if (prev_pts.size() > 0)
     {
         TicToc t_o;
@@ -413,12 +447,15 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         RCLCPP_DEBUG(vins::logger(), "temporal optical flow costs: %fms", t_o.toc());
         //printf("track cnt %d\n", (int)ids.size());
     }
+    timings.flow_ms += elapsedMs(flow_start);
+    tracked_feature_count = static_cast<int>(cur_pts.size());
 
     for (auto &n : track_cnt)
         n++;
 
     if (1)
     {
+        const auto detect_start = std::chrono::steady_clock::now();
         if (RANSAC_OUTLIER_REJECTION) rejectWithF();
         RCLCPP_DEBUG(vins::logger(), "set mask begins");
         TicToc t_m;
@@ -428,8 +465,21 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         RCLCPP_DEBUG(vins::logger(), "detect feature begins");
         TicToc t_t;
         const int n_max_cnt = MAX_CNT - static_cast<int>(cur_pts.size());
-        const bool should_detect = n_max_cnt > 0 &&
+        bool should_detect = n_max_cnt > 0 &&
             n_max_cnt > DETECTION_MIN_FEATURE_RATIO * MAX_CNT;
+        const int detection_interval =
+            detection_interval_.load(std::memory_order_relaxed);
+        if (should_detect && detection_interval > 1)
+        {
+            // Default interval 1 keeps the exact legacy behavior. For an
+            // opt-in interval > 1, skip routine top-ups on intermediate frames
+            // but never starve: a large deficit bypasses the gate.
+            const bool interval_due = (frame_counter_ % detection_interval) == 0;
+            const bool urgent =
+                n_max_cnt > kUrgentDetectionDeficitRatio * MAX_CNT;
+            should_detect = interval_due || urgent;
+        }
+        ++frame_counter_;
         if (should_detect)
         {
             if(mask.empty())
@@ -440,6 +490,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         }
         else
             n_pts.clear();
+        detected_feature_count = static_cast<int>(n_pts.size());
         RCLCPP_DEBUG(vins::logger(), "detect feature costs: %f ms", t_t.toc());
 
         for (auto &p : n_pts)
@@ -449,6 +500,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             track_cnt.push_back(1);
         }
         //printf("feature cnt after add %d\n", (int)ids.size());
+        timings.detect_ms += elapsedMs(detect_start);
     }
 
     cur_un_pts = undistortedPts(cur_pts, m_camera[0]);
@@ -463,9 +515,14 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         cur_un_right_pts_map.clear();
         if(!cur_pts.empty())
         {
-            vector<cv::Mat> right_pyr;
-            buildFlowPyramid(rightImg, right_pyr, with_derivatives);
+            const auto right_pyramid_start = std::chrono::steady_clock::now();
+            if (scratch_right_pyr_.size() != expected_pyr_mats)
+                scratch_right_pyr_.clear();
+            buildFlowPyramid(rightImg, scratch_right_pyr_, with_derivatives);
+            timings.pyramid_ms += elapsedMs(right_pyramid_start);
+            vector<cv::Mat> &right_pyr = scratch_right_pyr_;
             //printf("stereo image; track feature on right image\n");
+            const auto right_flow_start = std::chrono::steady_clock::now();
             vector<cv::Point2f> reverseLeftPts;
             vector<uchar> status, statusRightLeft;
             vector<float> err;
@@ -497,6 +554,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             */
             cur_un_right_pts = undistortedPts(cur_right_pts, m_camera[1]);
             right_pts_velocity = ptsVelocity(ids_right, cur_un_right_pts, cur_un_right_pts_map, prev_un_right_pts_map);
+            timings.flow_ms += elapsedMs(right_flow_start);
         }
         prev_un_right_pts_map.swap(cur_un_right_pts_map);
     }
@@ -507,6 +565,8 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     // derivatives live in the owned pyramid (caller buffers may be recycled).
     prev_img = cur_img;
     prev_pyr_.swap(cur_pyr);
+    // cur_pyr is a reference to scratch_pyr_; after the swap scratch_pyr_
+    // holds the old previous-frame buffers ready for reuse by the next build.
     prev_pts = cur_pts;
     prev_un_pts = cur_un_pts;
     prev_un_pts_map.swap(cur_un_pts_map);
@@ -519,7 +579,11 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         for(size_t i = 0; i < cur_pts.size(); i++)
             prevLeftPtsMap.emplace(ids[i], cur_pts[i]);
 
-    if (!extract_features) return {};
+    if (!extract_features)
+    {
+        finish_timings();
+        return {};
+    }
 
     map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame;
     for (size_t i = 0; i < ids.size(); i++)
@@ -565,7 +629,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         }
     }
 
-    //printf("feature track whole time %f\n", t_r.toc());
+    finish_timings();
     return featureFrame;
 }
 

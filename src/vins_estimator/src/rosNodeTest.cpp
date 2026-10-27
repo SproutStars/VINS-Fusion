@@ -11,6 +11,10 @@
 #include <sensor_msgs/image_encodings.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <condition_variable>
 #include <mutex>
@@ -26,7 +30,24 @@ class VinsNode final : public rclcpp::Node
     using Bool = std_msgs::msg::Bool;
 public:
     VinsNode() : Node("vins_estimator") {}
-    ~VinsNode() override { stopTracking(); estimator_.reset(); last_frame_ = {}; unregisterPub(); }
+    ~VinsNode() override
+    {
+        finalizeTracking();
+        estimator_.reset();
+        last_frame_ = {};
+        unregisterPub();
+    }
+
+    // Emit the last statistics window before the ROS context and its logger
+    // are torn down. This is idempotent so the destructor can call it too.
+    void finalizeTracking()
+    {
+        if (tracking_finalized_)
+            return;
+        stopTracking();
+        tracking_finalized_ = true;
+        reportTrackingStats("final");
+    }
 
     // Optional ROS-parameter overrides for the backend selection. They default
     // to the values read from the configuration file so `-p` is only needed
@@ -142,6 +163,14 @@ public:
         if (!std::isfinite(SCHUR_SOFT_RESTART_MAX_SECONDS))
             throw std::invalid_argument(
                 "schur_soft_restart_max_seconds must be finite (<=0 disables)");
+        // P7 hold policy: no restart, no covariance re-inflation; keep
+        // publishing pure-IMU propagation until the tracker recovers.
+        SCHUR_STARVATION_HOLD = declare_parameter<bool>(
+            "schur_starvation_hold", SCHUR_STARVATION_HOLD);
+        SCHUR_HOLD_RECOVERY_FRAMES = declare_parameter<int>(
+            "schur_hold_recovery_frames", SCHUR_HOLD_RECOVERY_FRAMES);
+        if (SCHUR_HOLD_RECOVERY_FRAMES < 1)
+            throw std::invalid_argument("schur_hold_recovery_frames must be positive");
         // P6 starvation-adaptive weak update; default false is a strict no-op.
         SCHUR_STARVATION_WEAK_UPDATE = declare_parameter<bool>(
             "schur_starvation_weak_update", SCHUR_STARVATION_WEAK_UPDATE);
@@ -194,9 +223,22 @@ public:
         if (max_queue_ < 1 || sync_tolerance_ < 0.0)
             throw std::invalid_argument("Invalid queue size or stereo synchronization tolerance");
         tracking_queue_size_ = declare_parameter<int>("tracking_queue_size", 5);
+        tracker_detection_interval_ =
+            declare_parameter<int>("tracker_detection_interval", 1);
+        tracker_stats_interval_ =
+            declare_parameter<int>("tracker_stats_interval", 100);
+        tracking_queue_policy_ =
+            declare_parameter<std::string>("tracking_queue_policy", "drop_oldest");
         const int opencv_threads = declare_parameter<int>("opencv_threads", 1);
         if (tracking_queue_size_ < 1 || opencv_threads < 0)
             throw std::invalid_argument("tracking_queue_size must be positive and opencv_threads nonnegative");
+        if (tracker_detection_interval_ < 1 || tracker_stats_interval_ < 1)
+            throw std::invalid_argument(
+                "tracker_detection_interval and tracker_stats_interval must be positive");
+        if (tracking_queue_policy_ != "drop_oldest" &&
+            tracking_queue_policy_ != "latest")
+            throw std::invalid_argument(
+                "tracking_queue_policy must be 'drop_oldest' or 'latest'");
         cv::setNumThreads(opencv_threads);
         parameter_callback_ = add_on_set_parameters_callback(
             [this](const std::vector<rclcpp::Parameter> & parameters) {
@@ -228,11 +270,14 @@ public:
                         name == "schur_restart_cooldown_seconds" ||
                         name == "schur_starvation_soft_restart" ||
                         name == "schur_soft_restart_max_seconds" ||
+                        name == "schur_starvation_hold" ||
+                        name == "schur_hold_recovery_frames" ||
                         name == "schur_starvation_weak_update" ||
                         name == "schur_weak_update_max_scale" ||
                         name == "schur_init_pos_sigma" || name == "schur_init_vel_sigma" ||
                         name == "schur_init_rot_sigma" || name == "schur_init_ba_sigma" ||
-                        name == "schur_init_bg_sigma") {
+                        name == "schur_init_bg_sigma" ||
+                        name == "tracker_stats_interval") {
                         result.successful = false;
                         result.reason = name + " is fixed after startup; stop and relaunch the node";
                         return result;
@@ -241,6 +286,20 @@ public:
                         result.successful = false;
                         result.reason = "tracking_queue_size must be positive";
                         return result;
+                    }
+                    if (name == "tracker_detection_interval" && parameter.as_int() < 1) {
+                        result.successful = false;
+                        result.reason = "tracker_detection_interval must be positive";
+                        return result;
+                    }
+                    if (name == "tracking_queue_policy") {
+                        const std::string policy = parameter.as_string();
+                        if (policy != "drop_oldest" && policy != "latest") {
+                            result.successful = false;
+                            result.reason =
+                                "tracking_queue_policy must be 'drop_oldest' or 'latest'";
+                            return result;
+                        }
                     }
                     if (name == "opencv_threads" && parameter.as_int() < 0) {
                         result.successful = false;
@@ -252,6 +311,13 @@ public:
                     if (parameter.get_name() == "tracking_queue_size") {
                         std::lock_guard<std::mutex> lock(tracking_mutex_);
                         tracking_queue_size_ = static_cast<int>(parameter.as_int());
+                    } else if (parameter.get_name() == "tracking_queue_policy") {
+                        std::lock_guard<std::mutex> lock(tracking_mutex_);
+                        tracking_queue_policy_ = parameter.as_string();
+                    } else if (parameter.get_name() == "tracker_detection_interval") {
+                        tracker_detection_interval_ =
+                            static_cast<int>(parameter.as_int());
+                        applyTrackerConfiguration();
                     } else if (parameter.get_name() == "opencv_threads") {
                         cv::setNumThreads(static_cast<int>(parameter.as_int()));
                     }
@@ -261,6 +327,7 @@ public:
         registerPub(shared_from_this());
         estimator_ = std::make_unique<Estimator>();
         estimator_->setParameter();
+        applyTrackerConfiguration();
         // Best effort accepts both reliable rosbag publishers and sensor drivers.
         auto qos = rclcpp::SensorDataQoS().keep_last(100);
         sub_imu_ = create_subscription<Imu>(IMU_TOPIC.empty() ? "/imu0" : IMU_TOPIC,
@@ -291,6 +358,10 @@ public:
             });
         startTracking();
         RCLCPP_INFO(get_logger(), "Ready: %s, image=%s, imu=%s", STEREO ? "stereo" : "mono", IMAGE0_TOPIC.c_str(), IMU_TOPIC.c_str());
+        RCLCPP_INFO(get_logger(),
+                    "Tracker config: queue_policy=%s detection_interval=%d stats_interval=%d",
+                    tracking_queue_policy_.c_str(), tracker_detection_interval_,
+                    tracker_stats_interval_);
     }
 
 private:
@@ -302,7 +373,98 @@ private:
     }
     struct FramePair {
         Image::ConstSharedPtr left, right;
+        std::chrono::steady_clock::time_point enqueued_at;
     };
+    struct TrackingStatsWindow {
+        uint64_t frames = 0;
+        double queue_wait_sum_ms = 0.0, queue_wait_max_ms = 0.0;
+        double decode_sum_ms = 0.0, decode_max_ms = 0.0;
+        double track_sum_ms = 0.0, track_max_ms = 0.0;
+        double pyramid_sum_ms = 0.0, pyramid_max_ms = 0.0;
+        double flow_sum_ms = 0.0, flow_max_ms = 0.0;
+        double detect_sum_ms = 0.0, detect_max_ms = 0.0;
+        double input_image_sum_ms = 0.0, input_image_max_ms = 0.0;
+        int tracked_feature_sum = 0, detected_feature_sum = 0;
+    };
+    static double elapsedMs(const std::chrono::steady_clock::time_point &start,
+                            const std::chrono::steady_clock::time_point &end)
+    {
+        return std::chrono::duration<double, std::milli>(end - start).count();
+    }
+    void applyTrackerConfiguration()
+    {
+        if (estimator_)
+            estimator_->featureTracker.setDetectionInterval(tracker_detection_interval_);
+    }
+    void recordTrackingStats(double queue_wait_ms, double decode_ms,
+                             const FeatureTrackerTimings &timings,
+                             double input_image_ms)
+    {
+        TrackingStatsWindow &stats = tracking_stats_;
+        ++stats.frames;
+        ++tracking_total_frames_;
+        stats.queue_wait_sum_ms += queue_wait_ms;
+        stats.queue_wait_max_ms = std::max(stats.queue_wait_max_ms, queue_wait_ms);
+        stats.decode_sum_ms += decode_ms;
+        stats.decode_max_ms = std::max(stats.decode_max_ms, decode_ms);
+        stats.track_sum_ms += timings.total_ms;
+        stats.track_max_ms = std::max(stats.track_max_ms, timings.total_ms);
+        stats.pyramid_sum_ms += timings.pyramid_ms;
+        stats.pyramid_max_ms = std::max(stats.pyramid_max_ms, timings.pyramid_ms);
+        stats.flow_sum_ms += timings.flow_ms;
+        stats.flow_max_ms = std::max(stats.flow_max_ms, timings.flow_ms);
+        stats.detect_sum_ms += timings.detect_ms;
+        stats.detect_max_ms = std::max(stats.detect_max_ms, timings.detect_ms);
+        stats.input_image_sum_ms += input_image_ms;
+        stats.input_image_max_ms = std::max(stats.input_image_max_ms, input_image_ms);
+        stats.tracked_feature_sum += timings.tracked_features;
+        stats.detected_feature_sum += timings.detected_features;
+        if (tracking_total_frames_ %
+                static_cast<uint64_t>(tracker_stats_interval_) == 0)
+            reportTrackingStats("periodic");
+    }
+    void reportTrackingStats(const char *phase)
+    {
+        const TrackingStatsWindow &stats = tracking_stats_;
+        const uint64_t overflow_events =
+            tracking_overflow_events_.load(std::memory_order_relaxed);
+        const uint64_t dropped_pairs =
+            tracking_overflow_dropped_pairs_.load(std::memory_order_relaxed);
+        const bool final_report = std::string(phase) == "final";
+        if (!final_report && stats.frames == 0 && overflow_events == 0 &&
+            dropped_pairs == 0)
+            return;
+        const double frames = static_cast<double>(std::max<uint64_t>(stats.frames, 1));
+        char line[1024];
+        std::snprintf(
+            line, sizeof(line),
+            "Tracker %s stats: frames=%llu total_frames=%llu "
+            "queue_wait_ms=%.2f/%.2f decode_ms=%.2f/%.2f "
+            "track_ms=%.2f/%.2f pyramid_ms=%.2f/%.2f "
+            "flow_ms=%.2f/%.2f detect_ms=%.2f/%.2f "
+            "input_image_ms=%.2f/%.2f features_avg=%.1f/%.1f "
+            "overflow_events=%llu overflow_dropped_pairs=%llu",
+            phase, static_cast<unsigned long long>(stats.frames),
+            static_cast<unsigned long long>(tracking_total_frames_),
+            stats.queue_wait_sum_ms / frames, stats.queue_wait_max_ms,
+            stats.decode_sum_ms / frames, stats.decode_max_ms,
+            stats.track_sum_ms / frames, stats.track_max_ms,
+            stats.pyramid_sum_ms / frames, stats.pyramid_max_ms,
+            stats.flow_sum_ms / frames, stats.flow_max_ms,
+            stats.detect_sum_ms / frames, stats.detect_max_ms,
+            stats.input_image_sum_ms / frames, stats.input_image_max_ms,
+            stats.tracked_feature_sum / frames, stats.detected_feature_sum / frames,
+            static_cast<unsigned long long>(overflow_events),
+            static_cast<unsigned long long>(dropped_pairs));
+        // SIGINT normally tears down the ROS logging subsystem before main()
+        // returns. Keep the exact final counters in stderr so a benchmark or
+        // field run still records the complete overflow total.
+        if (final_report && !rclcpp::ok())
+            std::fprintf(stderr, "%s\n", line);
+        else
+            RCLCPP_INFO(get_logger(), "%s", line);
+        tracking_stats_ = TrackingStatsWindow{};
+    }
     static cv::Mat decode(const Image::ConstSharedPtr &image)
     {
         // CvShare can alias ROS-owned pixels. FramePair ownership is retained
@@ -313,15 +475,27 @@ private:
     }
     void track(FramePair frame)
     {
+        const auto track_start = std::chrono::steady_clock::now();
+        const double queue_wait_ms = elapsedMs(frame.enqueued_at, track_start);
+        double decode_ms = 0.0;
+        double input_image_ms = 0.0;
+        FeatureTrackerTimings timings;
         try {
-            estimator_->inputImage(vins::seconds(frame.left->header.stamp), decode(frame.left),
-                                   frame.right ? decode(frame.right) : cv::Mat());
+            const auto decode_start = std::chrono::steady_clock::now();
+            const cv::Mat left = decode(frame.left);
+            const cv::Mat right = frame.right ? decode(frame.right) : cv::Mat();
+            decode_ms = elapsedMs(decode_start, std::chrono::steady_clock::now());
+            const auto input_start = std::chrono::steady_clock::now();
+            estimator_->inputImage(vins::seconds(frame.left->header.stamp), left, right);
+            input_image_ms = elapsedMs(input_start, std::chrono::steady_clock::now());
+            timings = estimator_->featureTracker.lastTimings();
         } catch (const cv::Exception &e) {
             RCLCPP_ERROR(get_logger(), "Image conversion/tracking failed: %s", e.what());
         } catch (const cv_bridge::Exception &e) {
             RCLCPP_ERROR(get_logger(), "Image conversion failed: %s", e.what());
         }
         last_frame_ = std::move(frame);
+        recordTrackingStats(queue_wait_ms, decode_ms, timings, input_image_ms);
     }
     void startTracking()
     {
@@ -354,14 +528,42 @@ private:
     void dispatch(FramePair frame)
     {
         if (!MULTIPLE_THREAD) { track(std::move(frame)); return; }
+        bool overflowed = false;
+        bool latest_policy = false;
+        size_t dropped_this_event = 0;
+        uint64_t overflow_events = 0;
+        uint64_t overflow_dropped_pairs = 0;
         {
             std::lock_guard<std::mutex> lock(tracking_mutex_);
             if (tracking_frames_.size() >= static_cast<size_t>(tracking_queue_size_)) {
-                tracking_frames_.pop_front();
-                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                                    "Tracking queue overflow: dropping stale image pair");
+                overflowed = true;
+                latest_policy = tracking_queue_policy_ == "latest";
+                if (latest_policy) {
+                    dropped_this_event = tracking_frames_.size();
+                    tracking_frames_.clear();
+                } else {
+                    tracking_frames_.pop_front();
+                    dropped_this_event = 1;
+                }
+                overflow_events = ++tracking_overflow_events_;
+                const uint64_t dropped =
+                    static_cast<uint64_t>(dropped_this_event);
+                overflow_dropped_pairs =
+                    tracking_overflow_dropped_pairs_.fetch_add(
+                        dropped, std::memory_order_relaxed) + dropped;
             }
             tracking_frames_.push_back(std::move(frame));
+        }
+        // No time-based throttle: the exact cumulative counts remain visible
+        // even when overflow events are much denser than the old 5 s warning.
+        if (overflowed && (overflow_events == 1 || overflow_events % 100 == 0)) {
+            RCLCPP_WARN(
+                get_logger(),
+                "Tracking queue overflow: events=%llu dropped_this_event=%zu "
+                "dropped_pairs=%llu policy=%s",
+                static_cast<unsigned long long>(overflow_events), dropped_this_event,
+                static_cast<unsigned long long>(overflow_dropped_pairs),
+                latest_policy ? "latest" : "drop_oldest");
         }
         tracking_ready_.notify_one();
     }
@@ -375,7 +577,8 @@ private:
                 if (dt < -sync_tolerance_) { images0_.pop_front(); continue; }
                 if (dt > sync_tolerance_) { images1_.pop_front(); continue; }
             }
-            FramePair frame{images0_.front(), {}};
+            FramePair frame{images0_.front(), {},
+                            std::chrono::steady_clock::now()};
             images0_.pop_front();
             if (STEREO) { frame.right = images1_.front(); images1_.pop_front(); }
             dispatch(std::move(frame));
@@ -393,6 +596,7 @@ private:
         resetVisualization();
         estimator_ = std::make_unique<Estimator>();
         estimator_->setParameter();
+        applyTrackerConfiguration();
         startTracking();
     }
     void switchSensors(bool imu, bool stereo)
@@ -416,6 +620,7 @@ private:
         resetVisualization();
         estimator_ = std::make_unique<Estimator>();
         estimator_->setParameter();
+        applyTrackerConfiguration();
         startTracking();
     }
     void feature(const Cloud::ConstSharedPtr &m)
@@ -452,6 +657,14 @@ private:
     std::thread tracking_thread_;
     bool tracking_stopping_ = false;
     int tracking_queue_size_ = 5;
+    std::string tracking_queue_policy_ = "drop_oldest";
+    int tracker_detection_interval_ = 1;
+    int tracker_stats_interval_ = 100;
+    uint64_t tracking_total_frames_ = 0;
+    TrackingStatsWindow tracking_stats_;
+    std::atomic<uint64_t> tracking_overflow_events_{0};
+    std::atomic<uint64_t> tracking_overflow_dropped_pairs_{0};
+    bool tracking_finalized_ = false;
     rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr parameter_callback_;
 };
 
@@ -463,6 +676,7 @@ int main(int argc, char **argv)
         auto node = std::make_shared<VinsNode>();
         node->start(argc, argv);
         rclcpp::spin(node);
+        node->finalizeTracking();
     } catch (const std::exception &e) {
         RCLCPP_ERROR(vins::logger(), "%s", e.what());
         result = 1;

@@ -152,6 +152,18 @@ extern bool SCHUR_STARVATION_SOFT_RESTART;
 // to a full controlled restart (clearState()).  Must be finite; <= 0 disables
 // the escalation.  Only meaningful when SCHUR_STARVATION_SOFT_RESTART is true.
 extern double SCHUR_SOFT_RESTART_MAX_SECONDS;
+// P7 hold policy ("不重启、只保持"). When true, the time criterion and the
+// frame-count backstop stop accepting visual updates instead of restarting:
+// no clearState(), no EkfState::reset() and no covariance re-inflation. The
+// live IMU state keeps propagating with the nominal process noise and keeps
+// being published; the stale clone blocks are hard-deleted (live P preserved)
+// and the window is rebuilt frame by frame once the tracker carries at least
+// SCHUR_MIN_FEATURES observations for SCHUR_HOLD_RECOVERY_FRAMES consecutive
+// frames. Takes precedence over SCHUR_STARVATION_SOFT_RESTART. Default false
+// keeps every previous behaviour bit-identical.
+extern bool SCHUR_STARVATION_HOLD;
+// Consecutive recovered frames required before leaving hold; must be >= 1.
+extern int SCHUR_HOLD_RECOVERY_FRAMES;
 extern double SCHUR_INIT_POS_SIGMA;
 extern double SCHUR_INIT_VEL_SIGMA;
 extern double SCHUR_INIT_ROT_SIGMA;

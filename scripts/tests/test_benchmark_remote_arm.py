@@ -184,9 +184,9 @@ class RemoteArmWrapperTest(unittest.TestCase):
         )
 
         command = (self.output / "evidence" / "build_command.txt").read_text()
-        self.assertIn("--packages-select camera_models vins_common vins", command)
-        self.assertIn("--packages-select", (self.logs / "colcon.log").read_text())
-        self.assertNotIn("loop_fusion", command)
+        self.assertIn("--packages-up-to vins", command)
+        self.assertIn("--packages-up-to vins", (self.logs / "colcon.log").read_text())
+        self.assertNotIn("--packages-select", command)
 
     def test_existing_snapshot_is_rejected_before_compiling(self) -> None:
         self._snapshot()

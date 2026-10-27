@@ -1253,5 +1253,172 @@ TEST(WeakUpdateScale, T27PiecewiseRampAndGuards)
     EXPECT_DOUBLE_EQ(def(nan), 1.0);
 }
 
+
+// ===========================================================================
+// T28 -- P7 hold: drop_all_clones() must preserve the live 15x15 P block.
+// ===========================================================================
+TEST(EkfStateCloneWindow, T28DropAllClonesPreservesLiveCovariance)
+{
+    // The hold policy must be able to throw away stale visual structure without
+    // resetting or re-inflating the covariance: exactly what
+    // marginalize_oldest_clone() (hard delete) guarantees.
+    EkfOptions options = test_options();
+    options.window_size = 5;
+    EkfState state;
+    state.reset(options, 0.0, Vector4d(1, 0, 0, 0), Vector3d::Zero(), Vector3d::Zero(),
+                Vector3d::Zero(), Vector3d::Zero());
+    for (int k = 0; k < 4; ++k)
+    {
+        for (int s = 0; s < 5; ++s)
+            state.propagate(Vector3d(0.1, 0.0, 9.8), Vector3d(0.02, 0.01, -0.03), 0.01);
+        state.augment_clone(0.05 * (k + 1));
+    }
+    ASSERT_EQ(state.num_clones(), 4);
+
+    const Mat15 live_before = state.covariance().topLeftCorner(kImuStateSize, kImuStateSize);
+    const ImuNominal imu_before = state.imu();
+
+    EXPECT_EQ(state.drop_all_clones(), 4);
+    EXPECT_EQ(state.num_clones(), 0);
+    EXPECT_EQ(state.size(), kImuStateSize);
+    EXPECT_EQ(state.covariance().rows(), kImuStateSize);
+    EXPECT_EQ(state.covariance().cols(), kImuStateSize);
+
+    // Bit-for-bit: no reset, no re-inflation, no Schur-complement shrinkage.
+    EXPECT_LT((state.covariance() - live_before).cwiseAbs().maxCoeff(), 1e-15);
+    EXPECT_NEAR((state.imu().p - imu_before.p).norm(), 0.0, 1e-15);
+    EXPECT_NEAR((state.imu().v - imu_before.v).norm(), 0.0, 1e-15);
+    EXPECT_NEAR((state.imu().q - imu_before.q).norm(), 0.0, 1e-15);
+    EXPECT_TRUE(EkfState::is_positive_definite(state.covariance()));
+    // Idempotent.
+    EXPECT_EQ(state.drop_all_clones(), 0);
+
+    // The reduced state keeps propagating normally after the drop.
+    const ImuNominal before_propagation = state.imu();
+    state.propagate(Vector3d(0.0, 0.0, 9.8), Vector3d(0.0, 0.0, 0.0), 0.01);
+    EXPECT_GT(state.covariance().trace(), live_before.trace());
+    EXPECT_GT((state.imu().p - before_propagation.p).norm(), 0.0);
+}
+
+// ===========================================================================
+// T29 -- P7 hold state machine: consecutive recovered frames are required.
+// ===========================================================================
+TEST(StarvationHold, T29StateMachineRequiresConsecutiveRecoveredFrames)
+{
+    StarvationHold::Config config;
+    config.enabled = true;
+    config.recovery_min_features = 12;
+    config.recovery_frames = 2;
+    StarvationHold hold;
+    hold.configure(config);
+    EXPECT_TRUE(hold.enabled());
+    EXPECT_FALSE(hold.active());
+    // A frame outside hold reports kNone and is not counted.
+    EXPECT_EQ(hold.observe_frame(0.0, 100), StarvationHold::Action::kNone);
+    EXPECT_EQ(hold.frames(), 0);
+
+    // Entering hold records one episode; re-entering is a no-op.
+    EXPECT_TRUE(hold.enter(10.0));
+    EXPECT_TRUE(hold.active());
+    EXPECT_FALSE(hold.enter(10.1));
+    EXPECT_EQ(hold.episodes(), 1);
+    EXPECT_DOUBLE_EQ(hold.current_duration(12.5), 2.5);
+
+    // Too few observations break the streak and keep holding.
+    EXPECT_EQ(hold.observe_frame(11.0, 11), StarvationHold::Action::kHold);
+    EXPECT_EQ(hold.good_streak(), 0);
+    EXPECT_EQ(hold.observe_frame(11.1, 12), StarvationHold::Action::kHold);
+    EXPECT_EQ(hold.good_streak(), 1);
+    EXPECT_EQ(hold.observe_frame(11.2, 5), StarvationHold::Action::kHold);
+    EXPECT_EQ(hold.good_streak(), 0);
+    EXPECT_EQ(hold.observe_frame(11.3, 50), StarvationHold::Action::kHold);
+    EXPECT_EQ(hold.observe_frame(11.4, 50), StarvationHold::Action::kRecover);
+    EXPECT_EQ(hold.frames(), 5);
+    EXPECT_EQ(hold.good_streak(), 2);
+
+    // Leaving hold records the duration; later frames are not hold frames.
+    EXPECT_DOUBLE_EQ(hold.leave(11.5), 1.5);
+    EXPECT_FALSE(hold.active());
+    EXPECT_DOUBLE_EQ(hold.last_duration(), 1.5);
+    EXPECT_DOUBLE_EQ(hold.total_duration(), 1.5);
+    EXPECT_DOUBLE_EQ(hold.max_duration(), 1.5);
+    EXPECT_EQ(hold.observe_frame(11.6, 100), StarvationHold::Action::kNone);
+    EXPECT_EQ(hold.frames(), 5);
+
+    // The recovery streak does not leak into the next episode.
+    EXPECT_TRUE(hold.enter(20.0));
+    EXPECT_EQ(hold.good_streak(), 0);
+    EXPECT_EQ(hold.episodes(), 2);
+    // recovery_frames < 1 is clamped to 1.
+    config.recovery_frames = 0;
+    hold.configure(config);
+    EXPECT_EQ(hold.observe_frame(20.1, 12), StarvationHold::Action::kRecover);
+    hold.leave(20.2);
+    // A shorter episode must not lower the recorded maximum.
+    EXPECT_NEAR(hold.total_duration(), 1.7, 1e-12);
+    EXPECT_DOUBLE_EQ(hold.max_duration(), 1.5);
+
+    // recovery_min_features <= 0 accepts any frame (even one with no tracks).
+    config.recovery_min_features = 0;
+    hold.configure(config);
+    EXPECT_TRUE(hold.enter(21.0));
+    EXPECT_EQ(hold.episodes(), 3);
+    EXPECT_EQ(hold.observe_frame(21.1, 0), StarvationHold::Action::kRecover);
+    hold.deactivate();
+    EXPECT_FALSE(hold.active());
+    // Cumulative diagnostics survive deactivate() (used on a full re-seed).
+    EXPECT_EQ(hold.episodes(), 3);
+    EXPECT_EQ(hold.frames(), 7);
+}
+
+// ===========================================================================
+// T30 -- P7 hold mode takes precedence in the frame-count backstop.
+// ===========================================================================
+TEST(StarvationRestartPolicy, T30HoldModeBackstopNeverRestarts)
+{
+    using Action = StarvationRestartAction;
+    // At/after the limit: hold instead of soft/full, even when both are on.
+    EXPECT_EQ(frameCountBackstopAction(false, false, 60, 60, false, true), Action::kHold);
+    EXPECT_EQ(frameCountBackstopAction(false, false, 600, 60, true, true), Action::kHold);
+    EXPECT_EQ(frameCountBackstopAction(false, false, 60, 60, true, true), Action::kHold);
+    // Same suppression rules as the restart paths.
+    EXPECT_EQ(frameCountBackstopAction(true, false, 600, 60, false, true), Action::kNone);
+    EXPECT_EQ(frameCountBackstopAction(false, true, 600, 60, false, true), Action::kNone);
+    EXPECT_EQ(frameCountBackstopAction(false, false, 59, 60, false, true), Action::kNone);
+    // The five-argument call keeps the historical semantics.
+    EXPECT_EQ(frameCountBackstopAction(false, false, 60, 60, false), Action::kFull);
+}
+
+// ===========================================================================
+// T31 -- P7 hold exit re-anchors the baseline but keeps the diagnostics.
+// ===========================================================================
+TEST(StarvationMonitor, T31RebaselineKeepsMaximumGapAndCounters)
+{
+    StarvationMonitor::Config config;
+    config.max_no_update_seconds = 3.0;
+    config.starvation_seconds = 0.25;
+    config.noise_scale = 3.0;
+    StarvationMonitor monitor;
+    monitor.configure(config);
+    monitor.reset(10.0);
+
+    monitor.observe_failed_frame(10.1);
+    const StarvationMonitor::Decision decision = monitor.observe_failed_frame(14.0);
+    EXPECT_TRUE(decision.restart);
+    EXPECT_EQ(monitor.time_gate_triggers(), 1);
+
+    // Hold exit: re-anchor without claiming an update was applied.
+    monitor.rebaseline(14.0);
+    EXPECT_DOUBLE_EQ(monitor.starvation_duration(14.0), 0.0);
+    EXPECT_FALSE(monitor.starvation_active());
+    // The hold duration is folded into the diagnostic maximum.
+    EXPECT_DOUBLE_EQ(monitor.max_gap_seconds(), 4.0);
+    // Counters survive and a full grace period is available again.
+    EXPECT_EQ(monitor.time_gate_triggers(), 1);
+    EXPECT_FALSE(monitor.observe_failed_frame(16.9).restart);
+    EXPECT_TRUE(monitor.observe_failed_frame(17.1).restart);
+    EXPECT_EQ(monitor.time_gate_triggers(), 2);
+}
+
 }  // namespace backend
 }  // namespace vins

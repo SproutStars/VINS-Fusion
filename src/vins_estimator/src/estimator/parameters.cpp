@@ -72,6 +72,8 @@ double SCHUR_WEAK_UPDATE_MAX_SCALE = 10.0;
 double SCHUR_RESTART_COOLDOWN_SECONDS = 8.0;
 bool SCHUR_STARVATION_SOFT_RESTART = false;
 double SCHUR_SOFT_RESTART_MAX_SECONDS = 10.0;
+bool SCHUR_STARVATION_HOLD = false;
+int SCHUR_HOLD_RECOVERY_FRAMES = 2;
 double SCHUR_INIT_POS_SIGMA = 0.05;
 double SCHUR_INIT_VEL_SIGMA = 0.05;
 double SCHUR_INIT_ROT_SIGMA = 0.01;
@@ -266,6 +268,12 @@ void readParameters(std::string config_file, const std::string &output_path)
     if (!std::isfinite(SCHUR_SOFT_RESTART_MAX_SECONDS))
         throw std::invalid_argument(
             "schur_soft_restart_max_seconds must be finite (<=0 disables)");
+    // P7 hold policy: stop accepting visual updates instead of restarting.
+    // Default false keeps the previous restart behaviour bit-identical.
+    SCHUR_STARVATION_HOLD = config.getBool("schur_starvation_hold", false);
+    SCHUR_HOLD_RECOVERY_FRAMES = config.getInt("schur_hold_recovery_frames", 2);
+    if (SCHUR_HOLD_RECOVERY_FRAMES < 1)
+        throw std::invalid_argument("schur_hold_recovery_frames must be positive");
     if (!std::isfinite(SCHUR_INFO_RANK_RTOL) || SCHUR_INFO_RANK_RTOL <= 0.0 ||
         SCHUR_INFO_RANK_RTOL >= 1.0)
         throw std::invalid_argument("schur_info_rank_rtol must be in (0, 1)");
@@ -299,6 +307,7 @@ void readParameters(std::string config_file, const std::string &output_path)
                 "deep_noise_scale=%.2f weak_update=%d weak_update_max_scale=%.2f "
                 "restart_cooldown_seconds=%.3f "
                 "soft_restart=%d soft_restart_max_seconds=%.3f "
+                "starvation_hold=%d hold_recovery_frames=%d "
                 "imu_noise(acc=%.3e gyr=%.3e acc_walk=%.3e gyr_walk=%.3e))",
                 BACKEND_TYPE.c_str(), SCHUR_WINDOW_SIZE, SCHUR_WARMUP_FRAMES,
                 SCHUR_MAX_FEATURES, SCHUR_MIN_OBSERVATIONS, SCHUR_MIN_FEATURES,
@@ -312,6 +321,7 @@ void readParameters(std::string config_file, const std::string &output_path)
                 SCHUR_RESTART_COOLDOWN_SECONDS,
                 static_cast<int>(SCHUR_STARVATION_SOFT_RESTART),
                 SCHUR_SOFT_RESTART_MAX_SECONDS,
+                static_cast<int>(SCHUR_STARVATION_HOLD), SCHUR_HOLD_RECOVERY_FRAMES,
                 SCHUR_ACC_NOISE,
                 SCHUR_GYR_NOISE, SCHUR_ACC_BIAS_NOISE, SCHUR_GYR_BIAS_NOISE);
     RCLCPP_INFO(vins::logger(),

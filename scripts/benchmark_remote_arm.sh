@@ -277,11 +277,11 @@ CMAKE_ARGS=(
   -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
   -DVINS_ENABLE_NATIVE_OPTIMIZATION=OFF
 )
-# Build only the packages needed by the mono estimator binary and its tests.
-# loop_fusion/global_fusion are exec_depend-only for "vins"; its CMakeLists.txt
-# has no build-time reference to either, so they are deliberately excluded.
+# Include the complete declared dependency closure. Even exec_depend packages
+# need package.sh when colcon prepares a fresh isolated workspace. This builds
+# loop_fusion/global_fusion but does not launch either node.
 BUILD_CMD=(colcon build --base-paths "$SRC/src"
-  --packages-select camera_models vins_common vins
+  --packages-up-to vins
   --executor sequential "${MAP_ARGS[@]}" --event-handlers console_direct+
   --cmake-args "${CMAKE_ARGS[@]}")
 printf 'head=%s\nmode=%s\njobs=%s\ncommand=' "$HEAD" "$MODE" "$JOBS"

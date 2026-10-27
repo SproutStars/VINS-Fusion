@@ -104,6 +104,119 @@ TEST(FeatureTrackerOptions, RansacOutlierRejectionDefaultsOffAndGuardRestoresSet
     EXPECT_EQ(RANSAC_OUTLIER_REJECTION, 0);
 }
 
+TEST(FeatureTrackerOptions, DetectionIntervalClampsToOneAndDefaultsToLegacyEveryFrame)
+{
+    FeatureTracker tracker;
+    EXPECT_EQ(tracker.detectionInterval(), 1);
+    tracker.setDetectionInterval(0);
+    EXPECT_EQ(tracker.detectionInterval(), 1);
+    tracker.setDetectionInterval(-4);
+    EXPECT_EQ(tracker.detectionInterval(), 1);
+    tracker.setDetectionInterval(3);
+    EXPECT_EQ(tracker.detectionInterval(), 3);
+}
+
+TEST(FeatureTrackerDiagnostics, ReportsStageTimingsAndUpdatesOnNonExtractingFrames)
+{
+    TrackerParameterGuard guard;
+    MAX_CNT = 80; MIN_DIST = 8; FLOW_BACK = 1; SHOW_TRACK = 0;
+    FEATURE_DETECTOR = "gftt"; DETECTION_MIN_FEATURE_RATIO = 0.0;
+    cv::setNumThreads(1);
+
+    FeatureTracker tracker;
+    tracker.m_camera.emplace_back(new camodocal::PinholeCamera(
+        "left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+    const cv::Mat first = makeCornerTexture();
+    const auto observations = tracker.trackImage(1.0, first);
+    EXPECT_FALSE(observations.empty());
+
+    const FeatureTrackerTimings first_timings = tracker.lastTimings();
+    EXPECT_GT(first_timings.total_ms, 0.0);
+    EXPECT_GT(first_timings.pyramid_ms, 0.0);
+    EXPECT_GE(first_timings.flow_ms, 0.0);
+    EXPECT_GT(first_timings.detect_ms, 0.0);
+    EXPECT_GE(first_timings.total_ms,
+              first_timings.pyramid_ms + first_timings.flow_ms + first_timings.detect_ms);
+    EXPECT_EQ(first_timings.tracked_features, 0);
+    EXPECT_GT(first_timings.detected_features, 0);
+
+    cv::Mat second;
+    const cv::Mat shift = (cv::Mat_<double>(2, 3) << 1, 0, 0.5, 0, 1, -0.25);
+    cv::warpAffine(first, second, shift, first.size(), cv::INTER_LINEAR,
+                   cv::BORDER_REFLECT_101);
+    EXPECT_TRUE(tracker.trackImage(2.0, second, cv::Mat(), false, false).empty());
+
+    const FeatureTrackerTimings second_timings = tracker.lastTimings();
+    EXPECT_GT(second_timings.total_ms, 0.0);
+    EXPECT_GT(second_timings.pyramid_ms, 0.0);
+    EXPECT_GT(second_timings.flow_ms, 0.0);
+    EXPECT_GT(second_timings.tracked_features, 0);
+    EXPECT_GE(second_timings.total_ms,
+              second_timings.pyramid_ms + second_timings.flow_ms + second_timings.detect_ms);
+    EXPECT_GE(second_timings.detected_features, 0);
+}
+
+TEST(FeatureTrackerDetectionGate, DefaultIntervalStillTopsUpEveryDeficitFrame)
+{
+    TrackerParameterGuard guard;
+    MAX_CNT = 100; MIN_DIST = 8; FLOW_BACK = 1; SHOW_TRACK = 0;
+    FEATURE_DETECTOR = "gftt"; DETECTION_MIN_FEATURE_RATIO = 0.0;
+    cv::setNumThreads(1);
+
+    FeatureTracker tracker;
+    tracker.m_camera.emplace_back(new camodocal::PinholeCamera(
+        "left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+    const cv::Mat image = makeCornerTexture();
+    tracker.trackImage(1.0, image);
+    ASSERT_GT(tracker.prev_pts.size(), 60u);
+
+    // Recreate a routine deficit below the urgency threshold. The legacy
+    // interval (1) must still run the detector on this frame.
+    tracker.prev_pts.resize(60);
+    tracker.ids.resize(60);
+    tracker.track_cnt.resize(60);
+    tracker.trackImage(2.0, image);
+    EXPECT_GT(tracker.lastTimings().detected_features, 0);
+}
+
+TEST(FeatureTrackerDetectionGate, IntervalSkipsRoutineTopUpButUrgentDeficitBypasses)
+{
+    TrackerParameterGuard guard;
+    MAX_CNT = 100; MIN_DIST = 8; FLOW_BACK = 1; SHOW_TRACK = 0;
+    FEATURE_DETECTOR = "gftt"; DETECTION_MIN_FEATURE_RATIO = 0.0;
+    cv::setNumThreads(1);
+
+    FeatureTracker gated;
+    gated.m_camera.emplace_back(new camodocal::PinholeCamera(
+        "left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+    gated.setDetectionInterval(2);
+    const cv::Mat image = makeCornerTexture();
+    gated.trackImage(1.0, image);
+    ASSERT_GT(gated.prev_pts.size(), 60u);
+
+    gated.prev_pts.resize(60);
+    gated.ids.resize(60);
+    gated.track_cnt.resize(60);
+    gated.trackImage(2.0, image);
+    EXPECT_EQ(gated.lastTimings().detected_features, 0);
+    EXPECT_LE(gated.prev_pts.size(), 61u);
+    gated.trackImage(3.0, image);
+    EXPECT_GT(gated.lastTimings().detected_features, 0);
+
+    FeatureTracker urgent;
+    urgent.m_camera.emplace_back(new camodocal::PinholeCamera(
+        "left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+    urgent.setDetectionInterval(100);
+    urgent.trackImage(1.0, image);
+    ASSERT_GT(urgent.prev_pts.size(), 30u);
+
+    urgent.prev_pts.resize(30);
+    urgent.ids.resize(30);
+    urgent.track_cnt.resize(30);
+    urgent.trackImage(2.0, image);
+    EXPECT_GT(urgent.lastTimings().detected_features, 0);
+}
+
 TEST_P(TrackerBuffers, PreservesVelocityAcrossGatedFramesAndPrediction)
 {
     FeatureTracker tracker;
@@ -256,6 +369,12 @@ TEST(FeatureTrackerPyramidCache, DetectorChangeDiscardsIncompatibleCache)
     FAST_THRESHOLD = 10; GRID_X = 5; GRID_Y = 5;
     tracker.trackImage(2.0, image);
     EXPECT_EQ(tracker.previousPyramid().size(), kKltDerivativePyramidMats);
+    EXPECT_EQ(tracker.prev_pts.size(), tracker.ids.size());
+
+    // The reverse transition must also discard the derivative layout.
+    FEATURE_DETECTOR = "gftt";
+    tracker.trackImage(3.0, image);
+    EXPECT_EQ(tracker.previousPyramid().size(), kKltImagePyramidMats);
     EXPECT_EQ(tracker.prev_pts.size(), tracker.ids.size());
 }
 

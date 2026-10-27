@@ -105,7 +105,8 @@ Ceres 残差块。
 | 条件数上限 | `schur_condition_limit` | 超限拒绝该帧（0 关闭） |
 | 连续失败重启（次要） | `schur_max_consecutive_failures` | 连续 N 帧无更新则受控重启 |
 | 时间饥饿重启（主要） | `schur_max_no_update_seconds` | 距上次成功更新超过该秒数则受控重启（0 关闭） |
-| 饥饿期过程噪声放大 | `schur_starvation_seconds` / `schur_starvation_noise_scale` | 饥饿超过前者后，每次 IMU 递推把 Q 乘以后者 |
+| 饥饿保持（P7，opt-in） | `schur_starvation_hold` / `schur_hold_recovery_frames` | 不重启、不重膨胀协方差；硬删 clone、暂停视觉更新，纯 IMU 递推并逐帧发布；连续恢复后逐帧重建 clone 窗口 |
+| 饥饿期过程噪声放大 | `schur_starvation_seconds` / `schur_starvation_noise_scale` | 饥饿超过前者后，每次 IMU 递推把 Q 乘以后者（P7 hold 期间停用） |
 
 此外，`is_positive_definite` / `is_positive_semidefinite` / `symmetrize` 在每次
 更新后校验协方差；`schurStateFinite()` 检查状态有限性。
@@ -142,6 +143,8 @@ Ceres 残差块。
 | `schur_starvation_deep_noise_scale` | 10.0 | 深度饥饿期的 Q 放大倍数（`>=1.0`） |
 | `schur_starvation_soft_restart` | false | 饥饿重启是否走**软重启**（保留 IMU/EKF 状态、不重初始化；见 5.1） |
 | `schur_soft_restart_max_seconds` | 10.0 | 软重启后若该秒数内仍无成功视觉更新，升级为完整受控重启（`<=0` 关闭升级） |
+| `schur_starvation_hold` | false | **P7“不重启、只保持”**开关；默认关闭时旧路径逐位不变；优先级高于 P5，见 5.1 |
+| `schur_hold_recovery_frames` | 2 | P7 退出 hold 所需的连续恢复帧数（必须 `>= 1`）；每帧至少要有 `schur_min_features` 个 camera-0 观测 |
 | `schur_starvation_weak_update` | false | 饥饿期是否启用 **P6 弱更新**（放宽门控 + 对接受观测降权；见 5.1） |
 | `schur_weak_update_max_scale` | 10.0 | P6 弱更新的最大 scale（finite 且 `>= 1.0`）：门控阈值 ×scale、观测信息 ÷scale² |
 | `schur_init_pos_sigma` | 0.5 | 初始位置标准差 |
@@ -166,7 +169,7 @@ EKF 单独使用 OpenVINS 的 EuRoC MAV 连续时间噪声密度。
 `12` 与 `24` 的 ATE 逐位相同（ATE 0.2295 / 0.3809），故取更宽松的 12，让视觉更
 稀疏的帧也能参与更新。
 
-### 5.1 饥饿判据与重启策略（P1 / P3 / P4 / P5 / P6）
+### 5.1 饥饿判据与保持/重启策略（P1 / P3 / P4 / P5 / P6 / P7）
 
 **问题（ARM 证据）。** 见 7.2.1：同一 binary 仅切参数，Orange Pi Zero 3 上
 EuRoC V2_03_difficult 有 182 帧被跳过（insufficient observations 162 /
@@ -307,13 +310,123 @@ P6 的思路是在"饥饿但还没漂飞"的窗口（0.25–1.0 s）里**有条�
 | **timeonly / noiseonly**（归因） | 只启用其中一半（见 7.2.4） |
 | **weak**（P6 弱更新：ride 全部参数 + 以下两项） | `schur_starvation_weak_update:=true` `schur_weak_update_max_scale:=10.0` |
 
+**饥饿保持（P7，opt-in：“不重启、只保持”）。** P5 的失败说明“保留已经漂移的
+名义状态、再把 P 重新膨胀到初始 σ、立即恢复视觉更新”会让滤波器吸附到错误的
+视觉解。P7 因此不再执行任何形式的重启/重置，而是在视觉观测不可信时把滤波器
+切换到纯 IMU 保持态，等 tracker 连续恢复后再逐帧重建视觉窗口：
+
+- `schur_starvation_hold`（默认 **false**）：
+  - `false`：P1/P4/P5/P6 的旧路径逐位不变；这是默认行为和兼容性保证。
+  - `true`：时间饥饿判据和帧数兜底都改为进入 hold，而不是
+    `scheduleControlledRestart()` 或 `schurSoftRestart()`。即使本次时间判据被 P4
+    冷却抑制，进入 hold 仍然允许，因为冷却只限制“重启”，而 hold 不重启。
+  - P7 的优先级高于 P5：两者同时为 `true` 时不会调用软重启，也不会启动 P5 的
+    “软重启后升级为完整重启”计时器。
+- `schur_hold_recovery_frames`（默认 **2**，必须 `>= 1`）：退出 hold 所需的
+  **连续**恢复帧数；每一帧都必须至少有 `schur_min_features` 个 camera-0 观测。
+- **进入 hold 时**：不调用 `clearState()`，不调用 `EkfState::reset()`，不重膨胀 P；
+  调用 `drop_all_clones()` 直接删除 clone 对应的行列，并清空
+  `schur_history_`。因此 live 15 维 IMU 状态及其 15×15 P 块保持不变，只是视觉
+  clone/历史被移除。hold 期间不增广 clone、不做视觉更新、不做边缘化。
+- **保持期间**：`schurPropagate()` 继续用正常过程噪声做纯 IMU 递推，并显式绕过
+  饥饿期 Q 放大（`noise_scale=1.0`），避免把 P 人为再膨胀；每个图像帧仍执行
+  `schurWriteBackWindow()`，所以被处理的图像帧继续发布里程计。此路径本身不会
+  在完全没有图像时触发发布；Schur P 的递推也仍依赖 feature 队列消费。已有
+  IMU 预测话题只预测名义状态，其独立发布频率本轮未测，消息也未填入 EKF 协方差。
+- **恢复时**：只有 tracker 连续 `schur_hold_recovery_frames` 帧达到特征下限才退出。
+  退出帧会再次硬删残留 clone、清空历史并重新锚定时间判据，然后立即走正常视觉路径；
+  但该帧的 `schur_history_` 只有当前这一条记录，任何 track 都达不到
+  `schur_min_observations`，所以**恢复首帧不会吸收 hold 前的陈旧轨迹**。之后每帧
+  增广一个 clone，窗口逐步填满；满足轨迹条件即可尝试视觉更新，窗口未满时也
+  可能使用已丢失的轨迹。填满日志只表示结构重建，不能证明视觉更新已成功。
+
+P7 与 P5 的关键区别是：P5 是“软重启 + 立即恢复”，会保留漂移状态却把 P 重置到
+初始 σ；P7 是“暂停视觉、保留 live P、渐进恢复”，既不 reset 也不重膨胀。P7 的
+ARM 已完成同二进制回放，出现持续输出但严重漂移、反复 hold/rebuild 的失败案例，
+**不推荐启用，默认保持 false**。结果见 [2026-10-27 验证报告](ARM_P7_TRACKER_EVALUATION.md)。
+历史 §7.2.5–§7.2.7 的 P4/P5/P6 数据不能当作 P7 的证据。
+
+hold 相关日志示例：
+
+```text
+Schur EKF hold entered at frame 421 (t=42.100): 3.204 s without a visual update
+  (> 3.000 s). No restart and no covariance re-inflation: dropped 5 clones, live state
+  and P kept; pure-IMU propagation continues and the estimate keeps being published.
+  Episode=1
+Schur EKF hold exit after 4.850 s (episode=1, t=46.950): tracker recovered with 37
+  observations (>= 12 for 2 consecutive frames). Rebuilding the clone window from this
+  frame, live state and P kept
+Schur EKF clone window rebuilt after hold in 5 frames (5 clones, t=47.200): visual
+  updates resume from the next frame
+```
+
+周期 starvation summary 中的 `hold(...)` 字段解释：
+
+| 字段 | 含义 |
+|---|---|
+| `enabled` | `schur_starvation_hold` 参数值（0/1） |
+| `active` | 当前是否处于 hold（0/1） |
+| `episodes` | 累计进入 hold 的 episode 数；完整滤波器重启后仍保留 |
+| `frames` | 累计被 hold 跳过的视觉帧数；跨完整滤波器重启仍保留 |
+| `current` | 当前 episode 已持续时间（秒）；未 hold 时为 0 |
+| `total` | 已结束 hold episode 的累计持续时间（秒），不含当前 episode |
+| `last` / `max` | 最近一次 / 历史最长一次已结束 hold 的持续时间（秒） |
+| `streak` | `已连续达到特征下限的帧数 / schur_hold_recovery_frames` |
+| `rebuild` | `pending` 表示退出 hold 后 clone 窗口仍在逐帧重建；`idle` 表示未在重建 |
+| `rebuild_frames` | 最近一次完整重建实际需要的帧数；重建进行中仍显示上一次的值 |
+
 x86 与 ARM 的实测结论严格分开陈述（见第 7 节）。
+
+### 5.2 Tracker 队列、检测门控与诊断
+
+以下参数属于 tracker/节点侧，不改变后端数学；默认值保持旧行为，优化项必须
+显式 opt-in：
+
+| 参数 | 默认 | 含义 |
+|---|---:|---|
+| `tracking_queue_size` | 5 | tracking worker 的最大待处理 stereo frame pair 数；本补丁不通过增大它掩盖延迟 |
+| `tracking_queue_policy` | `"drop_oldest"` | `drop_oldest`：队列已满时丢弃最旧一帧再入队；`latest`：队列已满时清空旧排队帧，只保留最新帧（opt-in） |
+| `tracker_detection_interval` | 1 | 默认每帧按原逻辑检测；`N>1` 时常规补点最多每 N 帧一次，但特征亏空超过 `0.5*MAX_CNT` 时仍紧急检测 |
+| `tracker_stats_interval` | 100 | 每处理 N 个 tracking frame 输出一次 `Tracker periodic stats`；累计 overflow 不受该周期限制 |
+
+`Tracker periodic stats` / `Tracker final stats` 的格式为：
+
+```text
+Tracker periodic stats: frames=100 total_frames=100 queue_wait_ms=0.02/0.03
+  decode_ms=0.01/0.02 track_ms=3.95/8.38 pyramid_ms=0.18/0.53
+  flow_ms=2.40/5.18 detect_ms=1.33/7.53 input_image_ms=3.96/8.38
+  features_avg=146.9/2.8 overflow_events=0 overflow_dropped_pairs=0
+```
+
+字段口径：
+
+- `frames` 是当前报告窗口内的 tracking 帧数；`total_frames` 是进程启动以来的累计
+  处理帧数。周期报告后窗口统计清零，累计 overflow 计数不清零。
+- 除 `features_avg` 和两个 overflow 字段外，其余计时都是 `mean/max`，不是百分位。
+- `queue_wait_ms`：frame pair 入队到 worker 开始处理之间的等待；
+- `decode_ms`：ROS image 到 `cv::Mat` 的解码/转换；
+- `track_ms`：`FeatureTracker::trackImage()` 的总耗时；
+- `pyramid_ms`：左右目 KLT 金字塔构建（单目只有左目）；
+- `flow_ms`：左目时序光流以及双目左右匹配/反向检查；
+- `detect_ms`：`rejectWithF()`、mask 更新和 GFTT/FAST-Grid 检测；
+- `input_image_ms`：整个 `Estimator::inputImage()` 调用，通常大于 `track_ms`，
+  因为还包含 tracker 之后的输入处理；
+- `features_avg=tracked/detected`：当前窗口平均跟踪特征数 / 平均新检测特征数；
+- `overflow_events`：队列满并执行丢弃策略的累计次数；
+- `overflow_dropped_pairs`：累计实际丢弃的 stereo frame pair 数。`latest` 一次
+  overflow 可能丢弃多帧，因此该值可以大于 `overflow_events`。
+
+overflow 告警行仍按“第 1 次 + 每 100 次”计数节流，只用于提示，**不再有 5 s
+时间节流**，也不能用告警行数代替精确累计值；精确值始终看
+`overflow_events` / `overflow_dropped_pairs`。`Tracker final stats` 在退出时也会
+写出累计值；若最后一个窗口已被周期日志消费，final 行的 `frames=0` 是正常的，
+`total_frames` 和 overflow 累计仍有效。
 
 ---
 
 ## 6. 测试
 
-- `src/vins_estimator/test/test_ekf_state.cpp`（27 个用例）：传播、增广、裁剪、FEJ、
+- `src/vins_estimator/test/test_ekf_state.cpp`（31 个用例）：传播、增广、裁剪、FEJ、
   PSD 性质，`StarvationMonitor`（时间判据：帧数多但时间跨度小不触发、超过阈值
   触发、时间戳回退只重置基准；T17/T18 深度饥饿升级与关闭；T19–T22 重启冷却：
   冷却内抑制时间判据与帧数兜底、`reset()` 不清锚点、时间戳回退清锚点、`0` 关闭
@@ -323,7 +436,8 @@ x86 与 ARM 的实测结论严格分开陈述（见第 7 节）。
   soft/full 决策 `frameCountBackstopAction()`；T27 P6 弱更新 ramp
   `weakUpdateScale()`：关闭/非法参数/负 gap/严格 `>` 边界/线性插值/`deep <=
   starvation` 阶跃/`max_scale == 1`），以及 `EkfState::propagate` 的
-  饥饿期 Q 放大（线性放大、对称/正定、非法倍数被中和）。
+  饥饿期 Q 放大（线性放大、对称/正定、非法倍数被中和）。P7 新增 T28–T31：
+  删除全部 clone 保留 live P、连续帧恢复状态机、保持优先的帧数兜底和时间基线重建。
 - `src/vins_estimator/test/test_schur_update.cpp`（24 个用例）：三角化、卡方门控、
   Schur 消元等价性、track 选择（含窗口未满/已满两种模式）；T27 用合成数据证明
   P6 能救回门控崩溃——同一帧在 `weak_update_scale = 1.0` 时 `applied=false`、
@@ -340,7 +454,9 @@ colcon test --packages-select vins --ctest-args -R "test_(ekf_state|schur_update
 
 开发机（x86_64）全量：`colcon test --packages-select vins` →
 **95 tests, 0 errors, 0 failures, 0 skipped**（`test_ekf_state` 27、`test_schur_update`
-24、其余 44）。ARM 上不跑 gtest（`BUILD_TESTING=ON` 只保证编译通过）。
+24、其余 44），这是 P6 时的历史结果。2026-10-27 新增 P7/tracker 测试后，
+ARM 已实际运行 gtest；colcon 汇总 **110 tests, 0 errors, 0 failures, 0 skipped**，
+Python 脚本测试 **24/24**。跨平台夹具修复见 [ARM 验证报告](ARM_P7_TRACKER_EVALUATION.md)。
 
 ---
 
@@ -513,6 +629,13 @@ Ceres 与 Schur 是**同一个 binary**，只用 `backend_type` 参数切换，�
 来自后端本身。每个序列回放前都预热了 mcap 缓存。原始产物在 ARM 上
 `~/vins_remote_eval_20261019/benchmark/arm_{ceres,schur}_v2_*/`。
 
+> **历史口径说明**：本节及 §7.2.5–§7.2.7 的 ARM 矩阵是 P7 和精确 tracker 诊断
+> 加入前采集的**旧机制数据**，保留用于解释 P4/P5/P6 的失败机理。表中的
+> “queue overflow”是旧 5 s 时间节流下的告警行数，不是实际丢弃 frame pair 数；
+> 不能把它与新的 `overflow_events` / `overflow_dropped_pairs` 直接等同，也不能
+> 用这些 P4/P5/P6 数据推断 P7 的效果。P7 的独立结果见
+> [2026-10-27 验证报告](ARM_P7_TRACKER_EVALUATION.md)。
+
 | 数据集 | 后端 | ATE RMSE (m) | p50 (ms) | p95 (ms) | p99 (ms) | CPU (%·单核) | 峰值 RSS (MiB) | poses/images | 最大输出空洞 (s) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | V2_01_easy | ceres | 0.1675 | 409.5 | 566.4 | 909.5 | 178.3 | 103.5 | 1082/2280 | 0.15 |
@@ -535,9 +658,11 @@ ARM 上的结论：
 #### 7.2.1 ARM 上 V2_03 失败的机理（已定位）
 
 ARM 单帧 p50 ≈ 315 ms，而 bag 以 20 Hz 播图，estimator 实际只能处理约 3 帧/s，
-日志中出现 16 次 `Tracking queue overflow: dropping stale image pair`（x86 同序列
-为 0 次）。注意溢出次数只取决于 tracker 处理速率与输入频率，**与后端无关**：同一
-序列 Schur 与 Ceres 两次运行的溢出次数完全相同（V2_01 22、V2_02 23、V2_03 16）。
+日志中出现 16 次旧格式 `Tracking queue overflow: dropping stale image pair` 告警（x86
+同序列为 0 次；这是旧 5 s 时间节流下的告警行数，不是精确 drop 数）。注意溢出只
+取决于 tracker 处理速率与输入频率，**与后端无关**：同一序列 Schur 与 Ceres 两次
+运行的旧告警行数完全相同（V2_01 22、V2_02 23、V2_03 16）。新日志请改读
+`overflow_events` / `overflow_dropped_pairs`。
 由此产生连锁：
 
 1. 丢帧使初始化窗口的帧间距被拉长，EKF 的初始种子与 x86 略有不同；
@@ -713,8 +838,9 @@ x86 与 ARM 不并发 benchmark；`ROS_DOMAIN_ID=173`。
 - **legacy 也在同一水平**：4 次 run 为 0.3689 / 0.4828 / 3.0763 / 8.7793 m，
   空洞 0.20 / 0.35 / 7.05 / 20.75 s，受控重启 0/0/1/3 次（全部来自帧数兜底）。
   也就是说旧判据同样不稳定，P1/P3/P4 并没有把 legacy 变差，但也没能解决根因。
-- **`Tracking queue overflow` 与后端无关**：V2_03 上每次 run 都是 16 条（5 s 节流
-  后的条数），V2_01/V2_02 为 22/23 条。它是视觉更新降频（饥饿）的根本来源。
+- **`Tracking queue overflow` 与后端无关**：V2_03 上每次 run 都是 16 条旧告警
+  （旧 5 s 时间节流后的条数，不是精确 drop 数），V2_01/V2_02 为 22/23 条。它是
+  视觉更新降频（饥饿）的根本来源；新实现请用精确累计字段复核。
 - **口径警告**：`trajectory_duration_s` 一直是 108–110 s（bag 时间），但
   `poses/images` 只有 588–1094/1922——空洞体现在 `max_output_gap_s` 与 pose 数上，
   必须与 ATE 一起看。
@@ -863,7 +989,7 @@ HEAD `82b4ba38caeaea799709886a1b88b43a17e2f628` + 未提交改动；原始产物
    「重启」是代价最高的动作，而 1.0 s 的时间判据把 1–2 s 的短饥饿也变成重启，
    形成「短饥饿 → 重启 → 重新初始化 → 又短饥饿」的重启风暴。旧判据（20 连续帧）
    同样会踩这个坑，只是触发频率更低（base 4 次 run 共 6 次 frame_gate 重启）。
-6. **优化优先级与状态（P1→P6）**：
+6. **优化优先级与状态（P1→P7）**：
    - **P1 时间判据 + P3 饥饿期 Q 放大（已实现、已实测）**：机制有效但不充分
      （§7.1.1、§7.2.4）。
    - **P4 重启冷却 + 两级 Q 放大 + 新默认阈值（已实现、已实测）**：把 ARM 上的重启
@@ -882,14 +1008,20 @@ HEAD `82b4ba38caeaea799709886a1b88b43a17e2f628` + 未提交改动；原始产物
      变成百米级（§7.2.7，同会话 control 也发散，故 ARM 只作旁证）。原因是饥饿窗口里
      被门控拒绝的正是**误跟踪**外点，放宽 10× 后它们带着整帧系统性偏差进入状态。
      默认 `false`，路径仅作诊断保留。
+   - **P7 饥饿保持（已实现，默认 `false`；ARM 验证出现严重漂移，不推荐启用）**：不重启、不重膨胀 P，
+     硬删 clone 并暂停视觉更新，对仍被处理的图像帧继续纯 IMU 递推/发布；tracker 连续达到观测数下限后逐帧重建
+     clone 窗口，恢复首帧不吸收旧轨迹（§5.1）。它针对 P5 的“保留漂移状态但重膨胀 P”
+     失效点，但本轮同 binary 回放已出现反复 hold/rebuild 和严重漂移，见
+     [P7/tracker ARM 报告](ARM_P7_TRACKER_EVALUATION.md)。
    - **不要无条件放宽 `schur_min_update_observations`**（§7.2.2 实测更差）。P6 的
      "饥饿期有条件放宽 + 同时降权"实测也没有救回来（§7.1.4），因此"放宽接受门槛"
      这一族方向（无条件 / 有条件 / 降权补偿）在现有数据上都不成立。
-   - **根本瓶颈仍未解决**：ARM 上 tracker 跟不上 20 Hz
-     （`Tracking queue overflow`，日志按 5 s 节流，实际丢帧数远多于日志条数），使可用
-     特征数骤降。这是饥饿的根源，与后端无关，需要从 `tracking_queue_size` / 检测频率 /
-     特征跟踪耗时入手。后端只能减轻症状，不能消除。
-7. **未覆盖范围**：只跑了 3 个 EuRoC 序列；ARM 上 V2_03_difficult 累计 **25 次
+   - **根本瓶颈仍未解决**：ARM 上 tracker 跟不上 20 Hz。旧日志的 5 s 节流告警行
+     不能代表实际丢弃量；新实现应直接比较 `overflow_events`、
+     `overflow_dropped_pairs`、queue wait 和 track/detect 的 mean/max。可用特征数
+     骤降仍是饥饿的根源，与后端无关，需要从队列策略 / 检测频率 / 特征跟踪耗时
+     入手。后端只能减轻症状，不能消除。
+7. **历史覆盖范围（截至 P6，P7 另见报告）**：只跑了 3 个 EuRoC 序列；ARM 上 V2_03_difficult 累计 **25 次
    重复**（P4 矩阵 12 次、P5 矩阵 4 次、P6 矩阵 9 次，已见显著会话级方差），
    V2_01/V2_02 各 3–4 次；未做故障注入，也没有实机 1280×960/30 Hz 数据；
    `Estimator::failureDetection()` 目前仍直接 `return false`，所以
@@ -939,26 +1071,36 @@ P5 软重启（**仅诊断，实测不可行**，§7.2.6）：在上面基础上
   --parameter schur_soft_restart_max_seconds:=10.0
 ```
 
-P6 弱更新（§7.2.7）：在上面基础上再加
+P6 弱更新（§7.2.7，历史结论：无收益/不可行）：在上面基础上再加
 
 ```bash
   --parameter schur_starvation_weak_update:=true \
   --parameter schur_weak_update_max_scale:=10.0
 ```
 
-> A/B 纪律：P5/P6 这类 opt-in 开关必须用**同一个 binary**、同一会话内 weak on/off
+P7 饥饿保持（**ARM 验证失败，保留实验复现入口**，见 [实测报告](ARM_P7_TRACKER_EVALUATION.md)）：在上面基础上再加
+
+```bash
+  --parameter schur_starvation_hold:=true \
+  --parameter schur_hold_recovery_frames:=2
+```
+
+> A/B 纪律：P5/P6/P7 这类 opt-in 开关必须用**同一个 binary**、同一会话内开关
 > 交替各跑 ≥3 次，否则 ARM 的会话级方差（§7.2.6、§7.2.7）会把开关效果淹没。
 
 ARM 结果解析（每个 run 目录下的 `metrics.json` + `estimator.log`）：
 
 ```bash
-# 关键计数：软重启 / 升级 / 完整重启 / 深度饥饿 / 弱更新 / queue overflow
+# 关键事件计数：软重启 / 升级 / 完整重启 / 深度饥饿 / 弱更新 / P7 hold
 for pat in 'soft restart at frame' 'escalating to a full' \
            'scheduling a controlled estimator restart' 'deep starvation started' \
-           'weak-update frame' 'Tracking queue overflow'; do
+           'weak-update frame' 'Schur EKF hold entered' 'Schur EKF hold exit'; do
   printf '%-45s %s\n' "$pat" "$(grep -c "$pat" estimator.log)"
 done
-# 周期汇总（累计计数 + 当前噪声倍数 + 最长无更新间隔）
+# 精确 tracker overflow 累计值（final 行优先；如无 final 则读最后一条 periodic）
+grep 'Tracker final stats:' estimator.log | tail -1 \
+  | grep -oE 'overflow_events=[0-9]+ overflow_dropped_pairs=[0-9]+'
+# 周期汇总（累计计数 + 当前噪声倍数 + 最长无更新间隔 + hold 状态）
 grep 'starvation summary' estimator.log | tail -1
 # 状态是否跳飞：相邻位姿的最大欧氏距离（trajectory.csv）
 python3 -c "

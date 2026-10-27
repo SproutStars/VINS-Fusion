@@ -11,9 +11,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <iostream>
 #include <queue>
+#include <chrono>
 #include <execinfo.h>
 #include <csignal>
 #include <opencv2/opencv.hpp>
@@ -33,6 +36,16 @@ bool inBorder(const cv::Point2f &pt);
 void reduceVector(vector<cv::Point2f> &v, const vector<uchar> &status);
 void reduceVector(vector<int> &v, const vector<uchar> &status);
 
+struct FeatureTrackerTimings
+{
+    double pyramid_ms = 0.0;
+    double flow_ms = 0.0;
+    double detect_ms = 0.0;
+    double total_ms = 0.0;
+    int tracked_features = 0;
+    int detected_features = 0;
+};
+
 class FeatureTracker
 {
 public:
@@ -42,6 +55,19 @@ public:
     void detectFeatures(const cv::Mat &img, const cv::Mat &mask, int max_features,
                         vector<cv::Point2f> &points);
     const vector<cv::Mat> &previousPyramid() const { return prev_pyr_; }
+    const FeatureTrackerTimings &lastTimings() const { return last_timings_; }
+    // Opt-in temporal detection gate. 1 (default) runs the detector exactly as
+    // before on every frame that has a deficit. Values > 1 run it at most every
+    // N frames unless the feature deficit becomes urgent, which keeps recovery
+    // bounded in difficult scenes.
+    void setDetectionInterval(int frames)
+    {
+        detection_interval_.store(std::max(1, frames), std::memory_order_relaxed);
+    }
+    int detectionInterval() const
+    {
+        return detection_interval_.load(std::memory_order_relaxed);
+    }
     void readIntrinsicParameter(const vector<string> &calib_file);
     void showUndistortion(const string &name);
     void rejectWithF();
@@ -91,4 +117,11 @@ private:
 
     vector<pair<int, pair<cv::Point2f, int>>> mask_order_;
     vector<cv::Mat> prev_pyr_;
+    // Scratch pyramids are kept between calls so buildOpticalFlowPyramid()
+    // reuses its level buffers instead of allocating/freeing ~0.5 MB per frame.
+    vector<cv::Mat> scratch_pyr_;
+    vector<cv::Mat> scratch_right_pyr_;
+    FeatureTrackerTimings last_timings_;
+    std::atomic<int> detection_interval_{1};
+    int frame_counter_ = 0;
 };
