@@ -75,6 +75,8 @@ src/estimator/parameters.cpp
     src/initial/initial_sfm.cpp
     src/initial/initial_ex_rotation.cpp
     src/featureTracker/feature_tracker.cpp
+    src/backend/ekf_state.cpp
+    src/backend/schur_update.cpp
 )
 ament_target_dependencies(vins_lib ${VINS_AMENT_DEPENDENCIES})
 target_link_libraries(vins_lib ${VINS_LINK_LIBRARIES})
@@ -122,5 +124,11 @@ if(BUILD_TESTING)
   target_include_directories(test_pose_manifold PRIVATE src)
   target_link_libraries(test_pose_manifold vins_lib Ceres::ceres Eigen3::Eigen)
   ament_target_dependencies(test_pose_manifold vins_common)
+  ament_add_gtest(test_ekf_state test/test_ekf_state.cpp)
+  target_include_directories(test_ekf_state PRIVATE src)
+  target_link_libraries(test_ekf_state vins_lib Eigen3::Eigen Threads::Threads)
+  ament_add_gtest(test_schur_update test/test_schur_update.cpp)
+  target_include_directories(test_schur_update PRIVATE src)
+  target_link_libraries(test_schur_update vins_lib Eigen3::Eigen Threads::Threads)
 endif()
 ament_package()

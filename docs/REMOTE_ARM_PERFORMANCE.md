@@ -227,3 +227,11 @@ difficult 上，5 Hz q1 与默认在共同 74.75 s 窗口内 RMSE 为 0.1899 vs 
   - `max100_solver02_freq20.yaml`（仅 `freq: 10` → `freq: 20.0`，SHA-256 `f0d83b64e0ffcbaebb7afd4eda89a815fc3d9a128b17df2d4727c821794b3d8e`）
 - 子代理筛选汇总：`~/vins_remote_eval_20261019/evidence/screening_matrix_11_20261019T144051Z.json`、`crossdataset_summary_20261019T144541Z.json`
 - 本地副本与补充分析：`src/VINS-Fusion/output/remote_20261019/`，包括 `quality_summary.json`、`analyze_results.py` 和逐项原始 CSV/日志。
+
+## 相关：Schur 补 EKF 后端（opt-in）
+
+面向 ARM 的后端替换方案（`backend_type: schur_ekf`，Ceres 仍为默认）的设计、x86/ARM
+实测、以及 ARM 上 V2_03_difficult 触发受控重启的机理分析，见
+[`docs/BACKEND_SCHUR_EKF.md`](BACKEND_SCHUR_EKF.md) 第 7 节。摘要：ARM 上 Schur 相对
+Ceres 降 CPU 约 30%、p50 延迟约 20%，但三个序列 ATE 都差于 Ceres（V2_03 不可用），
+因此不建议把 ARM 默认后端切到 `schur_ekf`。

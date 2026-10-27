@@ -9,8 +9,12 @@
 
 #include <vins_common/ros_utils.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <set>
 
@@ -28,6 +32,11 @@ struct CeresParameterSnapshot
     std::array<double, 2 * SIZE_POSE> ex_pose;
     std::array<double, 1> td;
 };
+
+// Frame period of the Schur-backend starvation summary log (see
+// Estimator::schurReportStarvation). Chosen to match the existing
+// stage_timing_interval default of 100 frames.
+constexpr int kSchurStarvationReportFrames = 100;
 }
 
 Estimator::Estimator(): f_manager{Rs}
@@ -110,6 +119,18 @@ void Estimator::clearState()
     failure_occur = 0;
     restart_requested_ = false;
     suppress_state_publication_ = false;
+
+    schur_ekf_active_ = false;
+    schur_frame_index_ = 0;
+    schur_oldest_frame_ = 0;
+    schur_update_count_ = 0;
+    schur_stage_total_ms_ = 0.0;
+    schur_features_total_ = 0.0;
+    schur_rejected_total_ = 0.0;
+    schur_soft_restart_time_ = -1.0;
+    schur_starvation_monitor_.reset(0.0);
+    schur_history_.clear();
+    schur_cameras_.clear();
 
     mProcess.unlock();
 }
@@ -475,7 +496,10 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
         Vs[j] += dt * un_acc;
     }
     acc_0 = linear_acceleration;
-    gyr_0 = angular_velocity; 
+    gyr_0 = angular_velocity;
+
+    if (schur_ekf_active_)
+        schurPropagate(dt, linear_acceleration, angular_velocity);
 }
 
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header)
@@ -574,6 +598,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                     }
                     updateLatestStates();
                     solver_flag = NON_LINEAR;
+                    activateSchurBackend(image, header);
                     slideWindow();
                     RCLCPP_INFO(vins::logger(), "Initialization finish!");
                 }
@@ -641,6 +666,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 }
                 updateLatestStates();
                 solver_flag = NON_LINEAR;
+                activateSchurBackend(image, header);
                 slideWindow();
                 RCLCPP_INFO(vins::logger(), "Initialization finish!");
             }
@@ -670,6 +696,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 }
                 updateLatestStates();
                 solver_flag = NON_LINEAR;
+                activateSchurBackend(image, header);
                 slideWindow();
                 RCLCPP_INFO(vins::logger(), "Initialization finish!");
             }
@@ -693,7 +720,27 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         if(!USE_IMU)
             f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
         f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
-        if (!runOptimization())
+        bool solve_ok = false;
+        if (schur_ekf_active_)
+        {
+            // ARM-oriented path: propagate + Schur-complement EKF update, no
+            // Ceres solve and no marginalization factor.
+            solve_ok = schurProcessFrame(image, header);
+            if (!solve_ok)
+            {
+                RCLCPP_WARN(vins::logger(),
+                    "Schur EKF could not process this frame; re-seeding the filter from a "
+                    "Ceres solve to keep the estimate valid");
+                solve_ok = runOptimization();
+                if (solve_ok)
+                    initSchurBackend();
+            }
+        }
+        else
+        {
+            solve_ok = runOptimization();
+        }
+        if (!solve_ok)
         {
             log_odometry_failure("nonlinear odometry");
             return;
@@ -721,6 +768,10 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 
         slideWindow();
         f_manager.removeFailures();
+        // Optional Ceres warm-up: start the EKF from a converged window state
+        // once the configured number of post-initialisation frames has passed.
+        if (!schur_ekf_active_ && BACKEND_TYPE == "schur_ekf")
+            activateSchurBackend(image, header);
         // prepare output of VINS
         key_poses.clear();
         for (int i = 0; i <= WINDOW_SIZE; i++)
@@ -731,6 +782,18 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         last_R0 = Rs[0];
         last_P0 = Ps[0];
         updateLatestStates();
+        if (std::getenv("VINS_SCHUR_DEBUG") != nullptr)
+        {
+            static int ceres_dbg = 0;
+            if (++ceres_dbg % 5 == 0)
+                fprintf(stderr,
+                        "[ceres-state] frame=%d t=%.3f |p|=%.4f |v|=%.4f |ba|=%.5f |bg|=%.6f "
+                        "ba=[%.4f %.4f %.4f] bg=[%.5f %.5f %.5f]\n",
+                        ceres_dbg, header + td, Ps[WINDOW_SIZE].norm(), Vs[WINDOW_SIZE].norm(),
+                        Bas[WINDOW_SIZE].norm(), Bgs[WINDOW_SIZE].norm(), Bas[WINDOW_SIZE].x(),
+                        Bas[WINDOW_SIZE].y(), Bas[WINDOW_SIZE].z(), Bgs[WINDOW_SIZE].x(),
+                        Bgs[WINDOW_SIZE].y(), Bgs[WINDOW_SIZE].z());
+        }
     }  
 }
 
@@ -1216,6 +1279,613 @@ bool Estimator::failureDetection()
         //return true;
     }
     return false;
+}
+
+// ================= Schur-complement EKF backend (ARM-oriented) =============
+//
+// Opt-in replacement for the Ceres sliding-window solve, selected with
+// `backend_type: schur_ekf`.  The window is a 15-state IMU block plus 6 states
+// per retained clone; feature points are nuisance parameters that never enter
+// the covariance (Schur-eliminated per track).  See docs/BACKEND_SCHUR_EKF.md.
+
+void Estimator::initSchurBackend()
+{
+    vins::backend::EkfOptions options;
+    options.window_size = SCHUR_WINDOW_SIZE;
+    options.gravity = g.norm() > 1e-3 ? g.norm() : G.norm();
+    // Continuous-time spectral densities (unit^2/Hz).  ACC_N/GYR_N/ACC_W/GYR_W
+    // follow VINS's per-sample convention (they enter IntegrationBase through a
+    // V matrix scaled by 0.5*dt) and must not be fed to the EKF as densities:
+    // doing so inflates the velocity/attitude process noise by ~1/dt and makes
+    // every visual update over-correct the velocity.
+    options.acc_noise = SCHUR_ACC_NOISE;
+    options.gyr_noise = SCHUR_GYR_NOISE;
+    options.acc_bias_noise = SCHUR_ACC_BIAS_NOISE;
+    options.gyr_bias_noise = SCHUR_GYR_BIAS_NOISE;
+    options.init_position_sigma = SCHUR_INIT_POS_SIGMA;
+    options.init_velocity_sigma = SCHUR_INIT_VEL_SIGMA;
+    options.init_rotation_sigma = SCHUR_INIT_ROT_SIGMA;
+    options.init_acc_bias_sigma = SCHUR_INIT_BA_SIGMA;
+    options.init_gyr_bias_sigma = SCHUR_INIT_BG_SIGMA;
+
+    const Eigen::Quaterniond q_init(Rs[frame_count]);
+    const Eigen::Vector4d q_vec(q_init.w(), q_init.x(), q_init.y(), q_init.z());
+    // Sensor time (frame header + td) of the seeding frame. It is the baseline
+    // of the time-based starvation criterion until the first applied update.
+    const double seed_time = Headers[frame_count] + td;
+    schur_state_.reset(options, seed_time, q_vec, Ps[frame_count],
+                       Vs[frame_count], Bas[frame_count], Bgs[frame_count]);
+
+    vins::backend::UpdateOptions update_options;
+    update_options.max_features = SCHUR_MAX_FEATURES;
+    update_options.min_observations = SCHUR_MIN_OBSERVATIONS;
+    update_options.pixel_noise = SCHUR_PIXEL_NOISE;
+    update_options.focal_length = FOCAL_LENGTH;
+    update_options.chi2_multiplier = SCHUR_CHI2_MULTIPLIER;
+    update_options.triangulation_iterations =
+        static_cast<int>(std::lround(SCHUR_TRIANGULATION_ITERATIONS));
+    update_options.min_features = SCHUR_MIN_FEATURES;
+    update_options.min_update_observations = SCHUR_MIN_UPDATE_OBSERVATIONS;
+    update_options.info_rank_rtol = SCHUR_INFO_RANK_RTOL;
+    update_options.info_indefinite_tol = SCHUR_INFO_INDEFINITE_TOL;
+    update_options.point_block_rtol = SCHUR_POINT_BLOCK_RTOL;
+    update_options.condition_limit = SCHUR_CONDITION_LIMIT;
+    schur_updater_ = vins::backend::SchurUpdater(update_options);
+
+    schur_cameras_.clear();
+    for (int i = 0; i < std::max(NUM_OF_CAM, 1); ++i)
+    {
+        vins::backend::CameraExtrinsics camera;
+        if (i < NUM_OF_CAM)
+        {
+            const Eigen::Quaterniond q_cb(ric[i]);
+            camera.q_cb = Eigen::Vector4d(q_cb.w(), q_cb.x(), q_cb.y(), q_cb.z());
+            camera.p_cb = tic[i];
+        }
+        schur_cameras_.push_back(camera);
+    }
+
+    schur_history_.clear();
+    schur_frame_index_ = 0;
+    schur_oldest_frame_ = 0;
+    schur_update_count_ = 0;
+    schur_stage_total_ms_ = 0.0;
+    schur_features_total_ = 0.0;
+    schur_rejected_total_ = 0.0;
+    schur_lost_total_ = 0.0;
+    schur_marginalized_total_ = 0.0;
+    schur_consecutive_failures_ = 0;
+    schur_skipped_frames_ = 0;
+    // A full (re-)seed ends any pending soft-restart episode.
+    schur_soft_restart_time_ = -1.0;
+    // Time-based starvation policy: configure the thresholds and re-seed the
+    // monitor so the seed frame counts as the last applied update. The
+    // diagnostic counters start fresh for the new filter instance; the restart
+    // cooldown anchor deliberately survives reset() (see StarvationMonitor), so
+    // a controlled restart cannot be followed by another one within
+    // SCHUR_RESTART_COOLDOWN_SECONDS of sensor time.
+    vins::backend::StarvationMonitor::Config starvation_config;
+    starvation_config.max_no_update_seconds = SCHUR_MAX_NO_UPDATE_SECONDS;
+    starvation_config.starvation_seconds = SCHUR_STARVATION_SECONDS;
+    starvation_config.noise_scale = SCHUR_STARVATION_NOISE_SCALE;
+    starvation_config.deep_starvation_seconds = SCHUR_STARVATION_DEEP_SECONDS;
+    starvation_config.deep_noise_scale = SCHUR_STARVATION_DEEP_NOISE_SCALE;
+    starvation_config.restart_cooldown_seconds = SCHUR_RESTART_COOLDOWN_SECONDS;
+    schur_starvation_monitor_.configure(starvation_config);
+    schur_starvation_monitor_.reset(seed_time);
+    schur_ekf_active_ = true;
+
+    RCLCPP_INFO(vins::logger(),
+                "Schur EKF seeded at t=%.6f: p=[%.3f %.3f %.3f] v=[%.3f %.3f %.3f] "
+                "|g|=%.4f window=%d",
+                seed_time, Ps[frame_count].x(), Ps[frame_count].y(),
+                Ps[frame_count].z(), Vs[frame_count].x(), Vs[frame_count].y(),
+                Vs[frame_count].z(), options.gravity, options.window_size);
+}
+
+void Estimator::activateSchurBackend(
+    const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double header)
+{
+    if (BACKEND_TYPE != "schur_ekf")
+        return;
+    if (!USE_IMU)
+    {
+        RCLCPP_WARN(vins::logger(),
+                    "backend_type=schur_ekf requires an IMU; keeping the Ceres backend");
+        return;
+    }
+    if (schur_ekf_active_)
+        return;
+    if (inputImageCnt < SCHUR_WARMUP_FRAMES)
+        return;
+
+    initSchurBackend();
+    if (!schurProcessFrame(image, header))
+    {
+        schur_ekf_active_ = false;
+        RCLCPP_WARN(vins::logger(),
+                    "Schur EKF could not consume the initialisation frame; keeping the "
+                    "Ceres backend");
+        return;
+    }
+    RCLCPP_INFO(vins::logger(),
+                "Schur-complement EKF backend active (window=%d clones, max_features=%d)",
+                SCHUR_WINDOW_SIZE, SCHUR_MAX_FEATURES);
+}
+
+void Estimator::schurPropagate(double dt, const Eigen::Vector3d &acc,
+                               const Eigen::Vector3d &gyr)
+{
+    if (!schur_ekf_active_)
+        return;
+    // Guard against clock jumps and long IMU gaps: a single step that large
+    // would be dominated by linearisation error.
+    if (!(dt > 0.0) || dt > 1.0)
+        return;
+    // Visual-starvation process-noise inflation (P3/P4). The monitor returns the
+    // multiplier of the current starvation stage: 1.0 when not starved,
+    // SCHUR_STARVATION_NOISE_SCALE while starved, and
+    // SCHUR_STARVATION_DEEP_NOISE_SCALE once deep starvation
+    // (SCHUR_STARVATION_DEEP_SECONDS) is reached. The stage is evaluated once
+    // per image frame in schurProcessFrame(), where the sensor-time gap since the
+    // last applied update is known; between frames it is piecewise constant, so
+    // every IMU step of a starved stretch uses the same scale. A successful
+    // update clears the stage (scale back to 1.0) in the same frame.
+    schur_state_.propagate(acc, gyr, dt, schur_starvation_monitor_.noise_scale());
+}
+
+bool Estimator::schurProcessFrame(
+    const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double header)
+{
+    if (!schur_ekf_active_)
+        return false;
+
+    TicToc t_update;
+    // Sensor time of this frame (frame header + td). The time-based starvation
+    // criterion compares it against the baseline held by schur_starvation_monitor_
+    // (the time of the last *applied* update, or the seed time right after
+    // initSchurBackend()).
+    const double frame_time = header + td;
+    // P6 starvation-adaptive weak update: the scale for *this* frame comes from
+    // the current starvation gap (time since the last applied visual update).
+    // 1.0 while the gap is at or below SCHUR_STARVATION_SECONDS, ramping to
+    // SCHUR_WEAK_UPDATE_MAX_SCALE at SCHUR_STARVATION_DEEP_SECONDS. Disabled or
+    // invalid parameters give 1.0, which is a strict no-op.
+    const double weak_scale = vins::backend::weakUpdateScale(
+        schur_starvation_monitor_.starvation_duration(frame_time),
+        SCHUR_STARVATION_WEAK_UPDATE, SCHUR_STARVATION_SECONDS,
+        SCHUR_STARVATION_DEEP_SECONDS, SCHUR_WEAK_UPDATE_MAX_SCALE);
+    const bool debug_schur = std::getenv("VINS_SCHUR_DEBUG") != nullptr;
+    auto covariance_bounds = [](const Eigen::MatrixXd &P, double &trace, double &min_eig,
+                                double &max_eig) {
+        trace = P.trace();
+        min_eig = std::numeric_limits<double>::quiet_NaN();
+        max_eig = std::numeric_limits<double>::quiet_NaN();
+        if (!P.allFinite()) return;
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(0.5 * (P + P.transpose()));
+        if (eig.info() == Eigen::Success) {
+            min_eig = eig.eigenvalues().minCoeff();
+            max_eig = eig.eigenvalues().maxCoeff();
+        }
+    };
+    double p_trace_before = 0.0, p_min_before = 0.0, p_max_before = 0.0;
+    double p_trace_augmented = 0.0, p_min_augmented = 0.0, p_max_augmented = 0.0;
+    if (debug_schur)
+        covariance_bounds(schur_state_.covariance(), p_trace_before, p_min_before, p_max_before);
+    const vins::backend::ImuNominal imu_before_update = schur_state_.imu();
+
+    // 1. Record this frame's normalised, undistorted observations. Column
+    //    layout of the feature frame is [x, y, 1, u, v, vx, vy] where (x, y)
+    //    are normalised camera coordinates.
+    std::vector<std::pair<int, Eigen::Vector2d>> observations;
+    observations.reserve(image.size());
+    for (const auto &feature : image)
+    {
+        for (const auto &observation : feature.second)
+        {
+            if (observation.first != 0)
+                continue;  // the Schur backend consumes camera 0 only
+            const Eigen::Matrix<double, 7, 1> &value = observation.second;
+            observations.emplace_back(feature.first, Eigen::Vector2d(value(0), value(1)));
+        }
+    }
+    schur_history_.add_frame(schur_frame_index_, 0, observations);
+
+    // 2. Append the current pose as the newest clone. Pruning is deferred until
+    //    after the visual update so the oldest clone can still be observed by
+    //    the tracks that are about to be marginalised (OpenVINS/SchurVINS
+    //    ordering: augment -> update -> marginalise).
+    schur_state_.augment_clone(header + td);
+    if (debug_schur)
+        covariance_bounds(schur_state_.covariance(), p_trace_augmented, p_min_augmented,
+                          p_max_augmented);
+
+    // 3. Clone i corresponds to frame index (schur_oldest_frame_ + i), so the
+    //    oldest retained clone is the one that will be pruned in step 6.
+    schur_oldest_frame_ = schur_frame_index_ - (schur_state_.num_clones() - 1);
+    schur_history_.trim(schur_oldest_frame_);
+
+    // 4. MSCKF track selection. Only features that are lost in this frame, or
+    //    whose oldest observation belongs to the clone that is about to be
+    //    margined out, may enter the update. Each such track is consumed
+    //    exactly once, which is what keeps the filter consistent: re-inserting
+    //    the same rows on consecutive frames double counts the measurements,
+    //    collapses the covariance and produces spurious velocity corrections.
+    // OpenVINS/SchurVINS rule (VioManager.cpp:366-369): while the clone window
+    // is still filling up there is nothing to marginalise, so only features
+    // that are actually lost this frame may be used. Only once the window is
+    // full (i.e. this frame will prune the oldest clone) do we also admit
+    // tracks whose oldest observation sits on that outgoing clone.
+    const bool window_full =
+        schur_state_.num_clones() > schur_state_.options().window_size;
+    vins::backend::TrackSelection selection = schur_history_.tracks(
+        schur_oldest_frame_, schur_frame_index_,
+        schur_updater_.options().min_observations,
+        static_cast<size_t>(schur_updater_.options().max_features),
+        window_full);
+
+    vins::backend::UpdateSummary summary;
+    // P6: inject the per-frame weak update scale into the updater options before
+    // the update. With weak_scale == 1.0 this leaves the update unchanged.
+    schur_updater_.set_weak_update_scale(weak_scale);
+    if (!selection.tracks.empty())
+    {
+        summary = schur_updater_.update(schur_state_, selection.tracks, schur_cameras_);
+        schur_features_total_ += summary.features_used;
+        schur_rejected_total_ += summary.features_rejected;
+    }
+    schur_lost_total_ += selection.lost_count;
+    schur_marginalized_total_ += selection.marginalized_count;
+
+    // 5. Consume the tracks that actually entered the update. A rejected track
+    //    is kept so it can be retried while it is still inside the window; the
+    //    window trim bounds its lifetime.
+    if (summary.applied)
+    {
+        schur_history_.erase_features(summary.used_feature_ids);
+        schur_consecutive_failures_ = 0;
+        // A successful update ends any starvation: it re-baselines the time
+        // criterion and switches the process-noise inflation back off (the
+        // inter-update gap is folded into the monitor's diagnostic maximum). It
+        // also clears the P5 soft-restart escalation timer.
+        schur_soft_restart_time_ = -1.0;
+        schur_starvation_monitor_.note_applied_update(frame_time);
+    }
+    else
+    {
+        ++schur_consecutive_failures_;
+        ++schur_skipped_frames_;
+        if (schur_consecutive_failures_ == 1 || schur_consecutive_failures_ % 10 == 0)
+            RCLCPP_WARN(vins::logger(),
+                        "Schur EKF skipped frame %d (streak=%d, tracks=%zu lost=%d marg=%d, "
+                        "used=%d rejected=%d, weak_scale=%.2f): %s",
+                        schur_frame_index_, schur_consecutive_failures_, selection.tracks.size(),
+                        selection.lost_count, selection.marginalized_count,
+                        summary.features_used, summary.features_rejected, weak_scale,
+                        summary.failure_reason.empty() ? "no eligible tracks"
+                                                       : summary.failure_reason.c_str());
+
+        // P6: a weak-update frame that is *still* rejected is the case the
+        // feature exists to fix, so surface it (count-throttled: 1st and every
+        // 20th occurrence). The counter is process-wide and diagnostic only.
+        if (weak_scale > 1.0)
+        {
+            static int weak_skip_warn_count = 0;
+            ++weak_skip_warn_count;
+            if (weak_skip_warn_count == 1 || weak_skip_warn_count % 20 == 0)
+                RCLCPP_WARN(vins::logger(),
+                            "Schur EKF weak-update frame %d still skipped (occurrence=%d, "
+                            "weak_scale=%.2f, tracks=%zu used=%d rejected=%d): %s",
+                            schur_frame_index_, weak_skip_warn_count, weak_scale,
+                            selection.tracks.size(), summary.features_used,
+                            summary.features_rejected,
+                            summary.failure_reason.empty()
+                                ? "no eligible tracks"
+                                : summary.failure_reason.c_str());
+        }
+
+        // Time-based starvation criterion (P1/P4). Semantics: evaluated only
+        // here, i.e. once per image frame that did NOT apply a visual update; it
+        // is never evaluated inside schurPropagate(), so a single large IMU gap
+        // cannot trigger a restart by itself. A frame that DOES apply an update
+        // re-baselines the monitor above and never reaches this code.
+        // The monitor re-baselines on a backwards timestamp (bag replay / clock
+        // rollback) instead of restarting, and drives the process-noise
+        // inflation stage (P3/P4) from the gap.
+        // A restart is a *last resort*: on ARM it costs a full Ceres
+        // re-initialisation (10-44 s without odometry), so the time criterion is
+        // the primary guard (SCHUR_MAX_NO_UPDATE_SECONDS, default 3 s, versus
+        // starvation stretches that usually self-heal within 1-2 s) and
+        // SCHUR_MAX_CONSECUTIVE_FAILURES is only a frame-count backstop
+        // (default 60). Both are suppressed while the restart cooldown
+        // (SCHUR_RESTART_COOLDOWN_SECONDS) is active, which bounds a restart
+        // storm to at most one restart per cooldown window.
+        const vins::backend::StarvationMonitor::Decision starvation =
+            schur_starvation_monitor_.observe_failed_frame(frame_time);
+        if (starvation.deep_escalated)
+            RCLCPP_WARN(vins::logger(),
+                        "Schur EKF deep starvation started at frame %d (%.3f s without a "
+                        "visual update > %.3f s): escalating the process-noise scale to %.2f",
+                        schur_frame_index_, starvation.gap_seconds,
+                        SCHUR_STARVATION_DEEP_SECONDS, SCHUR_STARVATION_DEEP_NOISE_SCALE);
+        bool restarted = false;
+        // P5 soft starvation restart. When enabled while the Schur EKF is
+        // active, the time-criterion restart keeps the IMU/EKF nominal state
+        // instead of tearing the estimator down (see schurSoftRestart()).
+        // Escalation backstop: a soft restart that is not followed by an applied
+        // visual update within SCHUR_SOFT_RESTART_MAX_SECONDS of sensor time is
+        // given up on and replaced by one full controlled restart. The anchor is
+        // only armed by the *first* soft restart of an unrecovered episode (see
+        // schurSoftRestart()), so a chain of repeat soft restarts cannot postpone
+        // the escalation forever.
+        const bool soft_mode = SCHUR_STARVATION_SOFT_RESTART && schur_ekf_active_;
+        if (soft_mode &&
+            vins::backend::softRestartEscalationDue(
+                frame_time, schur_soft_restart_time_, SCHUR_SOFT_RESTART_MAX_SECONDS))
+        {
+            RCLCPP_ERROR(vins::logger(),
+                         "Schur EKF soft restart at t=%.3f did not apply a visual update "
+                         "for %.3f s (> %.3f s) at frame %d; escalating to a full "
+                         "controlled estimator restart",
+                         schur_soft_restart_time_, frame_time - schur_soft_restart_time_,
+                         SCHUR_SOFT_RESTART_MAX_SECONDS, schur_frame_index_);
+            schur_soft_restart_time_ = -1.0;
+            schur_consecutive_failures_ = 0;
+            schur_starvation_monitor_.note_restart(frame_time);
+            scheduleControlledRestart();
+            restarted = true;
+        }
+        else if (starvation.restart)
+        {
+            if (soft_mode)
+            {
+                // Keep propagating/publishing from the current IMU state; only
+                // the visual structure is dropped. schurSoftRestart() logs the
+                // gap, frame index and dropped clone count itself.
+                schurSoftRestart(frame_time, starvation.gap_seconds);
+            }
+            else
+            {
+                RCLCPP_ERROR(vins::logger(),
+                             "Schur EKF visually starved for %.3f s (> %.3f s) at frame %d: "
+                             "streak=%d skipped_total=%d max_no_update_gap=%.3f s; scheduling "
+                             "a controlled estimator restart",
+                             starvation.gap_seconds, SCHUR_MAX_NO_UPDATE_SECONDS,
+                             schur_frame_index_, schur_consecutive_failures_,
+                             schur_skipped_frames_,
+                             schur_starvation_monitor_.max_gap_seconds());
+                schur_consecutive_failures_ = 0;
+                // Arm the cooldown before scheduling: the restart runs
+                // clearState()/initSchurBackend(), which re-seed the monitor via
+                // reset() and must not drop the anchor.
+                schur_starvation_monitor_.note_restart(frame_time);
+                scheduleControlledRestart();
+            }
+            restarted = true;
+        }
+        else if (starvation.cooldown_suppressed)
+        {
+            const int suppressed = schur_starvation_monitor_.cooldown_suppressions();
+            if (suppressed == 1 || suppressed % 10 == 0)
+                RCLCPP_WARN(vins::logger(),
+                            "Schur EKF restart suppressed by the cooldown (%.3f s without a "
+                            "visual update, %.3f s of %.3f s cooldown elapsed) at frame %d: "
+                            "suppressed_total=%d streak=%d skipped_total=%d",
+                            starvation.gap_seconds,
+                            frame_time - schur_starvation_monitor_.last_restart_time(),
+                            SCHUR_RESTART_COOLDOWN_SECONDS, schur_frame_index_, suppressed,
+                            schur_consecutive_failures_, schur_skipped_frames_);
+        }
+        // Frame-count backstop: only when the time criterion did not restart this
+        // frame AND the cooldown is not holding restarts back. The failure streak
+        // keeps accumulating while suppressed so the diagnostic is not lost. In
+        // P5 soft mode the backstop also takes the soft path (keep the IMU/EKF
+        // state) instead of clearState(); only the escalation backstop is allowed
+        // to schedule a full restart in that mode.
+        const vins::backend::StarvationRestartAction backstop_action =
+            vins::backend::frameCountBackstopAction(
+                restarted, schur_starvation_monitor_.cooldown_active(frame_time),
+                schur_consecutive_failures_, SCHUR_MAX_CONSECUTIVE_FAILURES, soft_mode);
+        if (backstop_action == vins::backend::StarvationRestartAction::kSoft)
+        {
+            RCLCPP_ERROR(vins::logger(),
+                         "Schur EKF produced %d consecutive frames without a visual update "
+                         "(%d skipped in total) at frame %d; performing a soft restart "
+                         "(keeping the IMU/EKF state, no re-initialisation)",
+                         schur_consecutive_failures_, schur_skipped_frames_,
+                         schur_frame_index_);
+            schurSoftRestart(frame_time, starvation.gap_seconds);
+        }
+        else if (backstop_action == vins::backend::StarvationRestartAction::kFull)
+        {
+            RCLCPP_ERROR(vins::logger(),
+                         "Schur EKF produced %d consecutive frames without a visual update "
+                         "(%d skipped in total); scheduling a controlled estimator restart",
+                         schur_consecutive_failures_, schur_skipped_frames_);
+            schur_consecutive_failures_ = 0;
+            schur_starvation_monitor_.note_restart(frame_time);
+            scheduleControlledRestart();
+        }
+    }
+
+    // 6. Drop the oldest clone now that the tracks observing it have been used.
+    schur_state_.prune_clone_window();
+    schur_oldest_frame_ = schur_frame_index_ - (schur_state_.num_clones() - 1);
+    schur_history_.trim(schur_oldest_frame_);
+
+    if (debug_schur)
+    {
+        double p_trace_after = 0.0, p_min_after = 0.0, p_max_after = 0.0;
+        covariance_bounds(schur_state_.covariance(), p_trace_after, p_min_after, p_max_after);
+        const auto &im = schur_state_.imu();
+        const Eigen::Vector3d dv = im.v - imu_before_update.v;
+        const Eigen::Vector3d dba = im.ba - imu_before_update.ba;
+        const Eigen::Vector3d dbg = im.bg - imu_before_update.bg;
+        const Eigen::Vector3d dp = im.p - imu_before_update.p;
+        fprintf(stderr,
+                "[schur-step] frame=%d t=%.3f n=%d tracks=%zu lost=%d marg=%d used=%d rej=%d "
+                "obs=%d dof=%d applied=%d rank=%d cond=%.3g reason='%s' "
+                "P=[%.4g/%.3g/%.3g] -> aug=[%.4g/%.3g/%.3g] -> post=[%.4g/%.3g/%.3g] "
+                "|dp|=%.3g |dv|=%.3g |dba|=%.3g |dbg|=%.3g "
+                "p=%.4f v=%.4f ba=%.4f bg=%.5f rms=%.3f maxres=%.3f\n",
+                schur_frame_index_, header + td, schur_state_.size(), selection.tracks.size(),
+                selection.lost_count, selection.marginalized_count, summary.features_used,
+                summary.features_rejected, summary.observations_used, summary.degrees_of_freedom,
+                static_cast<int>(summary.applied), summary.rank, summary.condition,
+                summary.failure_reason.c_str(), p_trace_before, p_min_before, p_max_before,
+                p_trace_augmented, p_min_augmented, p_max_augmented, p_trace_after, p_min_after,
+                p_max_after, dp.norm(), dv.norm(), dba.norm(), dbg.norm(), im.p.norm(),
+                im.v.norm(), im.ba.norm(), im.bg.norm(), summary.mean_residual_px,
+                summary.max_residual_px);
+    }
+    // Periodic starvation summary (every kSchurStarvationReportFrames frames).
+    if (schur_frame_index_ > 0 &&
+        schur_frame_index_ % kSchurStarvationReportFrames == 0)
+        schurReportStarvation(frame_time);
+
+    ++schur_frame_index_;
+    ++schur_update_count_;
+
+    if (!schurStateFinite())
+    {
+        schur_ekf_active_ = false;
+        RCLCPP_WARN(vins::logger(),
+                    "Schur EKF state became non-finite at frame %d; falling back to the "
+                    "Ceres backend", schur_frame_index_ - 1);
+        return false;
+    }
+
+    // 7. Publish the corrected state through the existing window arrays so the
+    //    visualisation and odometry output paths stay unchanged.
+    schurWriteBackWindow();
+    schurReportStageTiming(t_update.toc());
+    return true;
+}
+
+void Estimator::schurSoftRestart(double frame_time, double gap_seconds)
+{
+    // P5 soft starvation restart. Keep the IMU/EKF nominal state (q/p/v/ba/bg)
+    // and drop only the visual structure: no clearState(), no Ceres/SfM
+    // re-initialisation, no solver_flag change and no publication suppression,
+    // so IMU propagation and odometry output continue through the starvation
+    // stretch. This is what removes the 27-37 s odometry gap that a full
+    // controlled restart costs on ARM.
+    const vins::backend::ImuNominal imu = schur_state_.imu();
+    const int dropped_clones = schur_state_.num_clones();
+    const int frame_index = schur_frame_index_;
+    // Discard the clone window and the old covariance, re-inflating P from the
+    // configured init_*_sigma values while preserving the motion state.
+    schur_state_.reset(schur_state_.options(), frame_time, imu.q, imu.p, imu.v, imu.ba,
+                       imu.bg);
+    schur_history_.clear();
+    schur_frame_index_ = 0;
+    schur_oldest_frame_ = 0;
+    schur_consecutive_failures_ = 0;
+    schur_skipped_frames_ = 0;
+    // Arm the escalation timer only when no soft restart is already pending:
+    // repeated soft restarts during one unrecovered episode must not postpone
+    // the full-restart escalation (see softRestartEscalationDue()).
+    if (schur_soft_restart_time_ < 0.0)
+        schur_soft_restart_time_ = frame_time;
+    // Same cooldown semantics as a full restart (P4).
+    schur_starvation_monitor_.note_restart(frame_time);
+    // schur_ekf_active_ is deliberately left true.
+    RCLCPP_WARN(vins::logger(),
+                "Schur EKF soft restart at frame %d: visually starved for %.3f s "
+                "(> %.3f s); dropped %d clones, keeping the IMU/EKF state "
+                "(q/p/v/ba/bg) without re-initialisation. A full restart is scheduled "
+                "if no visual update is applied within %.3f s",
+                frame_index, gap_seconds, SCHUR_MAX_NO_UPDATE_SECONDS, dropped_clones,
+                SCHUR_SOFT_RESTART_MAX_SECONDS);
+}
+
+void Estimator::schurWriteBackWindow()
+{
+    const vins::backend::ImuNominal &imu = schur_state_.imu();
+    const Eigen::Quaterniond q_imu(imu.q(0), imu.q(1), imu.q(2), imu.q(3));
+    Rs[frame_count] = q_imu.toRotationMatrix();
+    Ps[frame_count] = imu.p;
+    Vs[frame_count] = imu.v;
+    Bas[frame_count] = imu.ba;
+    Bgs[frame_count] = imu.bg;
+
+    // Refresh the retained clones into the matching window slots so the
+    // visualiser shows the corrected (not the propagated) poses.
+    const int num_clones = schur_state_.num_clones();
+    for (int i = 0; i < num_clones; ++i)
+    {
+        const int window_index = frame_count - (num_clones - 1 - i);
+        if (window_index < 0)
+            continue;
+        const vins::backend::CloneNominal &clone = schur_state_.clone(i);
+        const Eigen::Quaterniond q_clone(clone.q(0), clone.q(1), clone.q(2), clone.q(3));
+        Rs[window_index] = q_clone.toRotationMatrix();
+        Ps[window_index] = clone.p;
+    }
+}
+
+bool Estimator::schurStateFinite() const
+{
+    const vins::backend::ImuNominal &imu = schur_state_.imu();
+    if (!imu.q.allFinite() || !imu.p.allFinite() || !imu.v.allFinite() ||
+        !imu.ba.allFinite() || !imu.bg.allFinite())
+        return false;
+    if (!schur_state_.covariance().allFinite())
+        return false;
+    for (int i = 0; i < schur_state_.num_clones(); ++i)
+    {
+        const vins::backend::CloneNominal &clone = schur_state_.clone(i);
+        if (!clone.q.allFinite() || !clone.p.allFinite())
+            return false;
+    }
+    return true;
+}
+
+void Estimator::schurReportStageTiming(double update_ms)
+{
+    schur_stage_total_ms_ += update_ms;
+    if (!STAGE_TIMING || STAGE_TIMING_INTERVAL < 1)
+        return;
+    if (schur_update_count_ % STAGE_TIMING_INTERVAL != 0)
+        return;
+
+    const double samples = static_cast<double>(STAGE_TIMING_INTERVAL);
+    RCLCPP_INFO(vins::logger(),
+                "schur_ekf stage timing (%d samples): update=%.3f ms, used=%.1f, "
+                "rejected=%.1f, lost=%.1f, marg=%.1f, skipped=%d, state=%dx%d",
+                STAGE_TIMING_INTERVAL, schur_stage_total_ms_ / samples,
+                schur_features_total_ / samples, schur_rejected_total_ / samples,
+                schur_lost_total_ / samples, schur_marginalized_total_ / samples,
+                schur_skipped_frames_, schur_state_.size(), schur_state_.size());
+    schur_stage_total_ms_ = 0.0;
+    schur_features_total_ = 0.0;
+    schur_rejected_total_ = 0.0;
+    schur_lost_total_ = 0.0;
+    schur_marginalized_total_ = 0.0;
+}
+
+void Estimator::schurReportStarvation(double frame_time) const
+{
+    // P6: report the weak-update scale this frame would use, recomputed from the
+    // same starvation gap so the summary stays consistent with schurProcessFrame.
+    const double weak_scale = vins::backend::weakUpdateScale(
+        schur_starvation_monitor_.starvation_duration(frame_time),
+        SCHUR_STARVATION_WEAK_UPDATE, SCHUR_STARVATION_SECONDS,
+        SCHUR_STARVATION_DEEP_SECONDS, SCHUR_WEAK_UPDATE_MAX_SCALE);
+    RCLCPP_INFO(vins::logger(),
+                "schur_ekf starvation summary (%d frames): time_gate_triggers=%d "
+                "deep_escalations=%d cooldown_suppressions=%d noise_scale=%.2f "
+                "weak_update_scale=%.2f max_no_update_gap=%.3f s current_starvation=%.3f s "
+                "consecutive_failures=%d skipped_total=%d "
+                "thresholds(max_no_update=%.2f s cooldown=%.2f s)",
+                schur_frame_index_, schur_starvation_monitor_.time_gate_triggers(),
+                schur_starvation_monitor_.deep_escalations(),
+                schur_starvation_monitor_.cooldown_suppressions(),
+                schur_starvation_monitor_.noise_scale(), weak_scale,
+                schur_starvation_monitor_.max_gap_seconds(),
+                schur_starvation_monitor_.starvation_duration(frame_time),
+                schur_consecutive_failures_, schur_skipped_frames_,
+                SCHUR_MAX_NO_UPDATE_SECONDS, SCHUR_RESTART_COOLDOWN_SECONDS);
 }
 
 bool Estimator::optimization()

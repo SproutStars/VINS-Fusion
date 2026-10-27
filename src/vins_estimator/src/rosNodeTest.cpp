@@ -10,6 +10,7 @@
 #include <sensor_msgs/msg/point_cloud.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <algorithm>
 #include <deque>
 #include <condition_variable>
 #include <mutex>
@@ -27,10 +28,164 @@ public:
     VinsNode() : Node("vins_estimator") {}
     ~VinsNode() override { stopTracking(); estimator_.reset(); last_frame_ = {}; unregisterPub(); }
 
+    // Optional ROS-parameter overrides for the backend selection. They default
+    // to the values read from the configuration file so `-p` is only needed
+    // when a run should deviate from the YAML.
+    void applyBackendParameterOverrides()
+    {
+        const std::string backend = declare_parameter<std::string>("backend_type", BACKEND_TYPE);
+        if (backend != "ceres" && backend != "schur_ekf")
+            throw std::invalid_argument("backend_type must be 'ceres' or 'schur_ekf'");
+        BACKEND_TYPE = backend;
+
+        SCHUR_WINDOW_SIZE = declare_parameter<int>("schur_window_size", SCHUR_WINDOW_SIZE);
+        if (SCHUR_WINDOW_SIZE < 2 || SCHUR_WINDOW_SIZE > WINDOW_SIZE)
+            throw std::invalid_argument("schur_window_size must be in [2, WINDOW_SIZE]");
+        SCHUR_WARMUP_FRAMES =
+            declare_parameter<int>("schur_warmup_frames", SCHUR_WARMUP_FRAMES);
+        if (SCHUR_WARMUP_FRAMES < 0)
+            throw std::invalid_argument("schur_warmup_frames must be nonnegative");
+        SCHUR_MAX_FEATURES = declare_parameter<int>("schur_max_features", SCHUR_MAX_FEATURES);
+        if (SCHUR_MAX_FEATURES < 4)
+            throw std::invalid_argument("schur_max_features must be at least 4");
+        SCHUR_MIN_OBSERVATIONS =
+            declare_parameter<int>("schur_min_observations", SCHUR_MIN_OBSERVATIONS);
+        if (SCHUR_MIN_OBSERVATIONS < 2 || SCHUR_MIN_OBSERVATIONS > SCHUR_WINDOW_SIZE)
+            throw std::invalid_argument("schur_min_observations must be in [2, schur_window_size]");
+        SCHUR_MIN_FEATURES =
+            declare_parameter<int>("schur_min_features", SCHUR_MIN_FEATURES);
+        if (SCHUR_MIN_FEATURES < 1 || SCHUR_MIN_FEATURES > SCHUR_MAX_FEATURES)
+            throw std::invalid_argument("schur_min_features must be in [1, schur_max_features]");
+        SCHUR_MIN_UPDATE_OBSERVATIONS = declare_parameter<int>(
+            "schur_min_update_observations", SCHUR_MIN_UPDATE_OBSERVATIONS);
+        if (SCHUR_MIN_UPDATE_OBSERVATIONS < 1)
+            throw std::invalid_argument("schur_min_update_observations must be positive");
+        SCHUR_PIXEL_NOISE = declare_parameter<double>("schur_pixel_noise", SCHUR_PIXEL_NOISE);
+        if (!std::isfinite(SCHUR_PIXEL_NOISE) || SCHUR_PIXEL_NOISE <= 0.0)
+            throw std::invalid_argument("schur_pixel_noise must be positive");
+        SCHUR_CHI2_MULTIPLIER =
+            declare_parameter<double>("schur_chi2_multiplier", SCHUR_CHI2_MULTIPLIER);
+        if (!std::isfinite(SCHUR_CHI2_MULTIPLIER) || SCHUR_CHI2_MULTIPLIER <= 0.0)
+            throw std::invalid_argument("schur_chi2_multiplier must be positive");
+        SCHUR_TRIANGULATION_ITERATIONS = declare_parameter<double>(
+            "schur_triangulation_iterations", SCHUR_TRIANGULATION_ITERATIONS);
+        if (!std::isfinite(SCHUR_TRIANGULATION_ITERATIONS) || SCHUR_TRIANGULATION_ITERATIONS < 1.0)
+            throw std::invalid_argument("schur_triangulation_iterations must be at least 1");
+        SCHUR_INFO_RANK_RTOL =
+            declare_parameter<double>("schur_info_rank_rtol", SCHUR_INFO_RANK_RTOL);
+        if (!std::isfinite(SCHUR_INFO_RANK_RTOL) || SCHUR_INFO_RANK_RTOL <= 0.0 ||
+            SCHUR_INFO_RANK_RTOL >= 1.0)
+            throw std::invalid_argument("schur_info_rank_rtol must be in (0, 1)");
+        SCHUR_INFO_INDEFINITE_TOL = declare_parameter<double>(
+            "schur_info_indefinite_tol", SCHUR_INFO_INDEFINITE_TOL);
+        if (!std::isfinite(SCHUR_INFO_INDEFINITE_TOL) ||
+            SCHUR_INFO_INDEFINITE_TOL < 0.0 || SCHUR_INFO_INDEFINITE_TOL >= 1.0)
+            throw std::invalid_argument("schur_info_indefinite_tol must be in [0, 1)");
+        SCHUR_POINT_BLOCK_RTOL = declare_parameter<double>(
+            "schur_point_block_rtol", SCHUR_POINT_BLOCK_RTOL);
+        if (!std::isfinite(SCHUR_POINT_BLOCK_RTOL) || SCHUR_POINT_BLOCK_RTOL <= 0.0 ||
+            SCHUR_POINT_BLOCK_RTOL >= 1.0)
+            throw std::invalid_argument("schur_point_block_rtol must be in (0, 1)");
+        SCHUR_CONDITION_LIMIT =
+            declare_parameter<double>("schur_condition_limit", SCHUR_CONDITION_LIMIT);
+        if (!std::isfinite(SCHUR_CONDITION_LIMIT) || SCHUR_CONDITION_LIMIT < 0.0)
+            throw std::invalid_argument("schur_condition_limit must be nonnegative");
+        SCHUR_MAX_CONSECUTIVE_FAILURES = declare_parameter<int>(
+            "schur_max_consecutive_failures", SCHUR_MAX_CONSECUTIVE_FAILURES);
+        if (SCHUR_MAX_CONSECUTIVE_FAILURES < 1)
+            throw std::invalid_argument("schur_max_consecutive_failures must be positive");
+        // Primary starvation guard in sensor time; <= 0 disables it.
+        SCHUR_MAX_NO_UPDATE_SECONDS = declare_parameter<double>(
+            "schur_max_no_update_seconds", SCHUR_MAX_NO_UPDATE_SECONDS);
+        if (!std::isfinite(SCHUR_MAX_NO_UPDATE_SECONDS))
+            throw std::invalid_argument(
+                "schur_max_no_update_seconds must be finite (<=0 disables)");
+        // Starvation onset for process-noise inflation; <= 0 disables it.
+        SCHUR_STARVATION_SECONDS = declare_parameter<double>(
+            "schur_starvation_seconds", SCHUR_STARVATION_SECONDS);
+        if (!std::isfinite(SCHUR_STARVATION_SECONDS))
+            throw std::invalid_argument(
+                "schur_starvation_seconds must be finite (<=0 disables)");
+        SCHUR_STARVATION_NOISE_SCALE = declare_parameter<double>(
+            "schur_starvation_noise_scale", SCHUR_STARVATION_NOISE_SCALE);
+        if (!std::isfinite(SCHUR_STARVATION_NOISE_SCALE) ||
+            SCHUR_STARVATION_NOISE_SCALE < 1.0)
+            throw std::invalid_argument(
+                "schur_starvation_noise_scale must be finite and >= 1.0");
+        // Deep starvation onset for the escalated Q multiplier; <= 0 disables.
+        SCHUR_STARVATION_DEEP_SECONDS = declare_parameter<double>(
+            "schur_starvation_deep_seconds", SCHUR_STARVATION_DEEP_SECONDS);
+        if (!std::isfinite(SCHUR_STARVATION_DEEP_SECONDS))
+            throw std::invalid_argument(
+                "schur_starvation_deep_seconds must be finite (<=0 disables)");
+        SCHUR_STARVATION_DEEP_NOISE_SCALE = declare_parameter<double>(
+            "schur_starvation_deep_noise_scale", SCHUR_STARVATION_DEEP_NOISE_SCALE);
+        if (!std::isfinite(SCHUR_STARVATION_DEEP_NOISE_SCALE) ||
+            SCHUR_STARVATION_DEEP_NOISE_SCALE < 1.0)
+            throw std::invalid_argument(
+                "schur_starvation_deep_noise_scale must be finite and >= 1.0");
+        // Minimum sensor-time separation between controlled restarts; 0 disables.
+        SCHUR_RESTART_COOLDOWN_SECONDS = declare_parameter<double>(
+            "schur_restart_cooldown_seconds", SCHUR_RESTART_COOLDOWN_SECONDS);
+        if (!std::isfinite(SCHUR_RESTART_COOLDOWN_SECONDS) ||
+            SCHUR_RESTART_COOLDOWN_SECONDS < 0.0)
+            throw std::invalid_argument(
+                "schur_restart_cooldown_seconds must be finite and nonnegative "
+                "(0 disables)");
+        // P5 soft starvation restart; default false keeps the full-restart path.
+        SCHUR_STARVATION_SOFT_RESTART = declare_parameter<bool>(
+            "schur_starvation_soft_restart", SCHUR_STARVATION_SOFT_RESTART);
+        // Escalation backstop for the soft restart; non-finite is rejected and
+        // <= 0 disables the escalation.
+        SCHUR_SOFT_RESTART_MAX_SECONDS = declare_parameter<double>(
+            "schur_soft_restart_max_seconds", SCHUR_SOFT_RESTART_MAX_SECONDS);
+        if (!std::isfinite(SCHUR_SOFT_RESTART_MAX_SECONDS))
+            throw std::invalid_argument(
+                "schur_soft_restart_max_seconds must be finite (<=0 disables)");
+        // P6 starvation-adaptive weak update; default false is a strict no-op.
+        SCHUR_STARVATION_WEAK_UPDATE = declare_parameter<bool>(
+            "schur_starvation_weak_update", SCHUR_STARVATION_WEAK_UPDATE);
+        // Upper bound of the weak-update scale; 1.0 is equivalent to disabling.
+        SCHUR_WEAK_UPDATE_MAX_SCALE = declare_parameter<double>(
+            "schur_weak_update_max_scale", SCHUR_WEAK_UPDATE_MAX_SCALE);
+        if (!std::isfinite(SCHUR_WEAK_UPDATE_MAX_SCALE) || SCHUR_WEAK_UPDATE_MAX_SCALE < 1.0)
+            throw std::invalid_argument(
+                "schur_weak_update_max_scale must be finite and >= 1.0");
+        SCHUR_INIT_POS_SIGMA =
+            declare_parameter<double>("schur_init_pos_sigma", SCHUR_INIT_POS_SIGMA);
+        SCHUR_INIT_VEL_SIGMA =
+            declare_parameter<double>("schur_init_vel_sigma", SCHUR_INIT_VEL_SIGMA);
+        SCHUR_INIT_ROT_SIGMA =
+            declare_parameter<double>("schur_init_rot_sigma", SCHUR_INIT_ROT_SIGMA);
+        SCHUR_INIT_BA_SIGMA =
+            declare_parameter<double>("schur_init_ba_sigma", SCHUR_INIT_BA_SIGMA);
+        SCHUR_INIT_BG_SIGMA =
+            declare_parameter<double>("schur_init_bg_sigma", SCHUR_INIT_BG_SIGMA);
+        SCHUR_ACC_NOISE = declare_parameter<double>("schur_acc_noise", SCHUR_ACC_NOISE);
+        SCHUR_GYR_NOISE = declare_parameter<double>("schur_gyr_noise", SCHUR_GYR_NOISE);
+        SCHUR_ACC_BIAS_NOISE =
+            declare_parameter<double>("schur_acc_bias_noise", SCHUR_ACC_BIAS_NOISE);
+        SCHUR_GYR_BIAS_NOISE =
+            declare_parameter<double>("schur_gyr_bias_noise", SCHUR_GYR_BIAS_NOISE);
+        const double imu_noise[] = {SCHUR_ACC_NOISE, SCHUR_GYR_NOISE,
+                                    SCHUR_ACC_BIAS_NOISE, SCHUR_GYR_BIAS_NOISE};
+        if (std::any_of(std::begin(imu_noise), std::end(imu_noise),
+                        [](double value) { return !std::isfinite(value) || value <= 0.0; }))
+            throw std::invalid_argument("schur_*_noise parameters must be positive");
+        const double init_sigmas[] = {
+            SCHUR_INIT_POS_SIGMA, SCHUR_INIT_VEL_SIGMA, SCHUR_INIT_ROT_SIGMA,
+            SCHUR_INIT_BA_SIGMA, SCHUR_INIT_BG_SIGMA};
+        if (std::any_of(std::begin(init_sigmas), std::end(init_sigmas),
+                        [](double value) { return !std::isfinite(value) || value <= 0.0; }))
+            throw std::invalid_argument("schur_init_*_sigma parameters must be positive");
+        RCLCPP_INFO(this->get_logger(), "Backend selection: %s", BACKEND_TYPE.c_str());
+    }
+
     void start(int argc, char **argv)
     {
         readParameters(vins::configFile(shared_from_this(), argc, argv),
             declare_parameter<std::string>("output_path", ""));
+        applyBackendParameterOverrides();
         IMAGE0_TOPIC = declare_parameter<std::string>("image0_topic", IMAGE0_TOPIC);
         IMAGE1_TOPIC = declare_parameter<std::string>("image1_topic", IMAGE1_TOPIC);
         IMU_TOPIC = declare_parameter<std::string>("imu_topic", IMU_TOPIC);
@@ -51,7 +206,33 @@ public:
                     const auto & name = parameter.get_name();
                     if (name == "config_file" || name == "output_path" ||
                         name == "image0_topic" || name == "image1_topic" ||
-                        name == "imu_topic") {
+                        name == "imu_topic" || name == "backend_type" ||
+                        name == "schur_window_size" || name == "schur_warmup_frames" ||
+                        name == "schur_max_features" ||
+                        name == "schur_min_observations" ||
+                        name == "schur_min_features" ||
+                        name == "schur_min_update_observations" ||
+                        name == "schur_pixel_noise" ||
+                        name == "schur_chi2_multiplier" ||
+                        name == "schur_triangulation_iterations" ||
+                        name == "schur_info_rank_rtol" ||
+                        name == "schur_info_indefinite_tol" ||
+                        name == "schur_point_block_rtol" ||
+                        name == "schur_condition_limit" ||
+                        name == "schur_max_consecutive_failures" ||
+                        name == "schur_max_no_update_seconds" ||
+                        name == "schur_starvation_seconds" ||
+                        name == "schur_starvation_noise_scale" ||
+                        name == "schur_starvation_deep_seconds" ||
+                        name == "schur_starvation_deep_noise_scale" ||
+                        name == "schur_restart_cooldown_seconds" ||
+                        name == "schur_starvation_soft_restart" ||
+                        name == "schur_soft_restart_max_seconds" ||
+                        name == "schur_starvation_weak_update" ||
+                        name == "schur_weak_update_max_scale" ||
+                        name == "schur_init_pos_sigma" || name == "schur_init_vel_sigma" ||
+                        name == "schur_init_rot_sigma" || name == "schur_init_ba_sigma" ||
+                        name == "schur_init_bg_sigma") {
                         result.successful = false;
                         result.reason = name + " is fixed after startup; stop and relaunch the node";
                         return result;
