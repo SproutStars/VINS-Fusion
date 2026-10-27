@@ -124,7 +124,8 @@ class Estimator
     // recover: leave hold, re-seed the history and re-baseline the starvation
     // monitor so the clone window is rebuilt frame by frame. Neither method
     // restarts the estimator; processed image frames still write back and publish.
-    // Covariance propagation is driven by processMeasurements(), not inputIMU().
+    // The image-time window is propagated in processMeasurements(); inputIMU()
+    // independently propagates the live marginal used by imu_propagate.
     void schurHoldEnter(double frame_time, double gap_seconds);
     void schurHoldRecover(double frame_time, int observations);
     // Copies the filter state back into the Ceres/visualisation window arrays.
@@ -137,7 +138,7 @@ class Estimator
     // longest observed no-update interval, the current starvation duration and
     // the active thresholds.
     void schurReportStarvation(double frame_time) const;
-    void fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity);
+    bool fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity);
     bool IMUAvailable(double t);
     void initFirstIMUPose(vector<pair<double, Eigen::Vector3d>> &accVector);
 
@@ -232,6 +233,15 @@ class Estimator
     double latest_time;
     Eigen::Vector3d latest_P, latest_V, latest_Ba, latest_Bg, latest_acc_0, latest_gyr_0;
     Eigen::Quaterniond latest_Q;
+    // Protected by mPropagate, including readiness (inputIMU never reads the
+    // image-thread solver_flag). Lock order: mProcess -> mPropagate -> mBuf.
+    vins::backend::EkfState latest_schur_state_;
+    bool latest_state_valid_ = false;
+    bool latest_schur_active_ = false;
+    double latest_imu_dt_ = 0.0;
+    double latest_input_time_ = -1.0;
+    double latest_schur_noise_scale_ = 1.0;
+    Eigen::Vector3d latest_gravity_ = Eigen::Vector3d::Zero();
 
     bool initFirstPoseFlag;
     bool initThreadFlag;
@@ -246,6 +256,7 @@ class Estimator
     int schur_oldest_frame_ = 0;      // oldest frame index retained in the history
     int schur_update_count_ = 0;
     double schur_last_imu_time_ = -1.0;
+    double schur_last_imu_dt_ = 0.0;
     double schur_stage_total_ms_ = 0.0;
     double schur_features_total_ = 0.0;
     double schur_rejected_total_ = 0.0;
@@ -271,7 +282,12 @@ class Estimator
     bool schur_rebuild_pending_ = false;
 
   private:
-    void scheduleControlledRestart() { restart_requested_ = true; }
+    void scheduleControlledRestart()
+    {
+        restart_requested_ = true;
+        std::lock_guard<std::mutex> lock(mPropagate);
+        latest_state_valid_ = false;
+    }
     bool restart_requested_ = false;
     bool suppress_state_publication_ = false;
 };

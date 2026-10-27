@@ -1,0 +1,252 @@
+{
+  "date": "2026-10-27",
+  "base_commit": "56ea726",
+  "scope": "55 s V2_01_easy replay at 1x; images fully cut at 30-40 s; publication and covariance checks, no ATE claim",
+  "config_note": "Local/ARM YAML values identical; comments differ. Local test config copied from base_commit, detector gftt. User detector change excluded.",
+  "changed_source_sha256": {
+    "scripts/verify_imu_blackout.py": "316b77f519173dc6d02055683d67a1e8824004b5e87745a84d9e1f0608d996bf",
+    "src/vins_estimator/CMakeLists.txt": "21c8968d07680e15ce031ea109047f78eab077a20521dfb112f221b19f1aab7c",
+    "src/vins_estimator/src/backend/ekf_state.cpp": "000d6efda3f4deec9e6afe0b946c77cd078e9785cef3f2e639af22675b423516",
+    "src/vins_estimator/src/backend/ekf_state.h": "8f57637e5eedafd69ea5bb63db9542935c6119133ac74151143d0f18eb4eb855",
+    "src/vins_estimator/src/estimator/estimator.cpp": "76e81b557cf6c74d50602218958df9d24694d9d9e452f5fc6d9a47f9fa26cd48",
+    "src/vins_estimator/src/estimator/estimator.h": "84878d3280ff499a04d5ede53e31c065fc9fe76c02fa1c3afbb89cd087f8196c",
+    "src/vins_estimator/src/utility/ekf_odometry.h": "c584f49e3f435ad66521a20473ef4b9f6d37dbdd0b999dcbcefca5e876d2c486",
+    "src/vins_estimator/src/utility/visualization.cpp": "b88bea950ee39cfda9346d8cb787b7a343a95e0e5f2d470b186e8de61de519f6",
+    "src/vins_estimator/src/utility/visualization.h": "afab5d13102b625cae6d0c31d3b24af5764012c44e4e43174b6e6123af7f5722",
+    "src/vins_estimator/test/test_ekf_odometry.cpp": "c5ed79e5b8af127bb451e96051ede0f0ab80bf86c54f1d4a2f134a38abbc7f62",
+    "src/vins_estimator/test/test_estimator_recovery.cpp": "dde2a254c13a716cd69deb1e1da7781cf99ff0b1d5473e1d2b856011302de996"
+  },
+  "local_ctest_programs_passed": 10,
+  "local_gtest_cases_passed": 103,
+  "local": {
+    "checks": {
+      "camera_cutoff_exercised": true,
+      "imu_samples_during_blackout": true,
+      "imu_timestamps_monotonic": true,
+      "blackout_max_gap_under_50ms": true,
+      "blackout_arrival_gap_under_500ms": true,
+      "no_visual_headers_inside_blackout": true,
+      "visual_covariance_after_recovery": true,
+      "world_body_frames": true,
+      "finite_symmetric_psd_nonzero_covariance": true,
+      "position_uncertainty_grows": true
+    },
+    "passed": true,
+    "counts": {
+      "images": 1100,
+      "forwarded": 900,
+      "dropped": 200
+    },
+    "imu_messages": 9830,
+    "visual_messages": 394,
+    "blackout_imu_messages": 1601,
+    "blackout_max_gap_seconds": 0.00500035285949707,
+    "blackout_arrival_gap_ms_p50_p95_max": [
+      0.13141650015313644,
+      48.675199550598336,
+      49.42833899985999
+    ],
+    "position_covariance_trace_start_end": [
+      0.7517609251234023,
+      1.204367212174134
+    ],
+    "minimum_covariance_eigenvalue": 3.78209074068062e-07,
+    "camera_origin": 1413393212.2557604,
+    "blackout_seconds": [
+      30.0,
+      40.0
+    ],
+    "duration_seconds": 55.0,
+    "blackout_cpu_percent_single_core": 1.57904795793176,
+    "blackout_peak_rss_mib": 102.85546875,
+    "binary_sha256": "9e4c3efabb6d9355825534ea2e97b512ec6f43dae6371f0fe70e7663c499d456",
+    "config_sha256": "1daed61ba6c663477b7538de74600c0745bf6b11c68a7c2e7ff2344718873c4c",
+    "estimator_command": [
+      "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node",
+      "--ros-args",
+      "-p",
+      "config_file:=/home/sprout_stars/rmcode/VINS-Fusion/output/imu_covariance_20261027/config/euroc_gftt.yaml",
+      "-p",
+      "output_path:=/home/sprout_stars/rmcode/VINS-Fusion/output/imu_covariance_20261027/local_blackout_final",
+      "-p",
+      "backend_type:=schur_ekf",
+      "-p",
+      "opencv_threads:=1",
+      "-p",
+      "image0_topic:=/blackout/cam0",
+      "-p",
+      "schur_starvation_hold:=true",
+      "-p",
+      "schur_starvation_soft_restart:=false",
+      "-p",
+      "schur_starvation_weak_update:=false",
+      "-p",
+      "use_sim_time:=true"
+    ],
+    "bag": "/home/sprout_stars/vicon_room2/bags/V2_01_easy",
+    "binary": "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node"
+  },
+  "arm": {
+    "checks": {
+      "camera_cutoff_exercised": true,
+      "imu_samples_during_blackout": true,
+      "imu_timestamps_monotonic": true,
+      "blackout_max_gap_under_50ms": true,
+      "blackout_arrival_gap_under_500ms": true,
+      "no_visual_headers_inside_blackout": true,
+      "visual_covariance_after_recovery": true,
+      "world_body_frames": true,
+      "finite_symmetric_psd_nonzero_covariance": true,
+      "position_uncertainty_grows": true
+    },
+    "passed": true,
+    "counts": {
+      "images": 1100,
+      "forwarded": 900,
+      "dropped": 200
+    },
+    "imu_messages": 9689,
+    "visual_messages": 391,
+    "blackout_imu_messages": 1601,
+    "blackout_max_gap_seconds": 0.00500035285949707,
+    "blackout_arrival_gap_ms_p50_p95_max": [
+      2.348246000110521,
+      25.737499850220043,
+      38.50568200005
+    ],
+    "position_covariance_trace_start_end": [
+      0.7521285243029938,
+      1.2427661042874312
+    ],
+    "minimum_covariance_eigenvalue": 4.5106710773486907e-07,
+    "camera_origin": 1413393212.2557604,
+    "blackout_seconds": [
+      30.0,
+      40.0
+    ],
+    "duration_seconds": 55.0,
+    "blackout_cpu_percent_single_core": 12.30540897259443,
+    "blackout_peak_rss_mib": 98.265625,
+    "binary_sha256": "4b342960f82f14854d94dba8e5147afb5429d5a43e183c033c0fbf9fdfb88345",
+    "config_sha256": "ecdf18b29ea6e6885282602158f9105b3add16a7ee7ab401f60b50f159b33086",
+    "estimator_command": [
+      "/home/pinydrone0/vins_p7_eval_20261027/results/build/vins/vins_node",
+      "--ros-args",
+      "-p",
+      "config_file:=/home/pinydrone0/vins_p7_eval_20261027/results/configs/euroc_gftt.yaml",
+      "-p",
+      "output_path:=/home/pinydrone0/vins_p7_eval_20261027/results/imu_covariance/arm_blackout_final",
+      "-p",
+      "backend_type:=schur_ekf",
+      "-p",
+      "opencv_threads:=1",
+      "-p",
+      "image0_topic:=/blackout/cam0",
+      "-p",
+      "schur_starvation_hold:=true",
+      "-p",
+      "schur_starvation_soft_restart:=false",
+      "-p",
+      "schur_starvation_weak_update:=false",
+      "-p",
+      "use_sim_time:=true"
+    ],
+    "bag": "/home/pinydrone0/vicon_room2/bags/V2_01_easy",
+    "binary": "/home/pinydrone0/vins_p7_eval_20261027/results/build/vins/vins_node",
+    "test_scope": "Final validation",
+    "tracker_overflow_events": 340,
+    "tracker_overflow_dropped_pairs": 340
+  },
+  "arm_preliminary_before_gyro_interval_fix": {
+    "checks": {
+      "camera_cutoff_exercised": true,
+      "imu_samples_during_blackout": true,
+      "imu_timestamps_monotonic": true,
+      "blackout_max_gap_under_50ms": true,
+      "blackout_arrival_gap_under_500ms": true,
+      "no_visual_headers_inside_blackout": true,
+      "visual_covariance_after_recovery": true,
+      "world_body_frames": true,
+      "finite_symmetric_psd_nonzero_covariance": true,
+      "position_uncertainty_grows": true
+    },
+    "passed": true,
+    "counts": {
+      "images": 1099,
+      "forwarded": 899,
+      "dropped": 200
+    },
+    "imu_messages": 9530,
+    "visual_messages": 390,
+    "blackout_imu_messages": 1601,
+    "blackout_max_gap_seconds": 0.00500035285949707,
+    "blackout_arrival_gap_ms_p50_p95_max": [
+      2.4778699998933007,
+      25.234751199695893,
+      39.73972100038736
+    ],
+    "position_covariance_trace_start_end": [
+      328.5122274544328,
+      1578.5760190080307
+    ],
+    "minimum_covariance_eigenvalue": 5.898972596840573e-06,
+    "camera_origin": 1413393212.2557604,
+    "blackout_seconds": [
+      30.0,
+      40.0
+    ],
+    "duration_seconds": 55.0,
+    "blackout_cpu_percent_single_core": 12.310036503565954,
+    "blackout_peak_rss_mib": 102.8046875,
+    "binary_sha256": "74762a3a5bb6bcdf6e4aa82e4d17502597e942518d72a77abbe3bbab30c51a9b",
+    "config_sha256": "ecdf18b29ea6e6885282602158f9105b3add16a7ee7ab401f60b50f159b33086",
+    "estimator_command": [
+      "/home/pinydrone0/vins_p7_eval_20261027/results/build/vins/vins_node",
+      "--ros-args",
+      "-p",
+      "config_file:=/home/pinydrone0/vins_p7_eval_20261027/results/configs/euroc_gftt.yaml",
+      "-p",
+      "output_path:=/home/pinydrone0/vins_p7_eval_20261027/results/imu_covariance/arm_blackout",
+      "-p",
+      "backend_type:=schur_ekf",
+      "-p",
+      "opencv_threads:=1",
+      "-p",
+      "image0_topic:=/blackout/cam0",
+      "-p",
+      "schur_starvation_hold:=true",
+      "-p",
+      "schur_starvation_soft_restart:=false",
+      "-p",
+      "schur_starvation_weak_update:=false",
+      "-p",
+      "use_sim_time:=true"
+    ],
+    "bag": "/home/pinydrone0/vicon_room2/bags/V2_01_easy",
+    "binary": "/home/pinydrone0/vins_p7_eval_20261027/results/build/vins/vins_node",
+    "test_scope": "Preliminary binary, retained for transparency; not the committed binary"
+  },
+  "arm_platform": "Orange Pi Zero 3, Cortex-A53 aarch64, 4 GiB RAM, ROS 2 Jazzy, OpenCV 4.6",
+  "arm_runtime_source_hashes_verified": true,
+  "limitations": [
+    "No ATE/localization accuracy evaluation; covariance and publication checks only.",
+    "CPU/RSS are entire estimator process during blackout, not incremental cost.",
+    "Preliminary ARM run had large covariance and repeated hold episodes; the difference from final replay was not isolated and is not evidence of an accuracy gain.",
+    "IMU history remains buffered during camera outage; memory grows with outage duration."
+  ],
+  "arm_gtest_programs": {
+    "estimator": {
+      "passed": 7,
+      "log_sha256": "cdf196b28f0ca5f31e92e46d43c273bf259b0f27c1fab69db442d5417d91c64b"
+    },
+    "odometry": {
+      "passed": 3,
+      "log_sha256": "c5e00e984454aff5633c5b704f9207c66daf2e455914d75a12320f054a14aede"
+    },
+    "ekf": {
+      "passed": 31,
+      "log_sha256": "dfcc4b4d35af07b51cb7bb364efef3b8497afc4d3a3388837b2d9e187c3bc9c7"
+    }
+  },
+  "arm_gtest_cases_passed": 41
+}

@@ -10,6 +10,7 @@
 #include <vins_common/ros_utils.hpp>
 
 #include "visualization.h"
+#include "ekf_odometry.h"
 #include "runtime_utils.h"
 
 
@@ -130,6 +131,18 @@ void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, co
     pub_latest_odometry->publish(odometry);
 }
 
+void pubLatestOdometry(const vins::backend::EkfState &state,
+                       const Eigen::Vector3d &raw_gyro, double imu_dt)
+{
+    if (!hasSubscribers(pub_latest_odometry)) return;
+    nav_msgs::msg::Odometry odometry;
+    odometry.header.stamp = vins::stamp(state.timestamp());
+    odometry.header.frame_id = "world";
+    odometry.child_frame_id = "body";
+    vins::fillEkfOdometry(odometry, state, raw_gyro, imu_dt);
+    pub_latest_odometry->publish(odometry);
+}
+
 void pubTrackImage(const cv::Mat &imgTrack, const double t)
 {
     if (!trackImageRequested()) return;
@@ -204,6 +217,13 @@ void pubOdometry(const Estimator &estimator, const std_msgs::msg::Header &header
         odometry.twist.twist.linear.x = estimator.Vs[WINDOW_SIZE].x();
         odometry.twist.twist.linear.y = estimator.Vs[WINDOW_SIZE].y();
         odometry.twist.twist.linear.z = estimator.Vs[WINDOW_SIZE].z();
+        if (estimator.schurBackendActive())
+        {
+            // The EKF state lives at image time + td, including its covariance.
+            odometry.header.stamp = vins::stamp(estimator.schur_state_.timestamp());
+            vins::fillEkfOdometry(odometry, estimator.schur_state_, estimator.gyr_0,
+                                  estimator.schur_last_imu_dt_);
+        }
         pub_odometry->publish(odometry);
 
         geometry_msgs::msg::PoseStamped pose_stamped;

@@ -330,9 +330,10 @@ P6 的思路是在"饥饿但还没漂飞"的窗口（0.25–1.0 s）里**有条�
   clone/历史被移除。hold 期间不增广 clone、不做视觉更新、不做边缘化。
 - **保持期间**：`schurPropagate()` 继续用正常过程噪声做纯 IMU 递推，并显式绕过
   饥饿期 Q 放大（`noise_scale=1.0`），避免把 P 人为再膨胀；每个图像帧仍执行
-  `schurWriteBackWindow()`，所以被处理的图像帧继续发布里程计。此路径本身不会
-  在完全没有图像时触发发布；Schur P 的递推也仍依赖 feature 队列消费。已有
-  IMU 预测话题只预测名义状态，其独立发布频率本轮未测，消息也未填入 EKF 协方差。
+  `schurWriteBackWindow()`，所以被处理的图像帧继续发布里程计。图像完全中断时，
+  IMU 回调独立推进实时 15 维边缘状态及协方差，并由 `/vins_estimator/imu_propagate`
+  发布；图像时间线上的含 clone 滤波器仍只由图像处理线程推进。两类里程计均填入
+  EKF 协方差。实现、坐标约定与中断验证见 [IMU 协方差传播](IMU_COVARIANCE_PROPAGATION.md)。
 - **恢复时**：只有 tracker 连续 `schur_hold_recovery_frames` 帧达到特征下限才退出。
   退出帧会再次硬删残留 clone、清空历史并重新锚定时间判据，然后立即走正常视觉路径；
   但该帧的 `schur_history_` 只有当前这一条记录，任何 track 都达不到

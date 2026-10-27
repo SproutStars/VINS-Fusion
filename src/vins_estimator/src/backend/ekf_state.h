@@ -84,6 +84,10 @@ class EkfState
                const Eigen::Vector3d &p, const Eigen::Vector3d &v,
                const Eigen::Vector3d &ba, const Eigen::Vector3d &bg);
 
+    // Copy only the live marginal and its FEJ linearisation point. Used by the
+    // IMU-rate predictor: no clone window copy and no covariance reset/inflation.
+    void copyLiveFrom(const EkfState &source);
+
     bool initialized() const { return initialized_; }
     const EkfOptions &options() const { return options_; }
     double timestamp() const { return timestamp_; }

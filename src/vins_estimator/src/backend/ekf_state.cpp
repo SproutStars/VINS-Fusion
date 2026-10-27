@@ -133,6 +133,23 @@ void EkfState::reset(const EkfOptions &options, double timestamp,
         options_.init_gyr_bias_sigma * options_.init_gyr_bias_sigma * I3;
 }
 
+void EkfState::copyLiveFrom(const EkfState &source)
+{
+    if (this == &source) return;
+    options_ = source.options_;
+    initialized_ = source.initialized_;
+    timestamp_ = source.timestamp_;
+    imu_ = source.imu_;
+    imu_fej_ = source.imu_fej_;
+    clones_.clear();
+    clone_fej_.clear();
+    clone_timestamps_.clear();
+    if (initialized_)
+        covariance_ = source.covariance_.topLeftCorner<kImuStateSize, kImuStateSize>();
+    else
+        covariance_.resize(0, 0);
+}
+
 // ------------------------------------------------------------- propagate ----
 
 void EkfState::propagate(const Eigen::Vector3d &acc, const Eigen::Vector3d &gyr,

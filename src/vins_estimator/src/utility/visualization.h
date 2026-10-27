@@ -48,6 +48,10 @@ void registerPub(const rclcpp::Node::SharedPtr &n);
 
 void pubLatestOdometry(const Eigen::Vector3d &P, const Eigen::Quaterniond &Q, const Eigen::Vector3d &V, double t);
 
+// IMU-rate Schur state and covariance have the same sensor timestamp.
+void pubLatestOdometry(const vins::backend::EkfState &state,
+                       const Eigen::Vector3d &raw_gyro, double imu_dt);
+
 void pubTrackImage(const cv::Mat &imgTrack, const double t);
 
 void printStatistics(const Estimator &estimator, double t);

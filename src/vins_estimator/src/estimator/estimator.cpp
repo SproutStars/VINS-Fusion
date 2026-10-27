@@ -57,7 +57,15 @@ Estimator::~Estimator()
 
 void Estimator::clearState()
 {
-    mProcess.lock();
+    std::lock_guard<std::mutex> process_lock(mProcess);
+    std::lock_guard<std::mutex> propagate_lock(mPropagate);
+    latest_state_valid_ = false;
+    latest_schur_active_ = false;
+    latest_schur_state_ = vins::backend::EkfState();
+    latest_imu_dt_ = 0.0;
+    latest_input_time_ = -1.0;
+    schur_last_imu_dt_ = 0.0;
+    schur_last_imu_time_ = -1.0;
     {
         std::lock_guard<std::mutex> lock(mBuf);
         while (!accBuf.empty()) accBuf.pop();
@@ -131,8 +139,6 @@ void Estimator::clearState()
     schur_starvation_monitor_.reset(0.0);
     schur_history_.clear();
     schur_cameras_.clear();
-
-    mProcess.unlock();
 }
 
 bool Estimator::restartAfterSolverFailure()
@@ -285,19 +291,30 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
 
 void Estimator::inputIMU(double t, const Vector3d &linearAcceleration, const Vector3d &angularVelocity)
 {
-    mBuf.lock();
-    accBuf.push(make_pair(t, linearAcceleration));
-    gyrBuf.push(make_pair(t, angularVelocity));
-    //printf("input imu with time %f \n", t);
-    mBuf.unlock();
+    if (!std::isfinite(t) || !linearAcceleration.allFinite() || !angularVelocity.allFinite())
+        return;
+    // Serialize enqueue + prediction with visual re-anchoring. Otherwise a
+    // sample can be replayed by updateLatestStates and then integrated twice
+    // by the callback that originally enqueued it.
+    std::lock_guard<std::mutex> propagate_lock(mPropagate);
+    if (t <= latest_input_time_) return;
+    // Measurement noise uses the sensor period, independent of the shorter
+    // integration step after an image-time re-anchor or IMU tail replay.
+    latest_imu_dt_ = latest_input_time_ >= 0.0 ? t - latest_input_time_ : 0.0;
+    latest_input_time_ = t;
+    {
+        std::lock_guard<std::mutex> buffer_lock(mBuf);
+        accBuf.emplace(t, linearAcceleration);
+        gyrBuf.emplace(t, angularVelocity);
+    }
     measurements_ready_.notify_one();
 
-    if (solver_flag == NON_LINEAR)
+    if (latest_state_valid_ && fastPredictIMU(t, linearAcceleration, angularVelocity))
     {
-        mPropagate.lock();
-        fastPredictIMU(t, linearAcceleration, angularVelocity);
-        pubLatestOdometry(latest_P, latest_Q, latest_V, t);
-        mPropagate.unlock();
+        if (latest_schur_active_)
+            pubLatestOdometry(latest_schur_state_, angularVelocity, latest_imu_dt_);
+        else
+            pubLatestOdometry(latest_P, latest_Q, latest_V, latest_time);
     }
 }
 
@@ -498,6 +515,11 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
     acc_0 = linear_acceleration;
     gyr_0 = angular_velocity;
 
+    // The gyro rate variance uses the sensor sampling interval, not the
+    // possibly fractional interval ending exactly at an image timestamp.
+    if (schur_last_imu_time_ >= 0.0 && t > schur_last_imu_time_)
+        schur_last_imu_dt_ = t - schur_last_imu_time_;
+    schur_last_imu_time_ = t;
     if (schur_ekf_active_)
         schurPropagate(dt, linear_acceleration, angular_velocity);
 }
@@ -596,9 +618,9 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                         maintainInitializationHistoryAfterFailure();
                         return;
                     }
-                    updateLatestStates();
                     solver_flag = NON_LINEAR;
                     activateSchurBackend(image, header);
+                    updateLatestStates();
                     slideWindow();
                     RCLCPP_INFO(vins::logger(), "Initialization finish!");
                 }
@@ -664,9 +686,9 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                     maintainInitializationHistoryAfterFailure();
                     return;
                 }
-                updateLatestStates();
                 solver_flag = NON_LINEAR;
                 activateSchurBackend(image, header);
+                updateLatestStates();
                 slideWindow();
                 RCLCPP_INFO(vins::logger(), "Initialization finish!");
             }
@@ -694,9 +716,9 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                     maintainInitializationHistoryAfterFailure();
                     return;
                 }
-                updateLatestStates();
                 solver_flag = NON_LINEAR;
                 activateSchurBackend(image, header);
+                updateLatestStates();
                 slideWindow();
                 RCLCPP_INFO(vins::logger(), "Initialization finish!");
             }
@@ -2846,24 +2868,52 @@ void Estimator::outliersRejection(set<int> &removeIndex)
     }
 }
 
-void Estimator::fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity)
+bool Estimator::fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity)
 {
-    double dt = t - latest_time;
+    const double dt = t - latest_time;
+    if (!std::isfinite(dt) || !(dt > 0.0) ||
+        !linear_acceleration.allFinite() || !angular_velocity.allFinite())
+        return false;
+    if (latest_schur_active_)
+    {
+        // An IMU outage is distinct from a camera outage. Do not label an
+        // unpropagated/invalid estimate with a new timestamp after a clock jump.
+        if (dt > 1.0)
+        {
+            latest_state_valid_ = false;
+            return false;
+        }
+        latest_schur_state_.propagate(linear_acceleration, angular_velocity, dt,
+                                      latest_schur_noise_scale_);
+        const auto &imu = latest_schur_state_.imu();
+        latest_P = imu.p;
+        latest_Q = Eigen::Quaterniond(imu.q[0], imu.q[1], imu.q[2], imu.q[3]);
+        latest_V = imu.v;
+        latest_Ba = imu.ba;
+        latest_Bg = imu.bg;
+    }
+    else
+    {
+        Eigen::Vector3d un_acc_0 = latest_Q * (latest_acc_0 - latest_Ba) - latest_gravity_;
+        Eigen::Vector3d un_gyr = 0.5 * (latest_gyr_0 + angular_velocity) - latest_Bg;
+        latest_Q = latest_Q * Utility::deltaQ(un_gyr * dt);
+        Eigen::Vector3d un_acc_1 = latest_Q * (linear_acceleration - latest_Ba) - latest_gravity_;
+        Eigen::Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
+        latest_P += dt * latest_V + 0.5 * dt * dt * un_acc;
+        latest_V += dt * un_acc;
+    }
     latest_time = t;
-    Eigen::Vector3d un_acc_0 = latest_Q * (latest_acc_0 - latest_Ba) - g;
-    Eigen::Vector3d un_gyr = 0.5 * (latest_gyr_0 + angular_velocity) - latest_Bg;
-    latest_Q = latest_Q * Utility::deltaQ(un_gyr * dt);
-    Eigen::Vector3d un_acc_1 = latest_Q * (linear_acceleration - latest_Ba) - g;
-    Eigen::Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
-    latest_P = latest_P + dt * latest_V + 0.5 * dt * dt * un_acc;
-    latest_V = latest_V + dt * un_acc;
     latest_acc_0 = linear_acceleration;
     latest_gyr_0 = angular_velocity;
+    return true;
 }
 
 void Estimator::updateLatestStates()
 {
-    mPropagate.lock();
+    std::lock_guard<std::mutex> propagate_lock(mPropagate);
+    latest_state_valid_ = solver_flag == NON_LINEAR && !restart_requested_ &&
+                          !suppress_state_publication_;
+    latest_schur_active_ = latest_state_valid_ && schur_ekf_active_;
     latest_time = Headers[frame_count] + td;
     latest_P = Ps[frame_count];
     latest_Q = Rs[frame_count];
@@ -2872,18 +2922,35 @@ void Estimator::updateLatestStates()
     latest_Bg = Bgs[frame_count];
     latest_acc_0 = acc_0;
     latest_gyr_0 = gyr_0;
-    mBuf.lock();
-    queue<pair<double, Eigen::Vector3d>> tmp_accBuf = accBuf;
-    queue<pair<double, Eigen::Vector3d>> tmp_gyrBuf = gyrBuf;
-    mBuf.unlock();
-    while(!tmp_accBuf.empty())
+    latest_gravity_ = g;
+    if (latest_schur_active_)
     {
-        double t = tmp_accBuf.front().first;
-        Eigen::Vector3d acc = tmp_accBuf.front().second;
-        Eigen::Vector3d gyr = tmp_gyrBuf.front().second;
-        fastPredictIMU(t, acc, gyr);
+        latest_schur_state_.copyLiveFrom(schur_state_);
+        latest_time = latest_schur_state_.timestamp();
+        const auto &imu = latest_schur_state_.imu();
+        latest_P = imu.p;
+        latest_Q = Eigen::Quaterniond(imu.q[0], imu.q[1], imu.q[2], imu.q[3]);
+        latest_V = imu.v;
+        latest_Ba = imu.ba;
+        latest_Bg = imu.bg;
+        latest_schur_noise_scale_ = schur_hold_.active() ? 1.0 :
+                                  schur_starvation_monitor_.noise_scale();
+    }
+    if (!latest_state_valid_) return;
+    queue<pair<double, Eigen::Vector3d>> tmp_accBuf, tmp_gyrBuf;
+    {
+        std::lock_guard<std::mutex> buffer_lock(mBuf);
+        tmp_accBuf = accBuf;
+        tmp_gyrBuf = gyrBuf;
+    }
+    while (!tmp_accBuf.empty() && latest_state_valid_)
+    {
+        // Older/equal samples are deliberately skipped, including the endpoint
+        // retained by getIMUInterval. Only the tail after the corrected state
+        // is replayed; the image-time EKF is never advanced by this predictor.
+        fastPredictIMU(tmp_accBuf.front().first, tmp_accBuf.front().second,
+                       tmp_gyrBuf.front().second);
         tmp_accBuf.pop();
         tmp_gyrBuf.pop();
     }
-    mPropagate.unlock();
 }

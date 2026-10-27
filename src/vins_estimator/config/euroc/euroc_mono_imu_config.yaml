@@ -114,9 +114,9 @@
     # P7“不重启、只保持”实验策略（ARM 实测出现严重漂移，保持关闭）：为 true 时，时间判据或帧数兜底
     # 命中后既不调用 clearState()，也不调用 EkfState::reset()，更不重置或
     # 重膨胀协方差 P。滤波器只停止接受视觉更新与克隆增广，继续按名义过程
-    # 噪声做纯 IMU 递推（P 自然增长）并逐帧照常发布里程计。此处仍由图像帧
-    # 驱动 Schur P 递推；完全无图像时只有 IMU 名义状态预测，且里程计消息
-    # 尚未填入 EKF 协方差。该限制与 ARM 实测结果见 docs/ARM_P7_TRACKER_EVALUATION.md。
+    # 噪声做纯 IMU 递推（P 自然增长）并逐帧照常发布里程计。完全无图像时，
+    # IMU 回调独立传播实时状态及协方差，由 imu_propagate 发布；两类里程计
+    # 均填入 EKF 协方差，见 docs/IMU_COVARIANCE_PROPAGATION.md。
     # 陈旧的克隆块会被硬删除（仅删除视觉行列，保留 15 维 live P）；等 tracker 连续
     # schur_hold_recovery_frames 帧提供不少于 schur_min_features 个观测后，
     # 清空历史并从该帧起逐帧重建克隆窗口，恢复首帧不会吸收陈旧轨迹。

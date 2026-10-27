@@ -259,3 +259,151 @@ TEST(EstimatorRecovery, MonocularInitializationFailureKeepsWindowBoundedAndRetri
     EXPECT_EQ(estimator.optimization_calls, kFailures + 1);
     EXPECT_LE(estimator.all_image_frame.size(), static_cast<size_t>(WINDOW_SIZE + 1));
 }
+
+namespace
+{
+void seedRealtimeSchur(Estimator &estimator, double time)
+{
+    using namespace vins::backend;
+    estimator.solver_flag = Estimator::NON_LINEAR;
+    estimator.frame_count = WINDOW_SIZE;
+    estimator.Headers[WINDOW_SIZE] = time;
+    estimator.td = 0.0;
+    estimator.g = Eigen::Vector3d(0, 0, 9.81);
+    estimator.acc_0 = estimator.g;
+    estimator.gyr_0.setZero();
+    EkfOptions options;
+    options.gravity = 9.81;
+    estimator.schur_state_.reset(options, time, Eigen::Vector4d(1, 0, 0, 0),
+        Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+        Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    estimator.schur_state_.augment_clone(time);
+    // Keep a non-default marginal and FEJ to catch reset/re-inflation or lost
+    // correlations when copying the live predictor from the image-time EKF.
+    estimator.schur_state_.covariance()(3, 6) = 0.0001;
+    estimator.schur_state_.covariance()(6, 3) = 0.0001;
+    estimator.schur_state_.imu_fej().p.x() = 0.01;
+    estimator.schur_ekf_active_ = true;
+    estimator.updateLatestStates();
+}
+}
+
+TEST(EstimatorImuCovariance, CameraBlackoutPropagatesWithoutTouchingImageWindow)
+{
+    Estimator estimator;
+    seedRealtimeSchur(estimator, 10.0);
+    const auto window_covariance = estimator.schur_state_.covariance();
+    const auto initial_covariance = estimator.latest_schur_state_.covariance();
+    auto reference = estimator.schur_state_;
+    ASSERT_EQ(estimator.latest_schur_state_.num_clones(), 0);
+    EXPECT_TRUE(initial_covariance.isApprox(window_covariance.topLeftCorner(15, 15), 0));
+    EXPECT_TRUE(estimator.latest_schur_state_.imu_fej().p.isApprox(reference.imu_fej().p, 0));
+    for (int i = 1; i <= 2000; ++i)
+    {
+        const double time = 10.0 + i * 0.005;
+        const Eigen::Vector3d acc(0.01, 0.02, 9.81), gyro(0, 0, 0.01);
+        reference.propagate(acc, gyro, time - reference.timestamp());
+        // No processImage/processMeasurements calls during this ten-second gap.
+        estimator.inputIMU(time, acc, gyro);
+    }
+    EXPECT_NEAR(estimator.latest_time, 20.0, 1e-12);
+    EXPECT_NEAR(estimator.latest_schur_state_.timestamp(), 20.0, 1e-12);
+    EXPECT_TRUE(estimator.latest_schur_state_.covariance().isApprox(
+        reference.covariance().topLeftCorner(15, 15), 1e-10));
+    EXPECT_TRUE(estimator.latest_P.isApprox(reference.imu().p, 1e-10));
+    EXPECT_GT(estimator.latest_schur_state_.covariance()(3, 3), initial_covariance(3, 3));
+    EXPECT_TRUE(vins::backend::EkfState::is_positive_semidefinite(
+        estimator.latest_schur_state_.covariance()));
+    EXPECT_DOUBLE_EQ(estimator.schur_state_.timestamp(), 10.0);
+    EXPECT_TRUE(estimator.schur_state_.covariance().isApprox(window_covariance, 0));
+    EXPECT_FALSE(estimator.restartPending());
+}
+
+TEST(EstimatorImuCovariance, ReanchorReplaysOnlyTailAndResetDisablesPublication)
+{
+    Estimator estimator;
+    seedRealtimeSchur(estimator, 10.0);
+    const Eigen::Vector3d acc(0, 0, 9.81), gyro = Eigen::Vector3d::Zero();
+    for (int i = 1; i <= 20; ++i)
+        estimator.inputIMU(10.0 + i * 0.005, acc, gyro);
+    // Model a delayed visual correction at 10.05 while IMU is already at 10.10.
+    for (int i = 1; i <= 10; ++i)
+        estimator.schur_state_.propagate(acc, gyro, 10.0 + i * 0.005 - estimator.schur_state_.timestamp());
+    estimator.schur_state_.imu().p.x() = 2.0;
+    estimator.schur_state_.covariance() *= 0.5;
+    auto reference = estimator.schur_state_;
+    for (int i = 11; i <= 20; ++i)
+        reference.propagate(acc, gyro, 10.0 + i * 0.005 - reference.timestamp());
+    estimator.updateLatestStates();
+    EXPECT_NEAR(estimator.latest_time, 10.1, 1e-12);
+    EXPECT_TRUE(estimator.latest_P.isApprox(reference.imu().p, 1e-12));
+    EXPECT_TRUE(estimator.latest_schur_state_.covariance().isApprox(
+        reference.covariance().topLeftCorner(15, 15), 1e-12));
+    const auto covariance = estimator.latest_schur_state_.covariance();
+    const auto buffered = estimator.accBuf.size();
+    estimator.inputIMU(10.1, acc, gyro);  // duplicate
+    estimator.inputIMU(10.09, acc, gyro); // out of order
+    EXPECT_EQ(estimator.accBuf.size(), buffered);
+    EXPECT_TRUE(estimator.latest_schur_state_.covariance().isApprox(covariance, 0));
+    // The next callback must integrate exactly once after replay.
+    estimator.inputIMU(10.105, acc, gyro);
+    reference.propagate(acc, gyro, 10.105 - reference.timestamp());
+    EXPECT_TRUE(estimator.latest_schur_state_.covariance().isApprox(
+        reference.covariance().topLeftCorner(15, 15), 1e-12));
+    estimator.clearState();
+    EXPECT_FALSE(estimator.latest_state_valid_);
+    EXPECT_FALSE(estimator.latest_schur_state_.initialized());
+    estimator.inputIMU(1.0, acc, gyro); // reset permits a new timestamp epoch
+    EXPECT_EQ(estimator.accBuf.size(), 1u);
+    EXPECT_FALSE(estimator.latest_schur_state_.initialized());
+}
+
+TEST(EstimatorImuCovariance, ConcurrentCallbacksAndVisualReanchorsDoNotDoubleIntegrate)
+{
+    Estimator estimator;
+    seedRealtimeSchur(estimator, 10.0);
+    const Eigen::Vector3d acc(0.01, -0.02, 9.81), gyro(0.01, 0.02, 0.03);
+    std::thread producer([&] {
+        for (int i = 1; i <= 400; ++i)
+            estimator.inputIMU(10.0 + i * 0.005, acc, gyro);
+    });
+    for (int i = 0; i < 40; ++i)
+        estimator.updateLatestStates();
+    producer.join();
+    auto reference = estimator.schur_state_;
+    for (int i = 1; i <= 400; ++i)
+        reference.propagate(acc, gyro, 10.0 + i * 0.005 - reference.timestamp());
+    EXPECT_NEAR(estimator.latest_time, 12.0, 1e-12);
+    EXPECT_TRUE(estimator.latest_schur_state_.covariance().isApprox(
+        reference.covariance().topLeftCorner(15, 15), 1e-12));
+    EXPECT_TRUE(estimator.latest_P.isApprox(reference.imu().p, 1e-12));
+    // A missing IMU second must not publish stale P under a new timestamp.
+    estimator.inputIMU(14.0, acc, gyro);
+    EXPECT_FALSE(estimator.latest_state_valid_);
+    EXPECT_NEAR(estimator.latest_schur_state_.timestamp(), 12.0, 1e-12);
+}
+
+TEST(EstimatorImuCovariance, GyroNoiseUsesSensorPeriodAcrossFractionalReanchor)
+{
+    Estimator estimator;
+    seedRealtimeSchur(estimator, 10.0);
+    const Eigen::Vector3d acc(0, 0, 9.81), gyro = Eigen::Vector3d::Zero();
+    estimator.inputIMU(10.005, acc, gyro);
+    estimator.inputIMU(10.010, acc, gyro);
+    // The image filter has used a partial step with the 10.010 sample; its
+    // replay to 10.010 lasts only 1 ms, while gyro noise still spans 5 ms.
+    estimator.schur_state_.propagate(acc, gyro, 0.009);
+    estimator.updateLatestStates();
+    EXPECT_NEAR(estimator.latest_time, 10.010, 1e-12);
+    EXPECT_NEAR(estimator.latest_imu_dt_, 0.005, 1e-12);
+    estimator.inputIMU(10.015, acc, gyro);
+    EXPECT_NEAR(estimator.latest_imu_dt_, 0.005, 1e-12);
+    // Even without a buffered endpoint, the next integration step may be
+    // fractional. It must not become the measurement's noise period.
+    estimator.schur_state_.propagate(acc, gyro, 0.010);
+    estimator.updateLatestStates();
+    estimator.inputIMU(10.020, acc, gyro);
+    EXPECT_NEAR(estimator.latest_imu_dt_, 0.005, 1e-12);
+    estimator.clearState();
+    EXPECT_DOUBLE_EQ(estimator.latest_imu_dt_, 0.0);
+}
