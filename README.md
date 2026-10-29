@@ -82,7 +82,7 @@ ros2 launch vins vins.launch.py mode:=stereo_imu \
 | `mode` | `mono_imu` | 默认配置模式，可选 `mono_imu`、`stereo_imu`、`stereo` |
 | `config_file` | 由 `mode` 决定的安装包 EuRoC 配置 | 算法 YAML（ROS 2 参数格式，兼容旧版 OpenCV 格式）；显式值优先 |
 | `use_sim_time` | `false` | 使用 rosbag 的 `/clock` |
-| `loop_fusion` | `false` | 启动回环节点 |
+| `loop_fusion` | `true` | 启动回环节点并将主里程计切换为回环修正结果 |
 | `global_fusion` | `false` | 启动 GPS 融合，需要 `/gps` |
 | `rviz` | `true` | 启动 RViz 2 |
 | `output_path` | `FindPackageShare(vins)/../../output`（通常为 `install/vins/output`） | 轨迹及位姿图输出目录，自动创建 |
@@ -132,9 +132,12 @@ EuRoC 的外参。
 可选的 `/feature_tracker/feature` 保留 `sensor_msgs/msg/PointCloud` 输入格式。
 主要输出：
 
-- `/vins_estimator/odometry`：优化后的位姿和速度。
+- `/vins_estimator/odometry`：主里程计；launch 开启回环时输出修正结果，关闭时输出原始 VIO。
+- `/vins_estimator/odometry_raw`：launch 开启回环时保留的原始 VIO。
 - `/vins_estimator/imu_propagate`：IMU 高频传播位姿。
-- `/vins_estimator/path`、`point_cloud`、`image_track`：轨迹、三维特征和跟踪图像。
+- `/vins_estimator/path`：与主里程计一致的实时轨迹；开启回环时原始路径保留为 `path_raw`。
+- `/vins_estimator/point_cloud`、`image_track`：三维特征和跟踪图像。
+- 主 TF `world → body → camera` 同步回环开关；开启时原始 VIO 使用独立的 `world_vio → body_vio → camera_vio` 链。
 - `/vins_estimator/keyframe_pose`、`keyframe_point`、`extrinsic`：回环输入。
 - `/loop_fusion/pose_graph_path`、`odometry_rect`：回环修正结果。
 - `/global_fusion/global_odometry`、`global_path`：GPS 融合结果。
@@ -213,3 +216,5 @@ CPU 时间、延迟分位数、峰值内存与轨迹精度，避免以丢帧或�
 ARM 检测与光流的最新实测见 [检测与光流延迟优化](docs/ARM_TRACKER_ACCELERATION.md)。
 实验选项 `feature_detector: "gftt_pyramid"` 可显著减少前端耗时，但在 Schur EKF
 的 medium 场景出现定位回退，默认保留 `gftt`；报告同时记录 GPU 运行时检查与 Ceres 对照。
+
+主里程计路由、速度/协方差坐标约定及独立启动方式见 [docs/PRIMARY_ODOMETRY.md](docs/PRIMARY_ODOMETRY.md)。

@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <vins_common/ros_utils.hpp>
 #include "keyframe.h"
+#include "odometry_correction.h"
 #include "utility/tic_toc.h"
 #include "utility/utility.h"
 #include "utility/CameraPoseVisualization.h"
@@ -63,6 +64,9 @@ public:
 	void savePoseGraph();
 	void loadPoseGraph();
 	void publish();
+    // Caller must hold the node's m_process to stabilize w_* (sequence
+    // alignment). Internally locks only m_drift, never m_keyframelist.
+    loop_fusion::Correction getCorrection();
 	Vector3d t_drift;
 	double yaw_drift;
 	Matrix3d r_drift;

@@ -71,6 +71,12 @@ void PoseGraph::loadVocabulary(std::string voc_path)
     db.setVocabulary(*voc, false, 0);
 }
 
+loop_fusion::Correction PoseGraph::getCorrection()
+{
+    std::lock_guard<std::mutex> lock(m_drift);
+    return loop_fusion::composeCorrection(r_drift, t_drift, w_r_vio, w_t_vio);
+}
+
 void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
 {
     //shift to base frame
@@ -168,8 +174,11 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
     Vector3d P;
     Matrix3d R;
     cur_kf->getVioPose(P, R);
-    P = r_drift * P + t_drift;
-    R = r_drift * R;
+    {
+        std::lock_guard<std::mutex> lock(m_drift);
+        P = r_drift * P + t_drift;
+        R = r_drift * R;
+    }
     cur_kf->updatePose(P, R);
     Quaterniond Q{R};
     geometry_msgs::msg::PoseStamped pose_stamped;
@@ -591,6 +600,8 @@ void PoseGraph::optimize4DoF()
             yaw_drift = Utility::R2ypr(cur_r).x() - Utility::R2ypr(vio_r).x();
             r_drift = Utility::ypr2R(Vector3d(yaw_drift, 0, 0));
             t_drift = cur_t - r_drift * vio_t;
+            const Matrix3d correction_rotation = r_drift;
+            const Vector3d correction_translation = t_drift;
             m_drift.unlock();
             //cout << "t_drift " << t_drift.transpose() << endl;
             //cout << "r_drift " << Utility::R2ypr(r_drift).transpose() << endl;
@@ -602,8 +613,8 @@ void PoseGraph::optimize4DoF()
                 Vector3d P;
                 Matrix3d R;
                 (*it)->getVioPose(P, R);
-                P = r_drift * P + t_drift;
-                R = r_drift * R;
+                P = correction_rotation * P + correction_translation;
+                R = correction_rotation * R;
                 (*it)->updatePose(P, R);
             }
             m_keyframelist.unlock();
@@ -761,6 +772,8 @@ void PoseGraph::optimize6DoF()
             m_drift.lock();
             r_drift = cur_r * vio_r.transpose();
             t_drift = cur_t - r_drift * vio_t;
+            const Matrix3d correction_rotation = r_drift;
+            const Vector3d correction_translation = t_drift;
             m_drift.unlock();
             //cout << "t_drift " << t_drift.transpose() << endl;
             //cout << "r_drift " << Utility::R2ypr(r_drift).transpose() << endl;
@@ -771,8 +784,8 @@ void PoseGraph::optimize6DoF()
                 Vector3d P;
                 Matrix3d R;
                 (*it)->getVioPose(P, R);
-                P = r_drift * P + t_drift;
-                R = r_drift * R;
+                P = correction_rotation * P + correction_translation;
+                R = correction_rotation * R;
                 (*it)->updatePose(P, R);
             }
             m_keyframelist.unlock();

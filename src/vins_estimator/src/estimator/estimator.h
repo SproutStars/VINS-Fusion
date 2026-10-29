@@ -8,6 +8,7 @@
  *******************************************************/
 
 #include <atomic>
+#include <optional>
 
 #pragma once
  
@@ -42,6 +43,7 @@
 #include "../backend/ekf_state.h"
 #include "../backend/schur_update.h"
 #include "../backend/feature_history.h"
+#include "../backend/schur_visualization.h"
 
 
 class Estimator
@@ -59,9 +61,15 @@ class Estimator
     void initFirstPose(Eigen::Vector3d p, Eigen::Matrix3d r);
     void inputIMU(double t, const Vector3d &linearAcceleration, const Vector3d &angularVelocity);
     void inputFeature(double t, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame);
-    void inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat());
+    // Exact ROS stamp overload used by the node so keyframe_pose/keyframe_point
+    // can match the source image without an epoch-double round trip.
+    void inputFeature(double t, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame,
+                      const builtin_interfaces::msg::Time &stamp);
+    void inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1 = cv::Mat(),
+                    const std::optional<builtin_interfaces::msg::Time> &stamp = std::nullopt);
     void processIMU(double t, double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
-    void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header);
+    void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header,
+                      const std::optional<builtin_interfaces::msg::Time> &stamp = std::nullopt);
     void processMeasurements();
     void changeSensorType(int use_imu, int use_stereo);
     // Solver entry point used by processImage(). Tests may override this to
@@ -73,6 +81,14 @@ class Estimator
     // ARM-oriented Schur-complement EKF backend (opt-in through the
     // `backend_type` parameter). Returns true once the filter is running.
     bool schurBackendActive() const { return schur_ekf_active_; }
+    const vins::backend::SchurVisualizationSnapshot &schurVisualizationSnapshot() const
+    {
+        return schur_visual_snapshot_;
+    }
+    const builtin_interfaces::msg::Time &schurVisualizationStamp() const
+    {
+        return schur_visualization_stamp_;
+    }
     void maintainInitializationHistoryAfterFailure();
     void trimInitializationHistoryToActiveWindow();
 
@@ -159,7 +175,14 @@ class Estimator
     std::mutex mPropagate;
     queue<pair<double, Eigen::Vector3d>> accBuf;
     queue<pair<double, Eigen::Vector3d>> gyrBuf;
-    queue<pair<double, map<int, vector<pair<int, Eigen::Matrix<double, 7, 1> > > > > > featureBuf;
+    using FeatureFrame = map<int, vector<pair<int, Eigen::Matrix<double, 7, 1> > > >;
+    struct FeatureFrameInput
+    {
+        double time = 0.0;
+        std::optional<builtin_interfaces::msg::Time> stamp;
+        FeatureFrame features;
+    };
+    queue<FeatureFrameInput> featureBuf;
     double prevTime, curTime;
     bool openExEstimation;
 
@@ -251,6 +274,10 @@ class Estimator
     vins::backend::SchurUpdater schur_updater_;
     vins::backend::FeatureHistory schur_history_;
     std::vector<vins::backend::CameraExtrinsics> schur_cameras_;
+    vins::backend::SchurVisualizationSnapshot schur_visual_snapshot_;
+    vins::backend::MarginPublicationHistory schur_margin_history_;
+    builtin_interfaces::msg::Time schur_visualization_stamp_{};
+    std::optional<builtin_interfaces::msg::Time> current_feature_stamp_;
     bool schur_ekf_active_ = false;   // filter seeded and driving the estimate
     int schur_frame_index_ = 0;       // monotonic image-frame counter for the filter
     int schur_oldest_frame_ = 0;      // oldest frame index retained in the history

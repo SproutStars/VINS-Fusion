@@ -77,6 +77,7 @@ src/estimator/parameters.cpp
     src/featureTracker/feature_tracker.cpp
     src/backend/ekf_state.cpp
     src/backend/schur_update.cpp
+    src/backend/schur_visualization.cpp
 )
 ament_target_dependencies(vins_lib ${VINS_AMENT_DEPENDENCIES})
 target_link_libraries(vins_lib ${VINS_LINK_LIBRARIES})
@@ -134,5 +135,8 @@ if(BUILD_TESTING)
   target_include_directories(test_ekf_odometry PRIVATE src)
   target_link_libraries(test_ekf_odometry vins_lib Eigen3::Eigen)
   ament_target_dependencies(test_ekf_odometry nav_msgs)
+  ament_add_gtest(test_schur_visualization test/test_schur_visualization.cpp)
+  target_include_directories(test_schur_visualization PRIVATE src)
+  target_link_libraries(test_schur_visualization vins_lib Eigen3::Eigen Threads::Threads)
 endif()
 ament_package()

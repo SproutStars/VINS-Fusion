@@ -50,6 +50,10 @@ struct FeatureObservation
     int clone_index = 0;         // index into EkfState::clone(i)
     int camera_id = 0;
     Eigen::Vector2d uv = Eigen::Vector2d::Zero();  // normalised, undistorted (x/z, y/z)
+    // Raw image coordinates for loop-fusion keyframes. Measurement updates only
+    // use `uv`; this field is publication metadata and never enters the EKF.
+    Eigen::Vector2d pixel_uv = Eigen::Vector2d::Zero();
+    bool has_pixel_uv = false;
 };
 
 struct FeatureTrack

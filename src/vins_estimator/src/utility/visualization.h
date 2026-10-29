@@ -43,6 +43,10 @@ extern int IMAGE_ROW, IMAGE_COL;
 void unregisterPub();
 void resetVisualization();
 bool trackImageRequested();
+// True when any Schur-backed point-cloud/keyframe topic has a subscriber. The
+// estimator uses this to avoid triangulating publication-only snapshots when
+// loop_fusion and RViz are not connected.
+bool schurVisualizationRequested();
 
 void registerPub(const rclcpp::Node::SharedPtr &n);
 

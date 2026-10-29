@@ -139,6 +139,10 @@ void Estimator::clearState()
     schur_starvation_monitor_.reset(0.0);
     schur_history_.clear();
     schur_cameras_.clear();
+    schur_margin_history_.clear();
+    schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+    schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
+    current_feature_stamp_.reset();
 }
 
 bool Estimator::restartAfterSolverFailure()
@@ -266,7 +270,8 @@ void Estimator::changeSensorType(int use_imu, int use_stereo)
     }
 }
 
-void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
+void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1,
+                           const std::optional<builtin_interfaces::msg::Time> &stamp)
 {
     inputImageCnt++;
     // Tracking remains full-rate; only backend observation packaging is gated.
@@ -282,7 +287,11 @@ void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
             if (++dropped_features_ == 1 || dropped_features_ % 100 == 0)
                 RCLCPP_WARN(vins::logger(), "Backend overloaded: dropped %zu queued feature frames", dropped_features_);
         }
-        featureBuf.emplace(t, std::move(featureFrame));
+        FeatureFrameInput input;
+        input.time = t;
+        input.stamp = stamp;
+        input.features = std::move(featureFrame);
+        featureBuf.push(std::move(input));
     }
     measurements_ready_.notify_one();
     if (!MULTIPLE_THREAD) processMeasurements();
@@ -320,10 +329,20 @@ void Estimator::inputIMU(double t, const Vector3d &linearAcceleration, const Vec
 
 void Estimator::inputFeature(double t, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame)
 {
+    inputFeature(t, featureFrame, vins::stamp(t));
+}
+
+void Estimator::inputFeature(double t, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &featureFrame,
+                             const builtin_interfaces::msg::Time &stamp)
+{
     {
         std::lock_guard<std::mutex> lock(mBuf);
         if (featureBuf.size() >= static_cast<size_t>(MAX_FEATURE_QUEUE)) featureBuf.pop();
-        featureBuf.emplace(t, featureFrame);
+        FeatureFrameInput input;
+        input.time = t;
+        input.stamp = stamp;
+        input.features = featureFrame;
+        featureBuf.push(std::move(input));
     }
     measurements_ready_.notify_one();
     if (!MULTIPLE_THREAD) processMeasurements();
@@ -378,13 +397,13 @@ void Estimator::processMeasurements()
 {
     while (!stopping_ && rclcpp::ok())
     {
-        decltype(featureBuf)::value_type feature;
+        FeatureFrameInput feature;
         vector<pair<double, Eigen::Vector3d>> accVector, gyrVector;
         {
             std::unique_lock<std::mutex> lock(mBuf);
             auto ready = [this] {
                 return !featureBuf.empty() && (!USE_IMU ||
-                    (!accBuf.empty() && featureBuf.front().first + td <= accBuf.back().first));
+                    (!accBuf.empty() && featureBuf.front().time + td <= accBuf.back().first));
             };
             if (MULTIPLE_THREAD)
                 measurements_ready_.wait(lock, [&] { return stopping_ || !rclcpp::ok() || ready(); });
@@ -393,7 +412,7 @@ void Estimator::processMeasurements()
             if (stopping_ || !rclcpp::ok()) return;
             feature = std::move(featureBuf.front());
             featureBuf.pop();
-            curTime = feature.first + td;
+            curTime = feature.time + td;
             if (USE_IMU) getIMUInterval(prevTime, curTime, accVector, gyrVector);
         }
         TicToc process_time;
@@ -413,7 +432,7 @@ void Estimator::processMeasurements()
         bool suppress_publication = false;
         {
             std::lock_guard<std::mutex> lock(mProcess);
-            processImage(feature.second, feature.first);
+            processImage(feature.features, feature.time, feature.stamp);
             restart_after_failure = restart_requested_;
             suppress_publication = suppress_state_publication_;
             if (!restart_after_failure)
@@ -427,7 +446,7 @@ void Estimator::processMeasurements()
                 printStatistics(*this, process_time.toc());
                 std_msgs::msg::Header header;
                 header.frame_id = "world";
-                header.stamp = vins::stamp(feature.first);
+                header.stamp = vins::stamp(feature.time);
                 if (!rclcpp::ok()) return;
                 pubOdometry(*this, header);
                 pubKeyPoses(*this, header);
@@ -524,11 +543,14 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
         schurPropagate(dt, linear_acceleration, angular_velocity);
 }
 
-void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const double header)
+void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image,
+                             const double header,
+                             const std::optional<builtin_interfaces::msg::Time> &stamp)
 {
     RCLCPP_DEBUG(vins::logger(), "new image coming ------------------------------------------");
     RCLCPP_DEBUG(vins::logger(), "Adding feature points %lu", image.size());
     suppress_state_publication_ = false;
+    current_feature_stamp_ = stamp;
     const auto log_initialization_failure = [this](const char *stage)
     {
         suppress_state_publication_ = true;
@@ -1368,8 +1390,11 @@ void Estimator::initSchurBackend()
     }
 
     schur_history_.clear();
+    schur_margin_history_.clear();
     schur_frame_index_ = 0;
     schur_oldest_frame_ = 0;
+    schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+    schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
     schur_update_count_ = 0;
     schur_stage_total_ms_ = 0.0;
     schur_features_total_ = 0.0;
@@ -1495,7 +1520,7 @@ bool Estimator::schurProcessFrame(
     // Collect this frame's camera-0 observations once. Column layout is
     // [x, y, 1, u, v, vx, vy] where (x, y) are normalised coordinates. The hold
     // policy needs the count before it touches any visual structure.
-    std::vector<std::pair<int, Eigen::Vector2d>> observations;
+    std::vector<vins::backend::FeatureHistory::FrameObservation> observations;
     observations.reserve(image.size());
     for (const auto &feature : image)
     {
@@ -1504,8 +1529,26 @@ bool Estimator::schurProcessFrame(
             if (observation.first != 0)
                 continue;  // the Schur backend consumes camera 0 only
             const Eigen::Matrix<double, 7, 1> &value = observation.second;
-            observations.emplace_back(feature.first, Eigen::Vector2d(value(0), value(1)));
+            vins::backend::FeatureHistory::FrameObservation observation_record;
+            observation_record.feature_id = feature.first;
+            observation_record.uv = Eigen::Vector2d(value(0), value(1));
+            observation_record.pixel_uv = Eigen::Vector2d(value(3), value(4));
+            observation_record.has_pixel_uv = observation_record.pixel_uv.allFinite();
+            observations.push_back(observation_record);
         }
+    }
+
+    // Keep publication dedup across EKF track consumption and hold/rebuild.
+    // Current image IDs bridge the history erase/reinsert boundary. Lost IDs
+    // remain only while retained observations could still publish a point.
+    if (schur_margin_history_.size() != 0)
+    {
+        std::unordered_set<int> margin_live_ids;
+        for (const auto &observation : observations)
+            margin_live_ids.insert(observation.feature_id);
+        for (const auto &track : schur_history_.all_tracks(schur_oldest_frame_))
+            margin_live_ids.insert(track.id);
+        schur_margin_history_.retain(margin_live_ids);
     }
 
     // P7 hold fast path. While holding, this frame is a pure-IMU frame: no
@@ -1523,6 +1566,10 @@ bool Estimator::schurProcessFrame(
             schur_hold_.observe_frame(frame_time, static_cast<int>(observations.size()));
         if (hold_action == vins::backend::StarvationHold::Action::kHold)
         {
+            // Hold has no visual structure; never expose the previous frame's
+            // snapshot as if it belonged to this image.
+            schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+            schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
             if (!schurStateFinite())
             {
                 schur_ekf_active_ = false;
@@ -1568,7 +1615,7 @@ bool Estimator::schurProcessFrame(
     //    above). A frame that just left hold only carries this single entry, so
     //    no track can pass the min-observation gate and the clone window is
     //    rebuilt frame by frame without absorbing stale tracks.
-    schur_history_.add_frame(schur_frame_index_, 0, observations);
+    schur_history_.add_frame_with_pixels(schur_frame_index_, 0, observations);
 
     // 2. Append the current pose as the newest clone. Pruning is deferred until
     //    after the visual update so the oldest clone can still be observed by
@@ -1615,6 +1662,29 @@ bool Estimator::schurProcessFrame(
     }
     schur_lost_total_ += selection.lost_count;
     schur_marginalized_total_ += selection.marginalized_count;
+
+    // Publication-only snapshot. Build it before consumed tracks are erased so
+    // loop_fusion still sees the complete feature set of this image, but
+    // triangulate copies only: neither the filter history nor the accepted
+    // measurement tracks are modified. The snapshot is deliberately separate
+    // from FeatureManager because Schur never runs setDepth(), which is the
+    // only place that sets Ceres solve_flag=1.
+    if (schurVisualizationRequested())
+    {
+        const int keyframe_clone_index = schur_frame_index_ - schur_oldest_frame_;
+        const std::vector<int> consumed_for_margin =
+            summary.applied ? summary.used_feature_ids : std::vector<int>{};
+        schur_visual_snapshot_ = vins::backend::makeSchurVisualizationSnapshot(
+            schur_state_, schur_cameras_, schur_updater_,
+            schur_history_.all_tracks(schur_oldest_frame_), keyframe_clone_index,
+            frame_time, consumed_for_margin, &schur_margin_history_);
+        schur_visualization_stamp_ = current_feature_stamp_.value_or(vins::stamp(header));
+    }
+    else
+    {
+        schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+        schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
+    }
 
     // 5. Consume the tracks that actually entered the update. A rejected track
     //    is kept so it can be retried while it is still inside the window; the
@@ -1882,6 +1952,8 @@ bool Estimator::schurProcessFrame(
     if (!schurStateFinite())
     {
         schur_ekf_active_ = false;
+        schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+        schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
         RCLCPP_WARN(vins::logger(),
                     "Schur EKF state became non-finite at frame %d; falling back to the "
                     "Ceres backend", schur_frame_index_ - 1);
@@ -1906,6 +1978,8 @@ void Estimator::schurHoldEnter(double frame_time, double gap_seconds)
     // holding instead of growing with a stale window.
     const int dropped_clones = schur_state_.drop_all_clones();
     schur_history_.clear();
+    schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+    schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
     schur_frame_index_ = 0;
     schur_oldest_frame_ = 0;
     schur_consecutive_failures_ = 0;
@@ -1930,6 +2004,8 @@ void Estimator::schurHoldRecover(double frame_time, int observations)
     // naturally during the hold) are deliberately kept untouched.
     schur_state_.drop_all_clones();
     schur_history_.clear();
+    schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+    schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
     schur_frame_index_ = 0;
     schur_oldest_frame_ = 0;
     schur_consecutive_failures_ = 0;
@@ -1962,6 +2038,8 @@ void Estimator::schurSoftRestart(double frame_time, double gap_seconds)
     schur_state_.reset(schur_state_.options(), frame_time, imu.q, imu.p, imu.v, imu.ba,
                        imu.bg);
     schur_history_.clear();
+    schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
+    schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
     schur_frame_index_ = 0;
     schur_oldest_frame_ = 0;
     schur_consecutive_failures_ = 0;

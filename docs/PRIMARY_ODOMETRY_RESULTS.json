@@ -1,0 +1,312 @@
+{
+  "on": {
+    "dataset": "V2_01_easy",
+    "backend": "schur_ekf",
+    "rate": 1.0,
+    "launch_mode": "on",
+    "primary_publishers": [
+      "loop_fusion"
+    ],
+    "playback_duration": null,
+    "binary_sha256": {
+      "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node": "cd04a557b670d07a63f60be6f8bb0be109e203ee2e864c5469d504179e5259a3",
+      "/home/sprout_stars/rmcode/VINS-Fusion/build/loop_fusion/loop_fusion_node": "9e7890f009bd038c81018e03d3ca44782e1ba03af4f8d89fdafad9e8f38b97de"
+    },
+    "error": null,
+    "counts": {
+      "images": 2280,
+      "odometry": 1083,
+      "rectified_odometry": 1083,
+      "keyframe_pose": 855,
+      "invalid_keyframe_channels": 0,
+      "pose_graph_path": 858
+    },
+    "clouds": {
+      "point_cloud": {
+        "messages": 1140,
+        "nonempty": 1082,
+        "points": 158739,
+        "last_stamp": 1413393326205760500,
+        "last_nonempty_stamp": 1413393326205760500,
+        "invalid": 0,
+        "post_20s_messages": 940,
+        "post_20s_nonempty": 940
+      },
+      "margin_cloud": {
+        "messages": 1140,
+        "nonempty": 975,
+        "points": 8239,
+        "last_stamp": 1413393326205760500,
+        "last_nonempty_stamp": 1413393321905760500,
+        "invalid": 0,
+        "post_20s_messages": 940,
+        "post_20s_nonempty": 851
+      },
+      "keyframe_point": {
+        "messages": 855,
+        "nonempty": 855,
+        "points": 114539,
+        "last_stamp": 1413393325505760500,
+        "last_nonempty_stamp": 1413393325505760500,
+        "invalid": 0,
+        "post_20s_messages": 751,
+        "post_20s_nonempty": 751
+      }
+    },
+    "graph": {
+      "max_path_poses": 845,
+      "max_loop_edges": 67
+    },
+    "paired_keyframes": 855,
+    "keyframes_matching_image": 855,
+    "unpaired_keyframes": 0,
+    "max_position_correction_m": 0.3794840407274975,
+    "odometry_metrics": {
+      "matched_poses": 1080,
+      "ate_rmse_m": 0.2102101971413147,
+      "ate_median_m": 0.201855359204029,
+      "ate_p95_m": 0.31669342004842815,
+      "trajectory_duration_s": 107.90000009536743,
+      "max_output_gap_s": 0.10000014305114746
+    },
+    "rectified_metrics": {
+      "matched_poses": 1080,
+      "ate_rmse_m": 0.17212223737594848,
+      "ate_median_m": 0.15119219705860915,
+      "ate_p95_m": 0.27597313756514963,
+      "trajectory_duration_s": 107.90000009536743,
+      "max_output_gap_s": 0.10000014305114746
+    },
+    "final_pose_graph_metrics": {
+      "matched_poses": 845,
+      "ate_rmse_m": 0.14135581671411312,
+      "ate_median_m": 0.1296847166216858,
+      "ate_p95_m": 0.2144369121386329,
+      "trajectory_duration_s": 106.0,
+      "max_output_gap_s": 2.200000047683716
+    },
+    "schur_activation_logged": true,
+    "schur_seed_count": 1,
+    "checks": {
+      "processes_healthy": true,
+      "backend_active": true,
+      "point_cloud_after_warmup": true,
+      "margin_cloud_after_warmup": true,
+      "keyframes_after_warmup": true,
+      "valid_points": true,
+      "valid_keyframe_channels": true,
+      "paired_keyframes": true,
+      "keyframe_images_available": true,
+      "pose_graph_grows": true,
+      "loop_constraint_detected": true,
+      "loop_correction_applied": true,
+      "single_primary_publisher": true,
+      "primary_matches_selected_stream": true,
+      "all_raw_messages_corrected": true,
+      "body_twist_and_covariance_preserved": true
+    },
+    "passed": true
+  },
+  "off_verified": {
+    "dataset": "V2_01_easy",
+    "backend": "schur_ekf",
+    "rate": 1.0,
+    "launch_mode": "off",
+    "primary_publishers": [
+      "vins_estimator"
+    ],
+    "playback_duration": 35.0,
+    "binary_sha256": {
+      "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node": "cd04a557b670d07a63f60be6f8bb0be109e203ee2e864c5469d504179e5259a3",
+      "/home/sprout_stars/rmcode/VINS-Fusion/build/loop_fusion/loop_fusion_node": "9e7890f009bd038c81018e03d3ca44782e1ba03af4f8d89fdafad9e8f38b97de"
+    },
+    "error": null,
+    "counts": {
+      "images": 700,
+      "odometry": 293,
+      "keyframe_pose": 226,
+      "invalid_keyframe_channels": 0
+    },
+    "clouds": {
+      "point_cloud": {
+        "messages": 350,
+        "nonempty": 292,
+        "points": 43444,
+        "last_stamp": 1413393247205760500,
+        "last_nonempty_stamp": 1413393247205760500,
+        "invalid": 0,
+        "post_20s_messages": 150,
+        "post_20s_nonempty": 150
+      },
+      "margin_cloud": {
+        "messages": 350,
+        "nonempty": 266,
+        "points": 2000,
+        "last_stamp": 1413393247205760500,
+        "last_nonempty_stamp": 1413393247205760500,
+        "invalid": 0,
+        "post_20s_messages": 150,
+        "post_20s_nonempty": 142
+      },
+      "keyframe_point": {
+        "messages": 226,
+        "nonempty": 226,
+        "points": 30666,
+        "last_stamp": 1413393247205760500,
+        "last_nonempty_stamp": 1413393247205760500,
+        "invalid": 0,
+        "post_20s_messages": 122,
+        "post_20s_nonempty": 122
+      }
+    },
+    "graph": {
+      "max_path_poses": 0,
+      "max_loop_edges": 0
+    },
+    "paired_keyframes": 226,
+    "keyframes_matching_image": 226,
+    "unpaired_keyframes": 0,
+    "max_position_correction_m": 0,
+    "odometry_metrics": {
+      "matched_poses": 293,
+      "ate_rmse_m": 0.10210446520454891,
+      "ate_median_m": 0.09108104967751846,
+      "ate_p95_m": 0.1750212270461715,
+      "trajectory_duration_s": 29.200000047683716,
+      "max_output_gap_s": 0.10000014305114746
+    },
+    "rectified_metrics": {
+      "matched_poses": 0,
+      "ate_rmse_m": null
+    },
+    "final_pose_graph_metrics": {
+      "matched_poses": 0,
+      "ate_rmse_m": null
+    },
+    "schur_activation_logged": true,
+    "schur_seed_count": 1,
+    "checks": {
+      "processes_healthy": true,
+      "backend_active": true,
+      "point_cloud_after_warmup": true,
+      "margin_cloud_after_warmup": true,
+      "keyframes_after_warmup": true,
+      "valid_points": true,
+      "valid_keyframe_channels": true,
+      "paired_keyframes": true,
+      "keyframe_images_available": true,
+      "no_loop_output": true,
+      "single_primary_publisher": true,
+      "primary_matches_selected_stream": true
+    },
+    "passed": true
+  },
+  "ceres": {
+    "dataset": "V2_01_easy",
+    "backend": "ceres",
+    "rate": 1.0,
+    "launch_mode": "on",
+    "primary_publishers": [
+      "loop_fusion"
+    ],
+    "playback_duration": null,
+    "binary_sha256": {
+      "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node": "cd04a557b670d07a63f60be6f8bb0be109e203ee2e864c5469d504179e5259a3",
+      "/home/sprout_stars/rmcode/VINS-Fusion/build/loop_fusion/loop_fusion_node": "9e7890f009bd038c81018e03d3ca44782e1ba03af4f8d89fdafad9e8f38b97de"
+    },
+    "error": null,
+    "counts": {
+      "images": 2280,
+      "odometry": 1083,
+      "rectified_odometry": 1083,
+      "keyframe_pose": 763,
+      "invalid_keyframe_channels": 0,
+      "pose_graph_path": 763
+    },
+    "clouds": {
+      "point_cloud": {
+        "messages": 1140,
+        "nonempty": 1083,
+        "points": 206133,
+        "last_stamp": 1413393326205760512,
+        "last_nonempty_stamp": 1413393326205760512,
+        "invalid": 0,
+        "post_20s_messages": 940,
+        "post_20s_nonempty": 940
+      },
+      "margin_cloud": {
+        "messages": 1140,
+        "nonempty": 1056,
+        "points": 13179,
+        "last_stamp": 1413393326205760512,
+        "last_nonempty_stamp": 1413393326205760512,
+        "invalid": 0,
+        "post_20s_messages": 940,
+        "post_20s_nonempty": 923
+      },
+      "keyframe_point": {
+        "messages": 763,
+        "nonempty": 763,
+        "points": 93336,
+        "last_stamp": 1413393321405760512,
+        "last_nonempty_stamp": 1413393321405760512,
+        "invalid": 0,
+        "post_20s_messages": 677,
+        "post_20s_nonempty": 677
+      }
+    },
+    "graph": {
+      "max_path_poses": 753,
+      "max_loop_edges": 52
+    },
+    "paired_keyframes": 763,
+    "keyframes_matching_image": 763,
+    "unpaired_keyframes": 0,
+    "max_position_correction_m": 0.8677055941320825,
+    "odometry_metrics": {
+      "matched_poses": 1080,
+      "ate_rmse_m": 0.24050099681520065,
+      "ate_median_m": 0.20464557870835828,
+      "ate_p95_m": 0.40300904004064464,
+      "trajectory_duration_s": 107.90000009536743,
+      "max_output_gap_s": 0.10000014305114746
+    },
+    "rectified_metrics": {
+      "matched_poses": 1080,
+      "ate_rmse_m": 0.19269310600342118,
+      "ate_median_m": 0.17645487034648327,
+      "ate_p95_m": 0.31478386926504576,
+      "trajectory_duration_s": 107.90000009536743,
+      "max_output_gap_s": 0.10000014305114746
+    },
+    "final_pose_graph_metrics": {
+      "matched_poses": 753,
+      "ate_rmse_m": 0.16923966522567085,
+      "ate_median_m": 0.15651656815826545,
+      "ate_p95_m": 0.27395799530490395,
+      "trajectory_duration_s": 101.59999990463257,
+      "max_output_gap_s": 0.5999999046325684
+    },
+    "schur_activation_logged": false,
+    "schur_seed_count": 0,
+    "checks": {
+      "processes_healthy": true,
+      "backend_active": true,
+      "point_cloud_after_warmup": true,
+      "margin_cloud_after_warmup": true,
+      "keyframes_after_warmup": true,
+      "valid_points": true,
+      "valid_keyframe_channels": true,
+      "paired_keyframes": true,
+      "keyframe_images_available": true,
+      "pose_graph_grows": true,
+      "loop_constraint_detected": true,
+      "loop_correction_applied": true,
+      "single_primary_publisher": true,
+      "primary_matches_selected_stream": true,
+      "all_raw_messages_corrected": true,
+      "body_twist_and_covariance_preserved": true
+    },
+    "passed": true
+  }
+}

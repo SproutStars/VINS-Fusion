@@ -107,7 +107,7 @@ class VinsLaunchStructureTest(unittest.TestCase):
             os.path.normpath(configurations["config_file"]),
             mode_config_path("mono_imu"))
         self.assertEqual(configurations["use_sim_time"], "false")
-        self.assertEqual(configurations["loop_fusion"], "false")
+        self.assertEqual(configurations["loop_fusion"], "true")
         self.assertEqual(configurations["global_fusion"], "false")
         self.assertEqual(configurations["rviz"], "true")
         self.assertEqual(configurations["opencv_threads"], "1")
@@ -175,7 +175,7 @@ class VinsLaunchStructureTest(unittest.TestCase):
         self.assertIsInstance(nodes["loop_fusion_node"].condition, IfCondition)
         self.assertIsInstance(nodes["global_fusion_node"].condition, IfCondition)
         self.assertIsInstance(nodes["rviz2"].condition, IfCondition)
-        self.assertFalse(nodes["loop_fusion_node"].condition.evaluate(context))
+        self.assertTrue(nodes["loop_fusion_node"].condition.evaluate(context))
         self.assertFalse(nodes["global_fusion_node"].condition.evaluate(context))
         self.assertTrue(nodes["rviz2"].condition.evaluate(context))
 
@@ -185,6 +185,32 @@ class VinsLaunchStructureTest(unittest.TestCase):
         self.assertTrue(nodes["loop_fusion_node"].condition.evaluate(enabled))
         self.assertTrue(nodes["global_fusion_node"].condition.evaluate(enabled))
         self.assertFalse(nodes["rviz2"].condition.evaluate(enabled))
+
+    def test_primary_odometry_routes_only_corrected_output_when_loop_enabled(self):
+        nodes = nodes_by_executable(self.description)
+        for enabled in ("true", "false"):
+            description = load_launch_description("vins.launch.py")
+            nodes = nodes_by_executable(description)
+            context = apply_declarations(description, {"loop_fusion": enabled})
+            expected = "/vins_estimator/odometry_raw" if enabled == "true" else "/vins_estimator/odometry"
+            for executable, source in (("vins_node", "~/odometry"),
+                                       ("global_fusion_node", "/vins_estimator/odometry")):
+                remaps = {perform_substitutions(context, a): perform_substitutions(context, b)
+                          for a, b in nodes[executable]._Node__remappings}
+                self.assertEqual(remaps[source], expected)
+            loop = nodes["loop_fusion_node"]
+            self.assertEqual(loop.condition.evaluate(context), enabled == "true")
+            params = evaluated_node_parameters(loop, context)
+            self.assertEqual(params["input_odometry_topic"], "/vins_estimator/odometry_raw")
+            self.assertTrue(params["publish_primary_odometry"])
+            self.assertTrue(params["publish_primary_visualization"])
+            estimator = nodes["vins_node"]
+            self.assertEqual(evaluated_node_parameters(estimator, context)["use_raw_frames"],
+                             enabled == "true")
+            remaps = {perform_substitutions(context, a): perform_substitutions(context, b)
+                      for a, b in estimator._Node__remappings}
+            self.assertEqual(remaps["~/path"], "/vins_estimator/path_raw" if enabled == "true"
+                             else "/vins_estimator/path")
 
     def test_fusion_output_parameters_are_unchanged(self):
         context = apply_declarations(

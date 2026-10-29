@@ -486,7 +486,8 @@ private:
             const cv::Mat right = frame.right ? decode(frame.right) : cv::Mat();
             decode_ms = elapsedMs(decode_start, std::chrono::steady_clock::now());
             const auto input_start = std::chrono::steady_clock::now();
-            estimator_->inputImage(vins::seconds(frame.left->header.stamp), left, right);
+            estimator_->inputImage(vins::seconds(frame.left->header.stamp), left, right,
+                                   frame.left->header.stamp);
             input_image_ms = elapsedMs(input_start, std::chrono::steady_clock::now());
             timings = estimator_->featureTracker.lastTimings();
         } catch (const cv::Exception &e) {
@@ -640,7 +641,7 @@ private:
                      m->channels[4].values[i], m->channels[5].values[i];
             frame[id].emplace_back(camera, value);
         }
-        estimator_->inputFeature(vins::seconds(m->header.stamp), frame);
+        estimator_->inputFeature(vins::seconds(m->header.stamp), frame, m->header.stamp);
     }
     std::unique_ptr<Estimator> estimator_;
     std::deque<Image::ConstSharedPtr> images0_, images1_;

@@ -10,6 +10,17 @@
 namespace vins
 {
 
+// nav_msgs/Odometry twist uses child_frame_id, which is body for VINS.
+inline void fillBodyLinearVelocity(nav_msgs::msg::Odometry &msg,
+                                   const Eigen::Matrix3d &R_world_body,
+                                   const Eigen::Vector3d &world_velocity)
+{
+    const Eigen::Vector3d velocity = R_world_body.transpose() * world_velocity;
+    msg.twist.twist.linear.x = velocity.x();
+    msg.twist.twist.linear.y = velocity.y();
+    msg.twist.twist.linear.z = velocity.z();
+}
+
 // Fills the pose/twist mean and covariance of an Odometry message from the live
 // Schur-EKF state. The caller owns the header and child_frame_id.
 //

@@ -1,0 +1,390 @@
+{
+  "V2_01_easy": {
+    "geometry": {
+      "Schur_before": {
+        "points": 31200,
+        "nonfinite": 0,
+        "distance_to_body_p50_m": 2.5749789880708067,
+        "distance_to_body_p95_m": 10.126132320402801,
+        "distance_to_body_p99_m": 39.83277756070131,
+        "distance_over_10m_count": 1570,
+        "distance_over_10m_fraction": 0.05032051282051282,
+        "distance_over_20m_count": 919
+      },
+      "Schur_after": {
+        "points": 6762,
+        "nonfinite": 0,
+        "distance_to_body_p50_m": 2.2389221245829436,
+        "distance_to_body_p95_m": 5.082141126156833,
+        "distance_to_body_p99_m": 6.916794996738097,
+        "distance_over_10m_count": 0,
+        "distance_over_10m_fraction": 0.0,
+        "distance_over_20m_count": 0
+      },
+      "Ceres": {
+        "points": 11548,
+        "nonfinite": 0,
+        "distance_to_body_p50_m": 1.5569085564834744,
+        "distance_to_body_p95_m": 4.923177255347184,
+        "distance_to_body_p99_m": 7.120155012181274,
+        "distance_over_10m_count": 45,
+        "distance_over_10m_fraction": 0.003896778662971943,
+        "distance_over_20m_count": 12
+      }
+    },
+    "functional_summary": {
+      "dataset": "V2_01_easy",
+      "backend": "schur_ekf",
+      "rate": 1.0,
+      "playback_duration": null,
+      "binary_sha256": {
+        "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node": "7ec7e35be61c119780fab49f83a7843d9f71f4465300414a6472746ff8e58533",
+        "/home/sprout_stars/rmcode/VINS-Fusion/build/loop_fusion/loop_fusion_node": "7f5f867993c57e9833fc82ac751030fde7c8ce4065caf26255b09f2b3f6ea991"
+      },
+      "error": null,
+      "counts": {
+        "images": 2280,
+        "odometry": 1083,
+        "rectified_odometry": 1083,
+        "keyframe_pose": 855,
+        "invalid_keyframe_channels": 0,
+        "pose_graph_path": 858
+      },
+      "clouds": {
+        "point_cloud": {
+          "messages": 1140,
+          "nonempty": 1082,
+          "points": 158739,
+          "last_stamp": 1413393326205760500,
+          "last_nonempty_stamp": 1413393326205760500,
+          "invalid": 0,
+          "post_20s_messages": 940,
+          "post_20s_nonempty": 940
+        },
+        "margin_cloud": {
+          "messages": 1140,
+          "nonempty": 975,
+          "points": 8239,
+          "last_stamp": 1413393326205760500,
+          "last_nonempty_stamp": 1413393321905760500,
+          "invalid": 0,
+          "post_20s_messages": 940,
+          "post_20s_nonempty": 851
+        },
+        "keyframe_point": {
+          "messages": 855,
+          "nonempty": 855,
+          "points": 114539,
+          "last_stamp": 1413393325505760500,
+          "last_nonempty_stamp": 1413393325505760500,
+          "invalid": 0,
+          "post_20s_messages": 751,
+          "post_20s_nonempty": 751
+        }
+      },
+      "graph": {
+        "max_path_poses": 845,
+        "max_loop_edges": 67
+      },
+      "paired_keyframes": 855,
+      "keyframes_matching_image": 855,
+      "unpaired_keyframes": 0,
+      "max_position_correction_m": 0.3794840407274975,
+      "odometry_metrics": {
+        "matched_poses": 1080,
+        "ate_rmse_m": 0.2102101971413147,
+        "ate_median_m": 0.201855359204029,
+        "ate_p95_m": 0.31669342004842815,
+        "trajectory_duration_s": 107.90000009536743,
+        "max_output_gap_s": 0.10000014305114746
+      },
+      "rectified_metrics": {
+        "matched_poses": 1080,
+        "ate_rmse_m": 0.1716653943742404,
+        "ate_median_m": 0.14990833373271983,
+        "ate_p95_m": 0.27594379478627956,
+        "trajectory_duration_s": 107.90000009536743,
+        "max_output_gap_s": 0.10000014305114746
+      },
+      "final_pose_graph_metrics": {
+        "matched_poses": 845,
+        "ate_rmse_m": 0.14135581671411312,
+        "ate_median_m": 0.1296847166216858,
+        "ate_p95_m": 0.2144369121386329,
+        "trajectory_duration_s": 106.0,
+        "max_output_gap_s": 2.200000047683716
+      },
+      "schur_activation_logged": true,
+      "schur_seed_count": 1,
+      "checks": {
+        "processes_healthy": true,
+        "backend_active": true,
+        "point_cloud_after_warmup": true,
+        "margin_cloud_after_warmup": true,
+        "keyframes_after_warmup": true,
+        "valid_points": true,
+        "valid_keyframe_channels": true,
+        "paired_keyframes": true,
+        "keyframe_images_available": true,
+        "pose_graph_grows": true,
+        "loop_constraint_detected": true,
+        "loop_correction_applied": true
+      },
+      "passed": true
+    },
+    "raw_vio_byte_identical": true,
+    "point_cloud_and_keyframe_stats_identical": true
+  },
+  "V2_02_medium": {
+    "geometry": {
+      "Schur_before": {
+        "points": 32140,
+        "nonfinite": 0,
+        "distance_to_body_p50_m": 3.109404187120469,
+        "distance_to_body_p95_m": 8.463545301083453,
+        "distance_to_body_p99_m": 35.7707965143166,
+        "distance_over_10m_count": 1187,
+        "distance_over_10m_fraction": 0.036932171748599876,
+        "distance_over_20m_count": 567
+      },
+      "Schur_after": {
+        "points": 10662,
+        "nonfinite": 0,
+        "distance_to_body_p50_m": 2.8043515687479506,
+        "distance_to_body_p95_m": 5.905864090016307,
+        "distance_to_body_p99_m": 7.4579268632506315,
+        "distance_over_10m_count": 1,
+        "distance_over_10m_fraction": 9.379103357719002e-05,
+        "distance_over_20m_count": 0
+      }
+    },
+    "functional_summary": {
+      "dataset": "V2_02_medium",
+      "backend": "schur_ekf",
+      "rate": 1.0,
+      "playback_duration": null,
+      "binary_sha256": {
+        "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node": "7ec7e35be61c119780fab49f83a7843d9f71f4465300414a6472746ff8e58533",
+        "/home/sprout_stars/rmcode/VINS-Fusion/build/loop_fusion/loop_fusion_node": "7f5f867993c57e9833fc82ac751030fde7c8ce4065caf26255b09f2b3f6ea991"
+      },
+      "error": null,
+      "counts": {
+        "images": 2348,
+        "odometry": 1137,
+        "rectified_odometry": 1137,
+        "keyframe_pose": 1071,
+        "invalid_keyframe_channels": 0,
+        "pose_graph_path": 1079
+      },
+      "clouds": {
+        "point_cloud": {
+          "messages": 1174,
+          "nonempty": 1136,
+          "points": 140928,
+          "last_stamp": 1413394003355760500,
+          "last_nonempty_stamp": 1413394003355760500,
+          "invalid": 0,
+          "post_20s_messages": 974,
+          "post_20s_nonempty": 974
+        },
+        "margin_cloud": {
+          "messages": 1174,
+          "nonempty": 1009,
+          "points": 12652,
+          "last_stamp": 1413394003355760500,
+          "last_nonempty_stamp": 1413394000955760500,
+          "invalid": 0,
+          "post_20s_messages": 974,
+          "post_20s_nonempty": 877
+        },
+        "keyframe_point": {
+          "messages": 1071,
+          "nonempty": 1071,
+          "points": 109337,
+          "last_stamp": 1413394002455760500,
+          "last_nonempty_stamp": 1413394002455760500,
+          "invalid": 0,
+          "post_20s_messages": 915,
+          "post_20s_nonempty": 915
+        }
+      },
+      "graph": {
+        "max_path_poses": 1061,
+        "max_loop_edges": 83
+      },
+      "paired_keyframes": 1071,
+      "keyframes_matching_image": 1071,
+      "unpaired_keyframes": 0,
+      "max_position_correction_m": 0.3970822165865755,
+      "odometry_metrics": {
+        "matched_poses": 1135,
+        "ate_rmse_m": 0.2733127328009994,
+        "ate_median_m": 0.24572533916644015,
+        "ate_p95_m": 0.4304860738639944,
+        "trajectory_duration_s": 113.39999985694885,
+        "max_output_gap_s": 0.10000014305114746
+      },
+      "rectified_metrics": {
+        "matched_poses": 1135,
+        "ate_rmse_m": 0.25936418403029377,
+        "ate_median_m": 0.22266256711145974,
+        "ate_p95_m": 0.4268185064648322,
+        "trajectory_duration_s": 113.39999985694885,
+        "max_output_gap_s": 0.10000014305114746
+      },
+      "final_pose_graph_metrics": {
+        "matched_poses": 1061,
+        "ate_rmse_m": 0.22563752658756545,
+        "ate_median_m": 0.1924942587906893,
+        "ate_p95_m": 0.393399014167493,
+        "trajectory_duration_s": 111.5,
+        "max_output_gap_s": 1.4000000953674316
+      },
+      "schur_activation_logged": true,
+      "schur_seed_count": 1,
+      "checks": {
+        "processes_healthy": true,
+        "backend_active": true,
+        "point_cloud_after_warmup": true,
+        "margin_cloud_after_warmup": true,
+        "keyframes_after_warmup": true,
+        "valid_points": true,
+        "valid_keyframe_channels": true,
+        "paired_keyframes": true,
+        "keyframe_images_available": true,
+        "pose_graph_grows": true,
+        "loop_constraint_detected": true,
+        "loop_correction_applied": true
+      },
+      "passed": true
+    },
+    "raw_vio_byte_identical": true,
+    "point_cloud_and_keyframe_stats_identical": true
+  },
+  "V2_03_difficult": {
+    "geometry": {
+      "Schur_before": {
+        "points": 25607,
+        "nonfinite": 0,
+        "distance_to_body_p50_m": 2.9499408057250305,
+        "distance_to_body_p95_m": 6.418820961002911,
+        "distance_to_body_p99_m": 14.318275595178857,
+        "distance_over_10m_count": 479,
+        "distance_over_10m_fraction": 0.018705822626625533,
+        "distance_over_20m_count": 152
+      },
+      "Schur_after": {
+        "points": 8039,
+        "nonfinite": 0,
+        "distance_to_body_p50_m": 2.8290390185403735,
+        "distance_to_body_p95_m": 5.150504166246381,
+        "distance_to_body_p99_m": 6.3141054909857655,
+        "distance_over_10m_count": 1,
+        "distance_over_10m_fraction": 0.00012439358129120537,
+        "distance_over_20m_count": 0
+      }
+    },
+    "functional_summary": {
+      "dataset": "V2_03_difficult",
+      "backend": "schur_ekf",
+      "rate": 1.0,
+      "playback_duration": null,
+      "binary_sha256": {
+        "/home/sprout_stars/rmcode/VINS-Fusion/build/vins/vins_node": "7ec7e35be61c119780fab49f83a7843d9f71f4465300414a6472746ff8e58533",
+        "/home/sprout_stars/rmcode/VINS-Fusion/build/loop_fusion/loop_fusion_node": "7f5f867993c57e9833fc82ac751030fde7c8ce4065caf26255b09f2b3f6ea991"
+      },
+      "error": null,
+      "counts": {
+        "images": 1922,
+        "odometry": 1098,
+        "rectified_odometry": 1098,
+        "keyframe_pose": 1066,
+        "invalid_keyframe_channels": 0,
+        "pose_graph_path": 1061
+      },
+      "clouds": {
+        "point_cloud": {
+          "messages": 1168,
+          "nonempty": 1091,
+          "points": 104128,
+          "last_stamp": 1413394998305760500,
+          "last_nonempty_stamp": 1413394998205760500,
+          "invalid": 0,
+          "post_20s_messages": 968,
+          "post_20s_nonempty": 962
+        },
+        "margin_cloud": {
+          "messages": 1168,
+          "nonempty": 804,
+          "points": 9697,
+          "last_stamp": 1413394998305760500,
+          "last_nonempty_stamp": 1413394996305760500,
+          "invalid": 0,
+          "post_20s_messages": 968,
+          "post_20s_nonempty": 697
+        },
+        "keyframe_point": {
+          "messages": 1066,
+          "nonempty": 1066,
+          "points": 74046,
+          "last_stamp": 1413394996905760500,
+          "last_nonempty_stamp": 1413394996905760500,
+          "invalid": 0,
+          "post_20s_messages": 939,
+          "post_20s_nonempty": 939
+        }
+      },
+      "graph": {
+        "max_path_poses": 1056,
+        "max_loop_edges": 16
+      },
+      "paired_keyframes": 1066,
+      "keyframes_matching_image": 1066,
+      "unpaired_keyframes": 0,
+      "max_position_correction_m": 0.4798977303753117,
+      "odometry_metrics": {
+        "matched_poses": 1097,
+        "ate_rmse_m": 0.3178236703597406,
+        "ate_median_m": 0.2645366872979918,
+        "ate_p95_m": 0.5784429628874312,
+        "trajectory_duration_s": 109.59999990463257,
+        "max_output_gap_s": 0.14999985694885254
+      },
+      "rectified_metrics": {
+        "matched_poses": 1097,
+        "ate_rmse_m": 0.32839111448972,
+        "ate_median_m": 0.2881066898400749,
+        "ate_p95_m": 0.5373870698418713,
+        "trajectory_duration_s": 109.59999990463257,
+        "max_output_gap_s": 0.14999985694885254
+      },
+      "final_pose_graph_metrics": {
+        "matched_poses": 1056,
+        "ate_rmse_m": 0.29782298699637105,
+        "ate_median_m": 0.2591354818451707,
+        "ate_p95_m": 0.5062578360666914,
+        "trajectory_duration_s": 107.20000004768372,
+        "max_output_gap_s": 0.2999999523162842
+      },
+      "schur_activation_logged": true,
+      "schur_seed_count": 1,
+      "checks": {
+        "processes_healthy": true,
+        "backend_active": true,
+        "point_cloud_after_warmup": true,
+        "margin_cloud_after_warmup": true,
+        "keyframes_after_warmup": true,
+        "valid_points": true,
+        "valid_keyframe_channels": true,
+        "paired_keyframes": true,
+        "keyframe_images_available": true,
+        "pose_graph_grows": true,
+        "loop_constraint_detected": true,
+        "loop_correction_applied": true
+      },
+      "passed": true
+    },
+    "raw_vio_byte_identical": true,
+    "point_cloud_and_keyframe_stats_identical": true
+  }
+}

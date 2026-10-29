@@ -1114,3 +1114,16 @@ for r in rows:
     prev=p
 print('max_step=%.2f m' % mx)"
 ```
+
+## 回环与点云输出
+
+Schur 激活后，`point_cloud`、`margin_cloud`、`keyframe_pose` 和
+`keyframe_point` 使用独立发布快照，从当前 clone 位姿和保留轨迹生成三维点。
+关键帧保留原始图像时间戳以及归一化/像素坐标，供 `loop_fusion` 建立回环约束。
+发布快照不会修改 EKF 状态或重复消费测量；没有相关订阅者时不计算快照。
+视觉退化期间没有通过三角化检查的点时，点云可以为空。
+
+EuRoC 三组完整回放的复现命令、点云/回环统计及精度限制见
+[SCHUR_LOOP_VALIDATION.md](SCHUR_LOOP_VALIDATION.md)。
+
+`margin_cloud` 另有发布资格、几何质量和连续跟踪 ID 去重检查，用于抑制低视差深度误差及重复历史点。规则与三组数据对比见 [SCHUR_MARGIN_CLOUD.md](SCHUR_MARGIN_CLOUD.md)。

@@ -50,6 +50,16 @@ class FeatureHistory
         int frame_index = 0;
         int camera_id = 0;
         Eigen::Vector2d uv = Eigen::Vector2d::Zero();  // normalised, undistorted
+        Eigen::Vector2d pixel_uv = Eigen::Vector2d::Zero();
+        bool has_pixel_uv = false;
+    };
+
+    struct FrameObservation
+    {
+        int feature_id = -1;
+        Eigen::Vector2d uv = Eigen::Vector2d::Zero();
+        Eigen::Vector2d pixel_uv = Eigen::Vector2d::Zero();
+        bool has_pixel_uv = false;
     };
 
     using TrackSelection = ::vins::backend::TrackSelection;
@@ -58,14 +68,29 @@ class FeatureHistory
     void add_frame(int frame_index, int camera_id,
                    const std::vector<std::pair<int, Eigen::Vector2d>> &observations)
     {
+        std::vector<FrameObservation> converted;
+        converted.reserve(observations.size());
+        for (const auto &observation : observations)
+            converted.push_back(FrameObservation{observation.first, observation.second});
+        add_frame_with_pixels(frame_index, camera_id, converted);
+    }
+
+    // Registers a frame while retaining the raw pixel coordinates needed by the
+    // loop-fusion keyframe message. This is publication-only metadata; the
+    // measurement update consumes `uv` exactly as before.
+    void add_frame_with_pixels(int frame_index, int camera_id,
+                               const std::vector<FrameObservation> &observations)
+    {
         newest_frame_index_ = std::max(newest_frame_index_, frame_index);
         for (const auto &observation : observations)
         {
-            Entry &entry = features_[observation.first];
+            Entry &entry = features_[observation.feature_id];
             if (!entry.observations.empty() &&
                 entry.observations.back().frame_index == frame_index)
                 continue;  // duplicate id in one frame: keep the first observation
-            entry.observations.push_back(Observation{frame_index, camera_id, observation.second});
+            entry.observations.push_back(Observation{frame_index, camera_id, observation.uv,
+                                                     observation.pixel_uv,
+                                                     observation.has_pixel_uv});
             entry.last_frame = std::max(entry.last_frame, frame_index);
         }
     }
@@ -200,6 +225,41 @@ class FeatureHistory
     {
         for (const int id : feature_ids)
             features_.erase(id);
+    }
+
+    // Copies every retained track and resolves frame indices to clone indices.
+    // Used only to build a publication snapshot before measurement tracks are
+    // erased; callers must not feed the result back into an EKF update.
+    std::vector<FeatureTrack> all_tracks(int oldest_frame_index) const
+    {
+        std::vector<FeatureTrack> result;
+        result.reserve(features_.size());
+        for (const auto &feature : features_)
+        {
+            FeatureTrack track;
+            track.id = feature.first;
+            track.observations.reserve(feature.second.observations.size());
+            for (const Observation &observation : feature.second.observations)
+            {
+                if (observation.frame_index < oldest_frame_index)
+                    continue;
+                FeatureObservation resolved;
+                resolved.clone_index = observation.frame_index - oldest_frame_index;
+                resolved.camera_id = observation.camera_id;
+                resolved.uv = observation.uv;
+                resolved.pixel_uv = observation.pixel_uv;
+                resolved.has_pixel_uv = observation.has_pixel_uv;
+                track.observations.push_back(resolved);
+            }
+            if (!track.observations.empty())
+                result.push_back(std::move(track));
+        }
+        std::sort(result.begin(), result.end(), [](const FeatureTrack &a, const FeatureTrack &b) {
+            if (a.observations.size() != b.observations.size())
+                return a.observations.size() > b.observations.size();
+            return a.id < b.id;
+        });
+        return result;
     }
 
     size_t num_features() const { return features_.size(); }

@@ -218,3 +218,14 @@ TEST(EkfOdometry, AddsGyroNoiseOnlyForFinitePositiveDt)
             << "imu_dt=" << invalid_dt;
     }
 }
+
+TEST(OdometryVelocity, CeresVelocityUsesBodyFrameDeclaredInMessage)
+{
+    nav_msgs::msg::Odometry msg;
+    msg.child_frame_id = "body";
+    const Eigen::Matrix3d R = Eigen::AngleAxisd(kPi / 2, Vector3d::UnitZ()).toRotationMatrix();
+    vins::fillBodyLinearVelocity(msg, R, Vector3d(1, 0, 2));
+    EXPECT_NEAR(msg.twist.twist.linear.x, 0, 1e-12);
+    EXPECT_NEAR(msg.twist.twist.linear.y, -1, 1e-12);
+    EXPECT_NEAR(msg.twist.twist.linear.z, 2, 1e-12);
+}
