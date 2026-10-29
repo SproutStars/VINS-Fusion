@@ -26,7 +26,7 @@ def generate_launch_description():
             "config_file", default_value=default_config,
             description="Algorithm YAML; an explicit value overrides the mode default"),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
-        DeclareLaunchArgument("loop_fusion", default_value="false"),
+        DeclareLaunchArgument("loop_fusion", default_value="true"),
         DeclareLaunchArgument("global_fusion", default_value="false"),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument("output_path", default_value=PathJoinSubstitution([

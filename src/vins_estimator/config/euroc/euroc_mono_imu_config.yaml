@@ -21,8 +21,8 @@
       -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949,
       0.0, 0.0, 0.0, 1.0]
     multiple_thread: 1
-    max_cnt: 150
-    min_dist: 25
+    max_cnt: 200
+    min_dist: 20
     # gftt：原分辨率检测；fast_grid：网格 FAST。gftt_pyramid 为实验选项：
     # 在半分辨率金字塔检测后回原图细化，并缓存 LK 导数；会改变特征分布。
     # 光流和相机标定始终使用原分辨率，默认保留 gftt。
@@ -37,14 +37,14 @@
     solver_timeout_retry_multiplier: 2.0
     stage_timing: 0
     stage_timing_interval: 100
-    ransac_outlier_rejection: 0
+    ransac_outlier_rejection: 1
     # 后端选择："ceres"（默认滑动窗口 NLS）或 "schur_ekf"
     #（面向 ARM 的 Schur 补 EKF，参见 docs/BACKEND_SCHUR_EKF.md）。
-    backend_type: "ceres"
+    backend_type: "schur_ekf"
     schur_window_size: 5
     # 初始化后先用 Ceres 求解若干图像帧，然后
     # 再由 EKF 接管。这样可让初始化阶段的零偏/速度收敛。
-    schur_warmup_frames: 0
+    schur_warmup_frames: 30
     schur_max_features: 120
     schur_min_observations: 2
     # 跳过视觉观测不足的帧，而不是执行低秩更新。
@@ -171,7 +171,7 @@
     acc_w: 0.001
     gyr_w: 0.0001
     g_norm: 9.81007
-    estimate_td: 1
+    estimate_td: 0
     td: 0.0
     load_previous_pose_graph: 0
     pose_graph_save_path: "./output/pose_graph/"
