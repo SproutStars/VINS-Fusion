@@ -410,50 +410,82 @@ TrackReduction SchurUpdater::reduce_track(const EkfState &state,
         !(point_max > 0.0) || !(point_min > options_.point_block_rtol * point_max))
         return red;
 
-    Eigen::LDLT<Eigen::Matrix3d> point_ldlt(red.A_point);
-    if (point_ldlt.info() != Eigen::Success) return red;
+    // Numerical rank of the point block from the same relative tolerance used
+    // by the conditioning check above.  Rank 3 means the window has enough
+    // parallax to estimate the point depth; rank < 3 is not observable here
+    // and is rejected by this updater.
+    red.point_rank = 0;
+    for (int i = 0; i < 3; ++i)
+        if (point_lambda(i) > options_.point_block_rtol * point_max)
+            ++red.point_rank;
+    if (red.point_rank < 3) return red;
 
-    // ---- chi2 gate ---------------------------------------------------------
-    // Profile the 3-D point out of the innovation covariance as well.  Using
-    // only H_x P H_x^T + I would make short tracks appear artificially certain
-    // (their residual can always be absorbed by moving the point).
+    // ---- chi2 gate: explicit point-nullspace projection -------------------
+    // A feature is a free nuisance parameter, so a residual component that can
+    // be absorbed by moving the point carries no information about the state
+    // and must not enter the gate.  Let Hf be the 2N x 3 point Jacobian and N
+    // an orthonormal basis of its left null space (N^T Hf = 0).  Then
+    //
+    //     r0 = N^T r,   H0 = N^T Hx,
+    //     S0 = H0 P H0^T + I,   chi2 = r0^T S0^-1 r0,
+    //     dof = 2N - rank(Hf).
+    //
+    // S0 is positive definite by construction, so the numerical singularity of
+    // the old profiled covariance C - Hf (Hf^T Hf)^-1 Hf^T cannot turn a valid
+    // track into chi2 = inf.  The old expression also left the state covariance
+    // in the point-depth direction unprojected; projecting both r and Hx is the
+    // statistically correct marginalisation.
     const int m = 2 * num_obs;
+    const int n = state.size();
+    Eigen::MatrixXd Hx = Eigen::MatrixXd::Zero(m, n);
     Eigen::MatrixXd Hf = Eigen::MatrixXd::Zero(m, 3);
-    Eigen::MatrixXd S = Eigen::MatrixXd::Zero(m, m);
     Eigen::VectorXd r(m);
     for (int a = 0; a < num_obs; ++a)
     {
         const ObservationJacobian &Ja = jac[static_cast<std::size_t>(a)];
-        Hf.block<2, 3>(2 * a, 0) = Ja.H_point;
         const int oa =
             state.clone_offset(track.observations[static_cast<std::size_t>(a)].clone_index);
-        for (int b = 0; b < num_obs; ++b)
-        {
-            const int ob =
-                state.clone_offset(track.observations[static_cast<std::size_t>(b)].clone_index);
-            S.block<2, 2>(2 * a, 2 * b) =
-                Ja.H_pose * P.block<6, 6>(oa, ob) *
-                jac[static_cast<std::size_t>(b)].H_pose.transpose();
-        }
-        S.block<2, 2>(2 * a, 2 * a) += Eigen::Matrix2d::Identity();
+        Hx.block<2, 6>(2 * a, oa) = Ja.H_pose;
+        Hf.block<2, 3>(2 * a, 0) = Ja.H_point;
         r.segment<2>(2 * a) = Ja.residual;
     }
-    const Eigen::MatrixXd point_solve = point_ldlt.solve(Hf.transpose());
-    if (!point_solve.allFinite()) return red;
-    S.noalias() -= Hf * point_solve;
+    if (!Hx.allFinite() || !Hf.allFinite() || !r.allFinite()) return red;
 
-    Eigen::LDLT<Eigen::MatrixXd> ldlt(S);
+    Eigen::JacobiSVD<Eigen::MatrixXd> hf_svd(Hf, Eigen::ComputeFullU);
+    const Eigen::VectorXd singular = hf_svd.singularValues();
+    if (!singular.allFinite() || singular.size() == 0) return red;
+    const double singular_max = singular.maxCoeff();
+    if (!(singular_max > 0.0)) return red;
+    // A_point = Hf^T Hf, so an eigenvalue threshold of rtol*lambda_max
+    // corresponds to a singular-value threshold of sqrt(rtol)*sigma_max.
+    const double singular_rtol = std::sqrt(std::max(0.0, options_.point_block_rtol));
+    int hf_rank = 0;
+    for (int i = 0; i < singular.size(); ++i)
+        if (singular(i) > singular_rtol * singular_max)
+            ++hf_rank;
+    // Keep the gate consistent with the point-block rank test.  A rank < 3
+    // track is a low-parallax case and is rejected by this updater.
+    if (hf_rank != red.point_rank) return red;
+
+    const Eigen::MatrixXd U = hf_svd.matrixU();
+    const Eigen::MatrixXd N = U.rightCols(m - hf_rank);
+    const Eigen::VectorXd r0 = N.transpose() * r;
+    const Eigen::MatrixXd H0 = N.transpose() * Hx;
+    Eigen::MatrixXd S0 = H0 * P * H0.transpose();
+    S0.diagonal().array() += 1.0;
+    red.gate_dof = static_cast<int>(r0.size());
+
+    Eigen::LDLT<Eigen::MatrixXd> ldlt(S0);
     const Eigen::VectorXd s_pivots = ldlt.vectorD();
-    const double s_scale = s_pivots.cwiseAbs().maxCoeff();
-    if (ldlt.info() != Eigen::Success || !std::isfinite(s_scale) || !(s_scale > 0.0) ||
-        !(s_pivots.minCoeff() > 1e-12 * s_scale))
+    if (ldlt.info() != Eigen::Success || !s_pivots.allFinite() ||
+        !(s_pivots.minCoeff() > 0.0))
     {
         red.chi2 = std::numeric_limits<double>::infinity();
     }
     else
     {
-        const Eigen::VectorXd y = ldlt.solve(r);
-        red.chi2 = y.allFinite() ? r.dot(y) : std::numeric_limits<double>::infinity();
+        const Eigen::VectorXd y = ldlt.solve(r0);
+        red.chi2 = y.allFinite() ? r0.dot(y) : std::numeric_limits<double>::infinity();
     }
 
     red.valid = std::isfinite(red.chi2) && std::isfinite(red.rms_residual_px) &&
@@ -545,11 +577,13 @@ UpdateSummary SchurUpdater::update(EkfState &state, std::vector<FeatureTrack> &t
         }
 
         const int num_obs = static_cast<int>(track.observations.size());
-        const int dof = 2 * num_obs;
+        // The point is marginalized in the gate, so the testable residual has
+        // 2*num_obs - rank(Hf) degrees of freedom, not 2*num_obs.
+        const int gate_dof = red.gate_dof > 0 ? red.gate_dof : 2 * num_obs;
         // P6: only the *threshold* is relaxed by weak_scale. red.chi2 is built
         // from the nominal sigma (pixel_noise / focal_length), so the gate is
         // never widened by the inflated measurement noise.
-        if (red.chi2 > options_.chi2_multiplier * weak_scale * chi2_quantile_95(dof))
+        if (red.chi2 > options_.chi2_multiplier * weak_scale * chi2_quantile_95(gate_dof))
         {
             summary.rejected_feature_ids.push_back(track.id);  // chi2 outlier gate
             continue;
@@ -614,7 +648,7 @@ UpdateSummary SchurUpdater::update(EkfState &state, std::vector<FeatureTrack> &t
         summary.used_feature_ids.push_back(track.id);
         summary.features_used += 1;
         summary.observations_used += num_obs;
-        summary.degrees_of_freedom += dof;
+        summary.degrees_of_freedom += 2 * num_obs;
     }
     summary.features_rejected = static_cast<int>(summary.rejected_feature_ids.size());
 

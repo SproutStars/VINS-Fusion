@@ -1656,6 +1656,100 @@ TEST(SchurUpdate, T12MultipleTracksApplyWithFiniteCondition)
 }
 
 // ===========================================================================
+// T28 -- the chi2 gate projects the residual and the state Jacobian into the
+// left null space of Hf.  It must not use the old unprojected profiled
+// covariance C - Hf (Hf^T Hf)^-1 Hf^T.
+// ===========================================================================
+TEST(SchurUpdate, T28Chi2GateUsesExplicitPointNullspaceProjection)
+{
+    const UpdateOptions opts = default_options();
+    SchurUpdater updater(opts);
+    const CameraExtrinsics cam = make_camera(Eigen::Vector3d(0.02, -0.01, 0.03),
+                                             Eigen::Vector3d(0.0, 0.0, 0.0));
+    std::vector<Eigen::Vector4d> qs;
+    std::vector<Eigen::Vector3d> ps;
+    smooth_trajectory(4, qs, ps);
+    EkfState state;
+    build_state(state, qs, ps);
+    regularize_covariance(state);
+
+    const Eigen::Vector3d world_point(0.8, -0.4, 4.5);
+    FeatureTrack track;
+    track.id = 2800;
+    // Non-zero residual: a fixed sub-pixel offset per observation.  With a
+    // zero residual this test would only check 0 == 0.
+    const Eigen::Vector2d offset_px(0.62, -0.41);
+    for (int i = 0; i < 4; ++i)
+    {
+        Eigen::Vector2d uv =
+            project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)],
+                          cam, world_point);
+        uv += offset_px * (i % 2 == 0 ? 1.0 : -0.5) / kFocal;
+        track.observations.push_back(make_observation(i, 0, uv));
+    }
+    ASSERT_TRUE(updater.triangulate(state, {cam}, track));
+    const TrackReduction red = updater.reduce_track(state, {cam}, track);
+    ASSERT_TRUE(red.valid);
+    EXPECT_GT(std::abs(red.chi2), 1e-6);
+
+    const JointSystem joint = build_joint(updater, state, {cam}, track);
+    const int m = 2 * static_cast<int>(track.observations.size());
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(joint.Hf, Eigen::ComputeFullU);
+    const Eigen::VectorXd singular = svd.singularValues();
+    const double smax = singular.maxCoeff();
+    // A_point = Hf^T Hf: the singular-value threshold is sqrt of the
+    // eigenvalue threshold used by the point-block rank test.
+    const double singular_rtol = std::sqrt(opts.point_block_rtol);
+    int rank = 0;
+    for (int i = 0; i < singular.size(); ++i)
+        if (singular(i) > singular_rtol * smax)
+            ++rank;
+    ASSERT_EQ(rank, 3);
+    ASSERT_EQ(red.point_rank, rank);
+    ASSERT_EQ(red.gate_dof, m - rank);
+
+    const Eigen::MatrixXd N = svd.matrixU().rightCols(m - rank);
+    const Eigen::VectorXd r0 = N.transpose() * joint.r;
+    const Eigen::MatrixXd H0 = N.transpose() * joint.Hx;
+    Eigen::MatrixXd S0 = H0 * state.covariance() * H0.transpose();
+    S0.diagonal().array() += 1.0;
+    Eigen::LDLT<Eigen::MatrixXd> ldlt(S0);
+    ASSERT_EQ(ldlt.info(), Eigen::Success);
+    EXPECT_GT(ldlt.vectorD().minCoeff(), 0.0);
+    const Eigen::VectorXd y = ldlt.solve(r0);
+    ASSERT_TRUE(y.allFinite());
+    const double chi2_ref = r0.dot(y);
+
+    std::printf("[T28] rank=%d gate_dof=%d chi2=%.9f ref=%.9f diff=%.3e\n",
+                red.point_rank, red.gate_dof, red.chi2, chi2_ref,
+                std::abs(red.chi2 - chi2_ref));
+    EXPECT_NEAR(red.chi2, chi2_ref, 1e-9 * std::max(1.0, std::abs(chi2_ref)));
+
+    // Residual components in range(Hf) are exactly what moving the 3-D point
+    // can absorb.  They must not change the gate statistic.
+    const Eigen::Vector3d point_shift(2.0e-3, -1.0e-3, 4.0e-4);
+    const Eigen::VectorXd r_absorbed = joint.r + joint.Hf * point_shift;
+    const Eigen::VectorXd r0_absorbed = N.transpose() * r_absorbed;
+    EXPECT_LT((r0_absorbed - r0).norm(), 1e-12 * std::max(1.0, r0.norm()));
+    const double chi2_absorbed = r0_absorbed.dot(ldlt.solve(r0_absorbed));
+    EXPECT_NEAR(chi2_absorbed, chi2_ref, 1e-9 * std::max(1.0, std::abs(chi2_ref)));
+
+    // The previous expression C - Hf (Hf^T Hf)^-1 Hf^T does not have this
+    // invariance; the assertion below records the property that separated the
+    // two formulations.
+    Eigen::MatrixXd C = joint.Hx * state.covariance() * joint.Hx.transpose();
+    C.diagonal().array() += 1.0;
+    const Eigen::MatrixXd S_old =
+        C - joint.Hf * (joint.Hf.transpose() * joint.Hf).inverse() * joint.Hf.transpose();
+    const double chi2_old = joint.r.dot(S_old.ldlt().solve(joint.r));
+    const double chi2_old_absorbed =
+        r_absorbed.dot(S_old.ldlt().solve(r_absorbed));
+    std::printf("[T28] old_profiled_chi2=%.9f absorbed=%.9f\n", chi2_old,
+                chi2_old_absorbed);
+    EXPECT_GT(std::abs(chi2_old_absorbed - chi2_old), 1e-6);
+}
+
+// ===========================================================================
 // chi2_quantile_95 sanity (Wilson-Hilferty closed form).
 // ===========================================================================
 TEST(SchurUpdate, Chi2Quantile95ClosedForm)

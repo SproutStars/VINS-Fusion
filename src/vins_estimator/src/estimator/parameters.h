@@ -179,6 +179,38 @@ extern double SCHUR_GYR_NOISE;
 extern double SCHUR_ACC_BIAS_NOISE;
 extern double SCHUR_GYR_BIAS_NOISE;
 
+// Conservative landing static constraint (ZUPT-like pseudo-measurement).
+// The generic fallback is disabled; validation data configs must explicitly
+// enable it (the EuRoC YAML sets schur_landing_zupt_enable: 1).
+// It requires all of: a recent high-acceleration impact, sustained low image
+// flow with spatial coverage, low debiased IMU dynamics, and a low estimated
+// speed. The measurement is z = 0 - v with a finite covariance; it is not a
+// hard freeze. Any motion cue exits immediately.
+extern bool SCHUR_LANDING_ZUPT_ENABLE;
+extern double SCHUR_LANDING_ZUPT_MIN_STILL_SECONDS;
+extern double SCHUR_LANDING_ZUPT_FLOW_REFERENCE_SECONDS;
+extern double SCHUR_LANDING_ZUPT_MAX_FLOW_PX;
+extern double SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION;
+extern int SCHUR_LANDING_ZUPT_MIN_FEATURES;
+extern int SCHUR_LANDING_ZUPT_MIN_QUADRANTS;
+extern double SCHUR_LANDING_ZUPT_IMPACT_WINDOW_SECONDS;
+extern double SCHUR_LANDING_ZUPT_IMPACT_ACCEL;
+extern double SCHUR_LANDING_ZUPT_MAX_IMAGE_GAP_SECONDS;
+extern double SCHUR_LANDING_ZUPT_IMU_WINDOW_SECONDS;
+extern double SCHUR_LANDING_ZUPT_MAX_IMU_GAP_SECONDS;
+extern int SCHUR_LANDING_ZUPT_MIN_IMU_SAMPLES;
+extern double SCHUR_LANDING_ZUPT_MAX_GYRO;
+extern double SCHUR_LANDING_ZUPT_MAX_ACCEL_DEV;
+extern double SCHUR_LANDING_ZUPT_MAX_ACCEL_STD;
+extern double SCHUR_LANDING_ZUPT_MAX_GYRO_STD;
+extern double SCHUR_LANDING_ZUPT_MAX_SPEED;
+extern double SCHUR_LANDING_ZUPT_EXIT_FLOW_PX;
+extern double SCHUR_LANDING_ZUPT_EXIT_SPEED;
+extern double SCHUR_LANDING_ZUPT_EXIT_GYRO;
+extern double SCHUR_LANDING_ZUPT_EXIT_ACCEL_DEV;
+extern double SCHUR_LANDING_ZUPT_SIGMA;
+extern int SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL;
+
 void readParameters(std::string config_file, const std::string &output_path = "");
 
 enum SIZE_PARAMETERIZATION

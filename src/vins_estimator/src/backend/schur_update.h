@@ -154,6 +154,13 @@ struct TrackReduction
     Eigen::Vector3d b_point = Eigen::Vector3d::Zero();   // H_f^T r
     // clone_index -> H_xi^T H_f (6x3)
     std::unordered_map<int, Eigen::Matrix<double, 6, 3>> W;
+    // Numerical rank of H_f (= rank of A_point). The point-depth direction is
+    // unobservable when this drops below 3; such tracks are rejected by this
+    // updater.
+    int point_rank = 0;
+    // Dimension of the point-nullspace-projected residual used by the chi2
+    // gate: gate_dof = 2 * observations - point_rank.
+    int gate_dof = 0;
     double chi2 = 0.0;
     double rms_residual_px = 0.0;
 };

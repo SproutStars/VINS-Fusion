@@ -407,3 +407,52 @@ TEST(EstimatorImuCovariance, GyroNoiseUsesSensorPeriodAcrossFractionalReanchor)
     estimator.clearState();
     EXPECT_DOUBLE_EQ(estimator.latest_imu_dt_, 0.0);
 }
+
+TEST(EstimatorLandingDetector, ClearStateDropsActiveStaticEvidence)
+{
+    Estimator estimator;
+    vins::backend::LandingStaticConfig config;
+    config.enabled = true;
+    config.min_still_seconds = 0.5;
+    config.max_flow_px = 0.25;
+    config.min_features = 20;
+    config.min_quadrants = 3;
+    config.impact_window_seconds = 6.0;
+    config.impact_accel = 20.0;
+    config.max_image_gap_seconds = 0.2;
+    config.imu_window_seconds = 0.2;
+    config.max_imu_sample_gap_seconds = 0.05;
+    config.min_imu_samples = 10;
+    config.max_gyro_rad_s = 0.08;
+    config.max_accel_dev = 0.6;
+    config.max_gyro_std = 0.03;
+    config.max_accel_std = 0.35;
+    config.max_speed = 0.3;
+    estimator.schur_landing_static_.configure(config);
+
+    std::vector<vins::backend::LandingPixelObservation> observations;
+    int id = 0;
+    for (int row = 0; row < 6; ++row)
+        for (int col = 0; col < 8; ++col)
+            observations.push_back(vins::backend::LandingPixelObservation{
+                id++, Eigen::Vector2d(60.0 + 80.0 * col, 40.0 + 70.0 * row)});
+
+    estimator.schur_landing_static_.observe_imu(
+        0.0, Eigen::Vector3d(0.0, 0.0, 25.0), Eigen::Vector3d::Zero());
+    double imu_t = 0.005;
+    for (int i = 0; i <= 20; ++i)
+    {
+        const double t = 0.10 + 0.05 * i;
+        for (double sample_t = imu_t; sample_t <= t + 1e-9; sample_t += 0.005)
+            estimator.schur_landing_static_.observe_imu(
+                sample_t, Eigen::Vector3d(0.0, 0.0, 9.81007), Eigen::Vector3d::Zero());
+        imu_t = t + 0.005;
+        estimator.schur_landing_static_.observe_frame(
+            t, observations, Eigen::Vector3d(0.05, 0.0, 0.0), Eigen::Vector3d::Zero(),
+            Eigen::Vector3d::Zero());
+    }
+    ASSERT_TRUE(estimator.schur_landing_static_.active());
+
+    estimator.clearState();
+    EXPECT_FALSE(estimator.schur_landing_static_.active());
+}

@@ -42,6 +42,7 @@
 #include "../featureTracker/feature_tracker.h"
 #include "../backend/ekf_state.h"
 #include "../backend/schur_update.h"
+#include "../backend/landing_static.h"
 #include "../backend/feature_history.h"
 #include "../backend/schur_visualization.h"
 
@@ -302,6 +303,11 @@ class Estimator
     // trigger counters so they are reset atomically in initSchurBackend(); a
     // backwards timestamp re-baselines instead of triggering a restart.
     vins::backend::StarvationMonitor schur_starvation_monitor_;
+    // Conservative landing static constraint. It is armed by a recent impact
+    // and only updates while visual/IMU/speed evidence all agree.
+    vins::backend::LandingStaticDetector schur_landing_static_;
+    int schur_landing_static_updates_ = 0;
+    int schur_landing_static_failures_ = 0;
     // P7 hold policy state machine and rebuild diagnostics.
     vins::backend::StarvationHold schur_hold_;
     int schur_rebuild_frames_ = 0;       // frames since the last hold exit

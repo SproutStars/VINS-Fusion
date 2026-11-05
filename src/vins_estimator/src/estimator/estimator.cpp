@@ -137,6 +137,9 @@ void Estimator::clearState()
     schur_rejected_total_ = 0.0;
     schur_soft_restart_time_ = -1.0;
     schur_starvation_monitor_.reset(0.0);
+    schur_landing_static_.reset();
+    schur_landing_static_updates_ = 0;
+    schur_landing_static_failures_ = 0;
     schur_history_.clear();
     schur_cameras_.clear();
     schur_margin_history_.clear();
@@ -540,7 +543,10 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
         schur_last_imu_dt_ = t - schur_last_imu_time_;
     schur_last_imu_time_ = t;
     if (schur_ekf_active_)
+    {
+        schur_landing_static_.observe_imu(t, linear_acceleration, angular_velocity);
         schurPropagate(dt, linear_acceleration, angular_velocity);
+    }
 }
 
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image,
@@ -1420,6 +1426,40 @@ void Estimator::initSchurBackend()
     starvation_config.restart_cooldown_seconds = SCHUR_RESTART_COOLDOWN_SECONDS;
     schur_starvation_monitor_.configure(starvation_config);
     schur_starvation_monitor_.reset(seed_time);
+    // Conservative landing ZUPT detector. The detector is reset together with
+    // every filter instance; it cannot carry an impact or stillness window
+    // across a restart or clock discontinuity.
+    vins::backend::LandingStaticConfig landing_config;
+    landing_config.enabled = SCHUR_LANDING_ZUPT_ENABLE;
+    landing_config.min_still_seconds = SCHUR_LANDING_ZUPT_MIN_STILL_SECONDS;
+    landing_config.flow_reference_seconds = SCHUR_LANDING_ZUPT_FLOW_REFERENCE_SECONDS;
+    landing_config.max_flow_px = SCHUR_LANDING_ZUPT_MAX_FLOW_PX;
+    landing_config.min_static_fraction = SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION;
+    landing_config.min_features = SCHUR_LANDING_ZUPT_MIN_FEATURES;
+    landing_config.min_quadrants = SCHUR_LANDING_ZUPT_MIN_QUADRANTS;
+    landing_config.image_width = COL;
+    landing_config.image_height = ROW;
+    landing_config.impact_window_seconds = SCHUR_LANDING_ZUPT_IMPACT_WINDOW_SECONDS;
+    landing_config.impact_accel = SCHUR_LANDING_ZUPT_IMPACT_ACCEL;
+    landing_config.max_image_gap_seconds = SCHUR_LANDING_ZUPT_MAX_IMAGE_GAP_SECONDS;
+    landing_config.imu_window_seconds = SCHUR_LANDING_ZUPT_IMU_WINDOW_SECONDS;
+    landing_config.max_imu_sample_gap_seconds =
+        SCHUR_LANDING_ZUPT_MAX_IMU_GAP_SECONDS;
+    landing_config.min_imu_samples = SCHUR_LANDING_ZUPT_MIN_IMU_SAMPLES;
+    landing_config.max_gyro_rad_s = SCHUR_LANDING_ZUPT_MAX_GYRO;
+    landing_config.max_accel_dev = SCHUR_LANDING_ZUPT_MAX_ACCEL_DEV;
+    landing_config.max_accel_std = SCHUR_LANDING_ZUPT_MAX_ACCEL_STD;
+    landing_config.max_gyro_std = SCHUR_LANDING_ZUPT_MAX_GYRO_STD;
+    landing_config.max_speed = SCHUR_LANDING_ZUPT_MAX_SPEED;
+    landing_config.exit_flow_px = SCHUR_LANDING_ZUPT_EXIT_FLOW_PX;
+    landing_config.exit_speed = SCHUR_LANDING_ZUPT_EXIT_SPEED;
+    landing_config.exit_gyro_rad_s = SCHUR_LANDING_ZUPT_EXIT_GYRO;
+    landing_config.exit_accel_dev = SCHUR_LANDING_ZUPT_EXIT_ACCEL_DEV;
+    landing_config.gravity = options.gravity;
+    schur_landing_static_.configure(landing_config);
+    schur_landing_static_.reset();
+    schur_landing_static_updates_ = 0;
+    schur_landing_static_failures_ = 0;
     // P7 hold policy: configure and drop any holding state from a previous
     // filter instance (cumulative diagnostics survive).
     vins::backend::StarvationHold::Config hold_config;
@@ -1536,6 +1576,44 @@ bool Estimator::schurProcessFrame(
             observation_record.has_pixel_uv = observation_record.pixel_uv.allFinite();
             observations.push_back(observation_record);
         }
+    }
+
+    // Landing static detector. It consumes the same image-time timeline as the
+    // EKF and is evaluated on every frame, including frames where the visual
+    // update is rejected. The detector only *recommends* a zero-velocity
+    // pseudo-measurement; the actual EKF update happens below after the visual
+    // update.
+    std::vector<vins::backend::LandingPixelObservation> landing_pixels;
+    landing_pixels.reserve(observations.size());
+    for (const auto &observation : observations)
+    {
+        if (observation.has_pixel_uv)
+            landing_pixels.push_back(
+                vins::backend::LandingPixelObservation{observation.feature_id,
+                                                       observation.pixel_uv});
+    }
+    const vins::backend::LandingFrameResult landing = schur_landing_static_.observe_frame(
+        frame_time, landing_pixels, schur_state_.imu().v, schur_state_.imu().ba,
+        schur_state_.imu().bg);
+    if (landing.entered)
+    {
+        RCLCPP_WARN(vins::logger(),
+                    "Landing ZUPT armed at frame %d (t=%.3f): impact_age=%.2fs "
+                    "still=%.2fs matched=%d still_features=%d quadrants=%d flow=%.3fpx "
+                    "gyro=%.4f accel_dev=%.3f |v|=%.3f",
+                    schur_frame_index_, frame_time, landing.impact_age,
+                    landing.still_duration, landing.matched_features,
+                    landing.still_features, landing.quadrants, landing.median_flow_px,
+                    landing.gyro_norm, landing.accel_dev, schur_state_.imu().v.norm());
+    }
+    if (landing.exited)
+    {
+        RCLCPP_INFO(vins::logger(),
+                    "Landing ZUPT exited at frame %d (t=%.3f): reason=%s matched=%d "
+                    "quadrants=%d flow=%.3fpx gyro=%.4f accel_dev=%.3f |v|=%.3f",
+                    schur_frame_index_, frame_time, landing.exit_reason.c_str(),
+                    landing.matched_features, landing.quadrants, landing.median_flow_px,
+                    landing.gyro_norm, landing.accel_dev, schur_state_.imu().v.norm());
     }
 
     // Keep publication dedup across EKF track consumption and hold/rebuild.
@@ -1663,6 +1741,46 @@ bool Estimator::schurProcessFrame(
     schur_lost_total_ += selection.lost_count;
     schur_marginalized_total_ += selection.marginalized_count;
 
+    // Landing zero-velocity pseudo-measurement. It is applied only while the
+    // detector is active, after the visual update and before publication, so
+    // both the image-time window and the latest real-time state see the same
+    // corrected velocity. A successful update also rebaselines the starvation
+    // monitor: a physically supported stationary update is not visual
+    // starvation and must not trigger a restart.
+    bool zupt_applied = false;
+    if (landing.active)
+    {
+        const vins::backend::ZeroVelocityUpdateResult zupt =
+            vins::backend::applyZeroVelocityUpdate(schur_state_, SCHUR_LANDING_ZUPT_SIGMA);
+        zupt_applied = zupt.applied;
+        if (zupt.applied)
+        {
+            ++schur_landing_static_updates_;
+            const double before = (schur_state_.imu().v - zupt.dv).norm();
+            if (schur_landing_static_updates_ == 1 ||
+                (SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL > 0 &&
+                 schur_landing_static_updates_ % SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL == 0))
+            {
+                RCLCPP_INFO(vins::logger(),
+                            "Landing ZUPT update #%d at frame %d (t=%.3f): "
+                            "|v| %.4f -> %.4f m/s, |dv|=%.4f, chi2=%.3f, sigma=%.3f",
+                            schur_landing_static_updates_, schur_frame_index_, frame_time,
+                            before, schur_state_.imu().v.norm(), zupt.dv.norm(),
+                            zupt.chi2, zupt.sigma);
+            }
+        }
+        else
+        {
+            ++schur_landing_static_failures_;
+            if (schur_landing_static_failures_ == 1 ||
+                (SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL > 0 &&
+                 schur_landing_static_failures_ % SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL == 0))
+                RCLCPP_WARN(vins::logger(),
+                            "Landing ZUPT update rejected at frame %d (t=%.3f): %s",
+                            schur_frame_index_, frame_time, zupt.failure_reason.c_str());
+        }
+    }
+
     // Publication-only snapshot. Build it before consumed tracks are erased so
     // loop_fusion still sees the complete feature set of this image, but
     // triangulate copies only: neither the filter history nor the accepted
@@ -1697,6 +1815,16 @@ bool Estimator::schurProcessFrame(
         // criterion and switches the process-noise inflation back off (the
         // inter-update gap is folded into the monitor's diagnostic maximum). It
         // also clears the P5 soft-restart escalation timer.
+        schur_soft_restart_time_ = -1.0;
+        schur_starvation_monitor_.note_applied_update(frame_time);
+    }
+    else if (zupt_applied)
+    {
+        // The zero-velocity pseudo-measurement corrected the state even though
+        // no visual track was applied. Treat the frame as a successful update
+        // so the starvation time gate and frame-count backstop stay suppressed
+        // while the platform is stationary.
+        schur_consecutive_failures_ = 0;
         schur_soft_restart_time_ = -1.0;
         schur_starvation_monitor_.note_applied_update(frame_time);
     }
@@ -1978,6 +2106,7 @@ void Estimator::schurHoldEnter(double frame_time, double gap_seconds)
     // holding instead of growing with a stale window.
     const int dropped_clones = schur_state_.drop_all_clones();
     schur_history_.clear();
+    schur_landing_static_.reset();
     schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
     schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
     schur_frame_index_ = 0;
@@ -2004,6 +2133,7 @@ void Estimator::schurHoldRecover(double frame_time, int observations)
     // naturally during the hold) are deliberately kept untouched.
     schur_state_.drop_all_clones();
     schur_history_.clear();
+    schur_landing_static_.reset();
     schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
     schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
     schur_frame_index_ = 0;
@@ -2038,6 +2168,7 @@ void Estimator::schurSoftRestart(double frame_time, double gap_seconds)
     schur_state_.reset(schur_state_.options(), frame_time, imu.q, imu.p, imu.v, imu.ba,
                        imu.bg);
     schur_history_.clear();
+    schur_landing_static_.reset();
     schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot();
     schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
     schur_frame_index_ = 0;

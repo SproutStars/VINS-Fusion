@@ -159,6 +159,44 @@
     schur_gyr_noise: 1.6968e-4
     schur_acc_bias_noise: 3.0e-3
     schur_gyr_bias_noise: 1.9393e-5
+    # 保守落地静止约束（ZUPT 类伪观测）。详见
+    # docs/BACKEND_SCHUR_EKF.md 与 docs/SCHUR_LANDING_DRIFT.md。
+    # 通用代码默认关闭；本配置显式开启。必须同时满足：近期高加速度冲击、
+    # 持续低光流且特征空间覆盖足够、去偏后 IMU 低动态、当前估计速度低。
+    # 观测为 v=0 的有限协方差 EKF 更新（Joseph 形式），不是硬冻结。
+    schur_landing_zupt_enable: 1
+    # 连续视觉静止时间；需同时通过低光流、特征覆盖、IMU 与速度门控。
+    schur_landing_zupt_min_still_seconds: 0.3
+    # 光流按固定参考时间归一化，使阈值不随图像帧率变化。
+    schur_landing_zupt_flow_reference_seconds: 0.05
+    schur_landing_zupt_max_flow_px: 0.25
+    # 静态特征占匹配特征的比例下限，以及参与判定的最少特征数。
+    schur_landing_zupt_min_static_fraction: 0.7
+    schur_landing_zupt_min_features: 30
+    # 静止特征需覆盖的图像象限数。
+    schur_landing_zupt_min_quadrants: 3
+    # 冲击检测窗口与比力阈值；用于 arm 静止约束 episode，不按时刻硬编码。
+    schur_landing_zupt_impact_window_seconds: 6.0
+    schur_landing_zupt_impact_accel: 20.0
+    # 图像/IMU 连续性；超时或时间回退时清空静止证据。
+    schur_landing_zupt_max_image_gap_seconds: 0.25
+    # 去偏 IMU 统计窗口、最大采样间隙与最少样本数。
+    schur_landing_zupt_imu_window_seconds: 0.3
+    schur_landing_zupt_max_imu_gap_seconds: 0.05
+    schur_landing_zupt_min_imu_samples: 10
+    # 去偏后的低动态与低速门槛；退出阈值更宽，形成滞回但仍即时退出。
+    schur_landing_zupt_max_gyro: 0.08
+    schur_landing_zupt_max_accel_dev: 0.60
+    schur_landing_zupt_max_accel_std: 0.35
+    schur_landing_zupt_max_gyro_std: 0.05
+    schur_landing_zupt_max_speed: 0.25
+    schur_landing_zupt_exit_flow_px: 0.50
+    schur_landing_zupt_exit_speed: 0.35
+    schur_landing_zupt_exit_gyro: 0.15
+    schur_landing_zupt_exit_accel_dev: 1.0
+    # v=0 伪观测的 1-sigma；日志间隔用于更新计数诊断。
+    schur_landing_zupt_sigma: 0.005
+    schur_landing_zupt_update_log_interval: 20
     freq: 10
     F_threshold: 1.0
     show_track: 1

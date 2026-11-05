@@ -196,6 +196,10 @@ public:
             declare_parameter<double>("schur_acc_bias_noise", SCHUR_ACC_BIAS_NOISE);
         SCHUR_GYR_BIAS_NOISE =
             declare_parameter<double>("schur_gyr_bias_noise", SCHUR_GYR_BIAS_NOISE);
+        // Landing static constraint switch. Thresholds come from the config
+        // file; this override is enough to run A/B without editing the YAML.
+        SCHUR_LANDING_ZUPT_ENABLE = declare_parameter<bool>(
+            "schur_landing_zupt_enable", SCHUR_LANDING_ZUPT_ENABLE);
         const double imu_noise[] = {SCHUR_ACC_NOISE, SCHUR_GYR_NOISE,
                                     SCHUR_ACC_BIAS_NOISE, SCHUR_GYR_BIAS_NOISE};
         if (std::any_of(std::begin(imu_noise), std::end(imu_noise),
@@ -277,6 +281,30 @@ public:
                         name == "schur_init_pos_sigma" || name == "schur_init_vel_sigma" ||
                         name == "schur_init_rot_sigma" || name == "schur_init_ba_sigma" ||
                         name == "schur_init_bg_sigma" ||
+                        name == "schur_landing_zupt_enable" ||
+                        name == "schur_landing_zupt_min_still_seconds" ||
+                        name == "schur_landing_zupt_flow_reference_seconds" ||
+                        name == "schur_landing_zupt_max_flow_px" ||
+                        name == "schur_landing_zupt_min_static_fraction" ||
+                        name == "schur_landing_zupt_min_features" ||
+                        name == "schur_landing_zupt_min_quadrants" ||
+                        name == "schur_landing_zupt_impact_window_seconds" ||
+                        name == "schur_landing_zupt_impact_accel" ||
+                        name == "schur_landing_zupt_max_image_gap_seconds" ||
+                        name == "schur_landing_zupt_imu_window_seconds" ||
+                        name == "schur_landing_zupt_max_imu_gap_seconds" ||
+                        name == "schur_landing_zupt_min_imu_samples" ||
+                        name == "schur_landing_zupt_max_gyro" ||
+                        name == "schur_landing_zupt_max_accel_dev" ||
+                        name == "schur_landing_zupt_max_accel_std" ||
+                        name == "schur_landing_zupt_max_gyro_std" ||
+                        name == "schur_landing_zupt_max_speed" ||
+                        name == "schur_landing_zupt_exit_flow_px" ||
+                        name == "schur_landing_zupt_exit_speed" ||
+                        name == "schur_landing_zupt_exit_gyro" ||
+                        name == "schur_landing_zupt_exit_accel_dev" ||
+                        name == "schur_landing_zupt_sigma" ||
+                        name == "schur_landing_zupt_update_log_interval" ||
                         name == "tracker_stats_interval") {
                         result.successful = false;
                         result.reason = name + " is fixed after startup; stop and relaunch the node";

@@ -83,6 +83,30 @@ double SCHUR_ACC_NOISE = 2.0e-3;
 double SCHUR_GYR_NOISE = 1.6968e-4;
 double SCHUR_ACC_BIAS_NOISE = 3.0e-3;
 double SCHUR_GYR_BIAS_NOISE = 1.9393e-5;
+bool SCHUR_LANDING_ZUPT_ENABLE = false;
+double SCHUR_LANDING_ZUPT_MIN_STILL_SECONDS = 0.5;
+double SCHUR_LANDING_ZUPT_FLOW_REFERENCE_SECONDS = 0.05;
+double SCHUR_LANDING_ZUPT_MAX_FLOW_PX = 0.25;
+double SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION = 0.7;
+int SCHUR_LANDING_ZUPT_MIN_FEATURES = 30;
+int SCHUR_LANDING_ZUPT_MIN_QUADRANTS = 3;
+double SCHUR_LANDING_ZUPT_IMPACT_WINDOW_SECONDS = 6.0;
+double SCHUR_LANDING_ZUPT_IMPACT_ACCEL = 20.0;
+double SCHUR_LANDING_ZUPT_MAX_IMAGE_GAP_SECONDS = 0.25;
+double SCHUR_LANDING_ZUPT_IMU_WINDOW_SECONDS = 0.5;
+double SCHUR_LANDING_ZUPT_MAX_IMU_GAP_SECONDS = 0.05;
+int SCHUR_LANDING_ZUPT_MIN_IMU_SAMPLES = 10;
+double SCHUR_LANDING_ZUPT_MAX_GYRO = 0.08;
+double SCHUR_LANDING_ZUPT_MAX_ACCEL_DEV = 0.60;
+double SCHUR_LANDING_ZUPT_MAX_ACCEL_STD = 0.35;
+double SCHUR_LANDING_ZUPT_MAX_GYRO_STD = 0.03;
+double SCHUR_LANDING_ZUPT_MAX_SPEED = 0.25;
+double SCHUR_LANDING_ZUPT_EXIT_FLOW_PX = 0.50;
+double SCHUR_LANDING_ZUPT_EXIT_SPEED = 0.35;
+double SCHUR_LANDING_ZUPT_EXIT_GYRO = 0.15;
+double SCHUR_LANDING_ZUPT_EXIT_ACCEL_DEV = 1.0;
+double SCHUR_LANDING_ZUPT_SIGMA = 0.02;
+int SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL = 20;
 map<int, Eigen::Vector3d> pts_gt;
 std::string IMAGE0_TOPIC, IMAGE1_TOPIC;
 std::string FISHEYE_MASK;
@@ -298,6 +322,73 @@ void readParameters(std::string config_file, const std::string &output_path)
     read_positive("schur_gyr_noise", SCHUR_GYR_NOISE, 1.6968e-4);
     read_positive("schur_acc_bias_noise", SCHUR_ACC_BIAS_NOISE, 3.0e-3);
     read_positive("schur_gyr_bias_noise", SCHUR_GYR_BIAS_NOISE, 1.9393e-5);
+
+    SCHUR_LANDING_ZUPT_ENABLE = config.getBool("schur_landing_zupt_enable", false);
+    read_positive("schur_landing_zupt_min_still_seconds",
+                  SCHUR_LANDING_ZUPT_MIN_STILL_SECONDS, 0.5);
+    read_positive("schur_landing_zupt_flow_reference_seconds",
+                  SCHUR_LANDING_ZUPT_FLOW_REFERENCE_SECONDS, 0.05);
+    read_positive("schur_landing_zupt_max_flow_px", SCHUR_LANDING_ZUPT_MAX_FLOW_PX, 0.25);
+    SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION =
+        config.getDouble("schur_landing_zupt_min_static_fraction", 0.7);
+    if (!std::isfinite(SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION) ||
+        SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION <= 0.0 ||
+        SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION > 1.0)
+        throw std::invalid_argument(
+            "schur_landing_zupt_min_static_fraction must be in (0, 1]");
+    SCHUR_LANDING_ZUPT_MIN_FEATURES =
+        config.getInt("schur_landing_zupt_min_features", 30);
+    if (SCHUR_LANDING_ZUPT_MIN_FEATURES < 4)
+        throw std::invalid_argument("schur_landing_zupt_min_features must be at least 4");
+    SCHUR_LANDING_ZUPT_MIN_QUADRANTS =
+        config.getInt("schur_landing_zupt_min_quadrants", 3);
+    if (SCHUR_LANDING_ZUPT_MIN_QUADRANTS < 1 || SCHUR_LANDING_ZUPT_MIN_QUADRANTS > 4)
+        throw std::invalid_argument(
+            "schur_landing_zupt_min_quadrants must be in [1, 4]");
+    read_positive("schur_landing_zupt_impact_window_seconds",
+                  SCHUR_LANDING_ZUPT_IMPACT_WINDOW_SECONDS, 6.0);
+    read_positive("schur_landing_zupt_impact_accel",
+                  SCHUR_LANDING_ZUPT_IMPACT_ACCEL, 20.0);
+    read_positive("schur_landing_zupt_max_image_gap_seconds",
+                  SCHUR_LANDING_ZUPT_MAX_IMAGE_GAP_SECONDS, 0.25);
+    read_positive("schur_landing_zupt_imu_window_seconds",
+                  SCHUR_LANDING_ZUPT_IMU_WINDOW_SECONDS, 0.5);
+    read_positive("schur_landing_zupt_max_imu_gap_seconds",
+                  SCHUR_LANDING_ZUPT_MAX_IMU_GAP_SECONDS, 0.05);
+    SCHUR_LANDING_ZUPT_MIN_IMU_SAMPLES =
+        config.getInt("schur_landing_zupt_min_imu_samples", 10);
+    if (SCHUR_LANDING_ZUPT_MIN_IMU_SAMPLES < 3)
+        throw std::invalid_argument(
+            "schur_landing_zupt_min_imu_samples must be at least 3");
+    read_positive("schur_landing_zupt_max_gyro", SCHUR_LANDING_ZUPT_MAX_GYRO, 0.08);
+    read_positive("schur_landing_zupt_max_accel_dev",
+                  SCHUR_LANDING_ZUPT_MAX_ACCEL_DEV, 0.60);
+    read_positive("schur_landing_zupt_max_accel_std",
+                  SCHUR_LANDING_ZUPT_MAX_ACCEL_STD, 0.35);
+    read_positive("schur_landing_zupt_max_gyro_std",
+                  SCHUR_LANDING_ZUPT_MAX_GYRO_STD, 0.03);
+    read_positive("schur_landing_zupt_max_speed", SCHUR_LANDING_ZUPT_MAX_SPEED, 0.25);
+    read_positive("schur_landing_zupt_exit_flow_px",
+                  SCHUR_LANDING_ZUPT_EXIT_FLOW_PX, 0.50);
+    read_positive("schur_landing_zupt_exit_speed",
+                  SCHUR_LANDING_ZUPT_EXIT_SPEED, 0.35);
+    read_positive("schur_landing_zupt_exit_gyro",
+                  SCHUR_LANDING_ZUPT_EXIT_GYRO, 0.15);
+    read_positive("schur_landing_zupt_exit_accel_dev",
+                  SCHUR_LANDING_ZUPT_EXIT_ACCEL_DEV, 1.0);
+    read_positive("schur_landing_zupt_sigma", SCHUR_LANDING_ZUPT_SIGMA, 0.02);
+    SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL =
+        config.getInt("schur_landing_zupt_update_log_interval", 20);
+    if (SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL < 1)
+        throw std::invalid_argument(
+            "schur_landing_zupt_update_log_interval must be positive");
+    if (SCHUR_LANDING_ZUPT_EXIT_FLOW_PX < SCHUR_LANDING_ZUPT_MAX_FLOW_PX ||
+        SCHUR_LANDING_ZUPT_EXIT_SPEED < SCHUR_LANDING_ZUPT_MAX_SPEED ||
+        SCHUR_LANDING_ZUPT_EXIT_GYRO < SCHUR_LANDING_ZUPT_MAX_GYRO ||
+        SCHUR_LANDING_ZUPT_EXIT_ACCEL_DEV < SCHUR_LANDING_ZUPT_MAX_ACCEL_DEV)
+        throw std::invalid_argument(
+            "schur_landing_zupt exit thresholds must be >= entry thresholds");
+
     RCLCPP_INFO(vins::logger(),
                 "Backend type: %s (schur window=%d warmup=%d max_features=%d "
                 "min_observations=%d min_features=%d min_update_obs=%d pixel_noise=%.2f "
@@ -325,6 +416,20 @@ void readParameters(std::string config_file, const std::string &output_path)
                 static_cast<int>(SCHUR_STARVATION_HOLD), SCHUR_HOLD_RECOVERY_FRAMES,
                 SCHUR_ACC_NOISE,
                 SCHUR_GYR_NOISE, SCHUR_ACC_BIAS_NOISE, SCHUR_GYR_BIAS_NOISE);
+
+    RCLCPP_INFO(vins::logger(),
+                "Landing ZUPT: enabled=%d still=%.2fs flow<=%.2fpx/%.3fs frac>=%.2f features>=%d "
+                "quadrants>=%d impact(|a|>=%.1f m/s2 within %.1fs) gyro<=%.3f accel_dev<=%.2f "
+                "speed<=%.2f exit(flow>%.2f speed>%.2f) sigma=%.3f",
+                static_cast<int>(SCHUR_LANDING_ZUPT_ENABLE),
+                SCHUR_LANDING_ZUPT_MIN_STILL_SECONDS, SCHUR_LANDING_ZUPT_MAX_FLOW_PX,
+                SCHUR_LANDING_ZUPT_FLOW_REFERENCE_SECONDS,
+                SCHUR_LANDING_ZUPT_MIN_STATIC_FRACTION, SCHUR_LANDING_ZUPT_MIN_FEATURES,
+                SCHUR_LANDING_ZUPT_MIN_QUADRANTS, SCHUR_LANDING_ZUPT_IMPACT_ACCEL,
+                SCHUR_LANDING_ZUPT_IMPACT_WINDOW_SECONDS, SCHUR_LANDING_ZUPT_MAX_GYRO,
+                SCHUR_LANDING_ZUPT_MAX_ACCEL_DEV, SCHUR_LANDING_ZUPT_MAX_SPEED,
+                SCHUR_LANDING_ZUPT_EXIT_FLOW_PX, SCHUR_LANDING_ZUPT_EXIT_SPEED,
+                SCHUR_LANDING_ZUPT_SIGMA);
     RCLCPP_INFO(vins::logger(),
                 "Backend policy: marginalization_threads=%d solver_timeout_policy=%s "
                 "retry_multiplier=%.2f stage_timing=%d interval=%d ransac=%d",
