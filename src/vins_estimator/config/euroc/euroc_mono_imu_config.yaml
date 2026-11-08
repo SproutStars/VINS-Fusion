@@ -10,7 +10,7 @@
     image0_topic: "/cam0/image_raw"
     image1_topic: "/cam1/image_raw"
     output_path: "./output/"
-    cam0_calib: "cam0_pinhole.yaml"
+    cam0_calib: "cam0_v01.yaml"
     cam1_calib: "camera1_info.yaml"
     image_width: 752
     image_height: 480
