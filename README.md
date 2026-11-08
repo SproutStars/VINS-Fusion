@@ -19,13 +19,18 @@ sudo apt install python3-colcon-common-extensions python3-rosdep \
   ros-jazzy-cv-bridge ros-jazzy-tf2-ros ros-jazzy-rviz2
 # 如果机器还没有初始化 rosdep，先执行 sudo rosdep init，再执行 rosdep update。
 rosdep install --from-paths src --ignore-src --rosdistro jazzy -r -y
-colcon build --symlink-install --executor sequential \
+MAKEFLAGS=-j1 CMAKE_BUILD_PARALLEL_LEVEL=1 colcon build \
+  --symlink-install --executor sequential \
   --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 source install/setup.bash
 ```
 
-使用 zsh 时将上述 `setup.bash` 换为 `setup.zsh`。内存较少时可在编译命令前设置
-`MAKEFLAGS=-j2`，限制 C++ 编译并发数。
+使用 zsh 时将上述 `setup.bash` 换为 `setup.zsh`。ARM 设备等内存较少的机器应保留
+`MAKEFLAGS=-j1` 和 `CMAKE_BUILD_PARALLEL_LEVEL=1`：前者限制 Make 的编译并发，后者限制
+CMake 后端的并发；`--executor sequential` 另外保证一次只构建一个 ROS 包。若在包含其他
+ROS 包的较大工作区中编译，可从工作区根目录执行
+`MAKEFLAGS=-j1 CMAKE_BUILD_PARALLEL_LEVEL=1 colcon build --packages-up-to vins --executor sequential`
+以避免同时构建与 VINS 无关的包。
 
 | 包名 | 作用 | 可执行程序 |
 | --- | --- | --- |
