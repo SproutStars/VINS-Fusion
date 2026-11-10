@@ -105,13 +105,18 @@ class CpuAffinityLaunchTest(unittest.TestCase):
             else:
                 self.assertFalse(any(isinstance(item, launch_module.CpuAffinityPrefix) for item in prefix))
 
-    def test_all_shipped_algorithm_configs_keep_affinity_disabled(self):
+    def test_standard_configs_disable_affinity_and_arm_profile_binds_a76(self):
         for path in (LAUNCH_PATH.parents[1] / "config").rglob("*config*.yaml"):
             with self.subTest(config=path):
                 self.context.launch_configurations["config_file"] = str(path)
-                result = launch_module.CpuAffinityPrefix(
-                    LaunchConfiguration("config_file")).perform(self.context)
-                self.assertEqual(result, "")
+                prefix = launch_module.CpuAffinityPrefix(LaunchConfiguration("config_file"))
+                if path.name == "euroc_mono_imu_arm_balanced_config.yaml":
+                    with mock.patch.object(launch_module.os, "sched_getaffinity", return_value={6, 7}), \
+                            mock.patch.object(launch_module.shutil, "which", return_value="/usr/bin/taskset"):
+                        self.assertEqual(shlex.split(prefix.perform(self.context)),
+                                         ["/usr/bin/taskset", "--cpu-list", "6,7"])
+                else:
+                    self.assertEqual(prefix.perform(self.context), "")
 
 
 if __name__ == "__main__":

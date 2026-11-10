@@ -1,0 +1,1495 @@
+{
+  "head": "a0dfc4d56e4405d89c6daafd3a0fce34b97d27dd",
+  "provenance": {
+    "source_head": "a0dfc4d56e4405d89c6daafd3a0fce34b97d27dd",
+    "source_hashes": {
+      "src/vins_estimator/src/featureTracker/feature_tracker.cpp": "c159258fa00a292dc2c4c5b50a88778928468027332e87813e0bc5a0b9b28f23",
+      "src/vins_estimator/src/featureTracker/fast_grid_quality.h": "48b7e478b9fd32e79b4c5c23ff2fb5ae69e6415086da151374a3ba2416440aa0"
+    },
+    "tested_binary_sha256": "78ddc442c9dff08c2db46af96d22975ceea5793f061dc85e588bcdd23c4a8702",
+    "config_sha256": "8de2728f8ea2d46b75a309d7e2cdc7f67a252dfa8fcd5d2b4ae8dc9451692c38"
+  },
+  "runs": {
+    "baseline_fast": [
+      {
+        "dataset": "V2_01_easy",
+        "label": "baseline_fast",
+        "rate": 1.0,
+        "wall_s": 118.54012790699926,
+        "cpu_seconds": 10.620000000000001,
+        "average_cpu_percent_one_core": 8.958991514107298,
+        "peak_rss_mib": 86.66796875,
+        "peak_threads": 20,
+        "output_poses": 1072,
+        "received_images": 2280,
+        "latency_misses": 0,
+        "latency_p50_ms": 4.8763765,
+        "latency_p95_ms": 6.1151026,
+        "latency_p99_ms": 9.97200152,
+        "failure_reboots": 0,
+        "restart_requests": 1,
+        "reset_entry_events": 1,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 1,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 1,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [
+          {
+            "line_no": 121,
+            "kind": "request",
+            "reason": "starvation",
+            "message": "[ERROR] [1794307526.145090506] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 121: streak=31 skipped_total=64 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+            "timestamp": 1794307526.1450906
+          },
+          {
+            "line_no": 122,
+            "kind": "reset_entry",
+            "reason": "unknown",
+            "message": "[WARN] [1794307526.145129377] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+            "timestamp": 1794307526.1451294
+          }
+        ],
+        "matched_poses": 1069,
+        "ate_rmse_m": 1.0145287333488087,
+        "ate_median_m": 0.34887660567652107,
+        "ate_p95_m": 2.478990576435952,
+        "trajectory_duration_s": 107.90000009536743,
+        "max_output_gap_s": 1.2000000476837158,
+        "max_output_step_m": 8.085176431047152
+      },
+      {
+        "dataset": "V2_02_medium",
+        "label": "baseline_fast",
+        "rate": 1.0,
+        "wall_s": 121.96145120500114,
+        "cpu_seconds": 10.810000000000002,
+        "average_cpu_percent_one_core": 8.863456357066312,
+        "peak_rss_mib": 85.83984375,
+        "peak_threads": 20,
+        "output_poses": 1132,
+        "received_images": 2348,
+        "latency_misses": 0,
+        "latency_p50_ms": 4.591844,
+        "latency_p95_ms": 6.5671748500000025,
+        "latency_p99_ms": 14.005471740000047,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1130,
+        "ate_rmse_m": 0.34691053642171366,
+        "ate_median_m": 0.3035840341629108,
+        "ate_p95_m": 0.547257410744035,
+        "trajectory_duration_s": 112.89999985694885,
+        "max_output_gap_s": 0.10000014305114746,
+        "max_output_step_m": 0.2116516014331847
+      },
+      {
+        "dataset": "V2_03_difficult",
+        "label": "baseline_fast",
+        "rate": 1.0,
+        "wall_s": 121.37127338200116,
+        "cpu_seconds": 7.390000000000001,
+        "average_cpu_percent_one_core": 6.088755431230323,
+        "peak_rss_mib": 87.7421875,
+        "peak_threads": 20,
+        "output_poses": 1076,
+        "received_images": 1922,
+        "latency_misses": 0,
+        "latency_p50_ms": 3.278197,
+        "latency_p95_ms": 9.8843955,
+        "latency_p99_ms": 11.89490425,
+        "failure_reboots": 0,
+        "restart_requests": 1,
+        "reset_entry_events": 1,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 1,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 1,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [
+          {
+            "line_no": 183,
+            "kind": "request",
+            "reason": "starvation",
+            "message": "[ERROR] [1794307786.931872415] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 273: streak=31 skipped_total=136 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+            "timestamp": 1794307786.9318724
+          },
+          {
+            "line_no": 184,
+            "kind": "reset_entry",
+            "reason": "unknown",
+            "message": "[WARN] [1794307786.931948546] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+            "timestamp": 1794307786.9319487
+          }
+        ],
+        "matched_poses": 1075,
+        "ate_rmse_m": 1.948766660676051,
+        "ate_median_m": 0.5902448060155232,
+        "ate_p95_m": 4.033196466304902,
+        "trajectory_duration_s": 109.70000004768372,
+        "max_output_gap_s": 2.4499998092651367,
+        "max_output_step_m": 6.0601626196354
+      }
+    ],
+    "baseline_gftt": [
+      {
+        "dataset": "V2_01_easy",
+        "label": "baseline_gftt",
+        "rate": 1.0,
+        "wall_s": 118.55419831099971,
+        "cpu_seconds": 14.86,
+        "average_cpu_percent_one_core": 12.53435155541114,
+        "peak_rss_mib": 90.59375,
+        "peak_threads": 16,
+        "output_poses": 1083,
+        "received_images": 2280,
+        "latency_misses": 0,
+        "latency_p50_ms": 6.711546,
+        "latency_p95_ms": 7.765843999999999,
+        "latency_p99_ms": 9.61143758,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1080,
+        "ate_rmse_m": 0.21002518105223134,
+        "ate_median_m": 0.20166203454599277,
+        "ate_p95_m": 0.31342756841524605,
+        "trajectory_duration_s": 107.90000009536743,
+        "max_output_gap_s": 0.10000014305114746,
+        "max_output_step_m": 0.12362780418895546
+      },
+      {
+        "dataset": "V2_02_medium",
+        "label": "baseline_gftt",
+        "rate": 1.0,
+        "wall_s": 121.96841890799988,
+        "cpu_seconds": 15.590000000000002,
+        "average_cpu_percent_one_core": 12.7819972904293,
+        "peak_rss_mib": 94.234375,
+        "peak_threads": 20,
+        "output_poses": 1137,
+        "received_images": 2348,
+        "latency_misses": 0,
+        "latency_p50_ms": 6.681366,
+        "latency_p95_ms": 8.554682,
+        "latency_p99_ms": 13.792478240000033,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1135,
+        "ate_rmse_m": 0.2734757436407134,
+        "ate_median_m": 0.24455105977303646,
+        "ate_p95_m": 0.4309691719614922,
+        "trajectory_duration_s": 113.39999985694885,
+        "max_output_gap_s": 0.10000014305114746,
+        "max_output_step_m": 0.19445767631767438
+      },
+      {
+        "dataset": "V2_03_difficult",
+        "label": "baseline_gftt",
+        "rate": 1.0,
+        "wall_s": 121.37207774699891,
+        "cpu_seconds": 14.280000000000001,
+        "average_cpu_percent_one_core": 11.765473793541524,
+        "peak_rss_mib": 91.41015625,
+        "peak_threads": 16,
+        "output_poses": 1098,
+        "received_images": 1922,
+        "latency_misses": 0,
+        "latency_p50_ms": 7.3625105,
+        "latency_p95_ms": 10.992922349999997,
+        "latency_p99_ms": 13.875255819999973,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1097,
+        "ate_rmse_m": 0.3149759221689863,
+        "ate_median_m": 0.2657830207019024,
+        "ate_p95_m": 0.5781670148814462,
+        "trajectory_duration_s": 109.59999990463257,
+        "max_output_gap_s": 0.14999985694885254,
+        "max_output_step_m": 0.23605742320100107
+      }
+    ],
+    "fixed_fast": [
+      {
+        "dataset": "V2_01_easy",
+        "label": "fixed_fast",
+        "rate": 1.0,
+        "wall_s": 118.54884106700047,
+        "cpu_seconds": 19.740000000000002,
+        "average_cpu_percent_one_core": 16.651364806547125,
+        "peak_rss_mib": 94.76171875,
+        "peak_threads": 16,
+        "output_poses": 1083,
+        "received_images": 2280,
+        "latency_misses": 0,
+        "latency_p50_ms": 10.063171,
+        "latency_p95_ms": 11.6980994,
+        "latency_p99_ms": 13.218075800000001,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1080,
+        "ate_rmse_m": 0.18020509626217035,
+        "ate_median_m": 0.16267733499834336,
+        "ate_p95_m": 0.2970361325805296,
+        "trajectory_duration_s": 107.90000009536743,
+        "max_output_gap_s": 0.10000014305114746,
+        "max_output_step_m": 0.1072252638011859
+      },
+      {
+        "dataset": "V2_02_medium",
+        "label": "fixed_fast",
+        "rate": 1.0,
+        "wall_s": 121.95961944899864,
+        "cpu_seconds": 23.639999999999997,
+        "average_cpu_percent_one_core": 19.383464876983997,
+        "peak_rss_mib": 96.3671875,
+        "peak_threads": 20,
+        "output_poses": 1132,
+        "received_images": 2348,
+        "latency_misses": 0,
+        "latency_p50_ms": 10.4746685,
+        "latency_p95_ms": 12.404449050000002,
+        "latency_p99_ms": 15.591695520000034,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1130,
+        "ate_rmse_m": 0.35973946278098096,
+        "ate_median_m": 0.34067698050654016,
+        "ate_p95_m": 0.5430662955430873,
+        "trajectory_duration_s": 112.89999985694885,
+        "max_output_gap_s": 0.10000014305114746,
+        "max_output_step_m": 0.22533331226090456
+      },
+      {
+        "dataset": "V2_03_difficult",
+        "label": "fixed_fast",
+        "rate": 1.0,
+        "wall_s": 121.36670745500123,
+        "cpu_seconds": 20.139999999999997,
+        "average_cpu_percent_one_core": 16.59433663673149,
+        "peak_rss_mib": 95.15234375,
+        "peak_threads": 16,
+        "output_poses": 1103,
+        "received_images": 1922,
+        "latency_misses": 0,
+        "latency_p50_ms": 10.784232,
+        "latency_p95_ms": 14.400518799999999,
+        "latency_p99_ms": 17.393566160000002,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1102,
+        "ate_rmse_m": 0.41198383286502804,
+        "ate_median_m": 0.2602215789004235,
+        "ate_p95_m": 0.8726112518044561,
+        "trajectory_duration_s": 110.09999990463257,
+        "max_output_gap_s": 0.14999985694885254,
+        "max_output_step_m": 0.29179138144166594
+      }
+    ],
+    "fixed_repeat": [
+      {
+        "dataset": "V2_01_easy",
+        "label": "fixed_repeat",
+        "rate": 1.0,
+        "wall_s": 118.54562774899932,
+        "cpu_seconds": 19.44,
+        "average_cpu_percent_one_core": 16.398749046368014,
+        "peak_rss_mib": 94.8046875,
+        "peak_threads": 16,
+        "output_poses": 1083,
+        "received_images": 2280,
+        "latency_misses": 0,
+        "latency_p50_ms": 10.022612,
+        "latency_p95_ms": 11.2994715,
+        "latency_p99_ms": 13.133186260000004,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1080,
+        "ate_rmse_m": 0.18020509626217035,
+        "ate_median_m": 0.16267733499834336,
+        "ate_p95_m": 0.2970361325805296,
+        "trajectory_duration_s": 107.90000009536743,
+        "max_output_gap_s": 0.10000014305114746,
+        "max_output_step_m": 0.1072252638011859
+      },
+      {
+        "dataset": "V2_03_difficult",
+        "label": "fixed_repeat",
+        "rate": 1.0,
+        "wall_s": 121.36052459299935,
+        "cpu_seconds": 20.66,
+        "average_cpu_percent_one_core": 17.02365746134206,
+        "peak_rss_mib": 95.18359375,
+        "peak_threads": 16,
+        "output_poses": 1103,
+        "received_images": 1922,
+        "latency_misses": 0,
+        "latency_p50_ms": 10.94611,
+        "latency_p95_ms": 14.224005799999995,
+        "latency_p99_ms": 17.24522454,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "matched_poses": 1102,
+        "ate_rmse_m": 0.41198383286502804,
+        "ate_median_m": 0.2602215789004235,
+        "ate_p95_m": 0.8726112518044561,
+        "trajectory_duration_s": 110.09999990463257,
+        "max_output_gap_s": 0.14999985694885254,
+        "max_output_step_m": 0.29179138144166594
+      }
+    ]
+  },
+  "comparison": {
+    "baseline": "output/fast_grid_drift_20261110/replay/baseline_fast",
+    "candidate": "output/fast_grid_drift_20261110/replay/fixed_fast",
+    "single_run_screening": true,
+    "aggregation": "none; each repeat is compared separately",
+    "note": "one run per dataset; no repeat statistics",
+    "repeat_counts": {
+      "V2_01_easy": {
+        "baseline": [
+          1
+        ],
+        "candidate": [
+          1
+        ]
+      },
+      "V2_02_medium": {
+        "baseline": [
+          1
+        ],
+        "candidate": [
+          1
+        ]
+      },
+      "V2_03_difficult": {
+        "baseline": [
+          1
+        ],
+        "candidate": [
+          1
+        ]
+      }
+    },
+    "runs": {
+      "V2_01_easy_r1": {
+        "dataset": "V2_01_easy",
+        "repeat": 1,
+        "baseline": {
+          "dir": "output/fast_grid_drift_20261110/replay/baseline_fast/V2_01_easy_r1",
+          "metrics": {
+            "dataset": "V2_01_easy",
+            "label": "baseline_fast",
+            "rate": 1.0,
+            "wall_s": 118.54012790699926,
+            "cpu_seconds": 10.620000000000001,
+            "average_cpu_percent_one_core": 8.958991514107298,
+            "peak_rss_mib": 86.66796875,
+            "peak_threads": 20,
+            "output_poses": 1072,
+            "received_images": 2280,
+            "latency_misses": 0,
+            "latency_p50_ms": 4.8763765,
+            "latency_p95_ms": 6.1151026,
+            "latency_p99_ms": 9.97200152,
+            "failure_reboots": 0,
+            "restart_requests": 1,
+            "reset_entry_events": 1,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 1,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 1,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [
+              {
+                "line_no": 121,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794307526.145090506] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 121: streak=31 skipped_total=64 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                "timestamp": 1794307526.1450906
+              },
+              {
+                "line_no": 122,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794307526.145129377] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794307526.1451294
+              }
+            ],
+            "matched_poses": 1069,
+            "ate_rmse_m": 1.0145287333488087,
+            "ate_median_m": 0.34887660567652107,
+            "ate_p95_m": 2.478990576435952,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 1.2000000476837158
+          },
+          "dataset": "V2_01_easy",
+          "repeat": 1,
+          "tracker": {
+            "stats_blocks": 23,
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "overflow_source": "last Tracker periodic/final stats block",
+            "weighted_mean_ms": {
+              "decode_ms": 0.003947368421052632,
+              "detect_ms": 0.5597368421052632,
+              "flow_ms": 2.25359649122807,
+              "input_image_ms": 3.157631578947368,
+              "pyramid_ms": 0.3095614035087719,
+              "queue_wait_ms": 0.013508771929824562,
+              "track_ms": 3.1528070175438594
+            },
+            "max_ms": {
+              "decode_ms": 0.04,
+              "detect_ms": 2.75,
+              "flow_ms": 6.54,
+              "input_image_ms": 8.13,
+              "pyramid_ms": 1.25,
+              "queue_wait_ms": 0.1,
+              "track_ms": 8.13
+            },
+            "features": {
+              "tracked_mean": 153.9921052631579,
+              "detected_mean": 11.55
+            },
+            "restart_diagnostics": {
+              "available": true,
+              "restart_requests": 1,
+              "reset_entry_events": 1,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 1,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 1,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "events": [
+                {
+                  "line_no": 121,
+                  "kind": "request",
+                  "reason": "starvation",
+                  "message": "[ERROR] [1794307526.145090506] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 121: streak=31 skipped_total=64 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                  "timestamp": 1794307526.1450906
+                },
+                {
+                  "line_no": 122,
+                  "kind": "reset_entry",
+                  "reason": "unknown",
+                  "message": "[WARN] [1794307526.145129377] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                  "timestamp": 1794307526.1451294
+                }
+              ]
+            }
+          }
+        },
+        "candidate": {
+          "dir": "output/fast_grid_drift_20261110/replay/fixed_fast/V2_01_easy_r1",
+          "metrics": {
+            "dataset": "V2_01_easy",
+            "label": "fixed_fast",
+            "rate": 1.0,
+            "wall_s": 118.54884106700047,
+            "cpu_seconds": 19.740000000000002,
+            "average_cpu_percent_one_core": 16.651364806547125,
+            "peak_rss_mib": 94.76171875,
+            "peak_threads": 16,
+            "output_poses": 1083,
+            "received_images": 2280,
+            "latency_misses": 0,
+            "latency_p50_ms": 10.063171,
+            "latency_p95_ms": 11.6980994,
+            "latency_p99_ms": 13.218075800000001,
+            "failure_reboots": 0,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [],
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.18020509626217035,
+            "ate_median_m": 0.16267733499834336,
+            "ate_p95_m": 0.2970361325805296,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "dataset": "V2_01_easy",
+          "repeat": 1,
+          "tracker": {
+            "stats_blocks": 23,
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "overflow_source": "last Tracker periodic/final stats block",
+            "weighted_mean_ms": {
+              "decode_ms": 0.0030701754385964912,
+              "detect_ms": 4.155877192982456,
+              "flow_ms": 2.7453508771929824,
+              "input_image_ms": 7.251052631578948,
+              "pyramid_ms": 0.31017543859649127,
+              "queue_wait_ms": 0.01,
+              "track_ms": 7.246666666666667
+            },
+            "max_ms": {
+              "decode_ms": 0.06,
+              "detect_ms": 7.82,
+              "flow_ms": 6.8,
+              "input_image_ms": 13.47,
+              "pyramid_ms": 1.41,
+              "queue_wait_ms": 0.04,
+              "track_ms": 13.46
+            },
+            "features": {
+              "tracked_mean": 182.8701754385965,
+              "detected_mean": 17.50964912280702
+            },
+            "restart_diagnostics": {
+              "available": true,
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "events": []
+            }
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1072,
+          "max_abs_position_delta_m": 9.249478333962832,
+          "max_abs_axis_delta_m": 8.351020429794227,
+          "baseline_ate_common": {
+            "matched_poses": 1069,
+            "ate_rmse_m": 1.0145287333488087,
+            "ate_median_m": 0.34887660567652107,
+            "ate_p95_m": 2.478990576435952,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 1.2000000476837158
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1069,
+            "ate_rmse_m": 0.17882521460422543,
+            "ate_median_m": 0.16166845951526995,
+            "ate_p95_m": 0.2956736134940919,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 1.2000000476837158
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 10.620000000000001,
+              "candidate": 19.740000000000002,
+              "delta": 9.120000000000001,
+              "pct": 85.87570621468927
+            },
+            "average_cpu_percent_one_core": {
+              "baseline": 8.958991514107298,
+              "candidate": 16.651364806547125,
+              "delta": 7.692373292439827,
+              "pct": 85.8620446322224
+            },
+            "peak_rss_mib": {
+              "baseline": 86.66796875,
+              "candidate": 94.76171875,
+              "delta": 8.09375,
+              "pct": 9.338802001171857
+            },
+            "latency_p50_ms": {
+              "baseline": 4.8763765,
+              "candidate": 10.063171,
+              "delta": 5.1867945,
+              "pct": 106.3657512909432
+            },
+            "latency_p95_ms": {
+              "baseline": 6.1151026,
+              "candidate": 11.6980994,
+              "delta": 5.5829968,
+              "pct": 91.29849759184742
+            },
+            "latency_p99_ms": {
+              "baseline": 9.97200152,
+              "candidate": 13.218075800000001,
+              "delta": 3.246074280000002,
+              "pct": 32.5518831248634
+            },
+            "wall_s": {
+              "baseline": 118.54012790699926,
+              "candidate": 118.54884106700047,
+              "delta": 0.008713160001207143,
+              "pct": 0.007350388560440106
+            },
+            "output_poses": {
+              "baseline": 1072,
+              "candidate": 1083,
+              "delta": 11,
+              "pct": 1.0261194029850746
+            },
+            "matched_poses": {
+              "baseline": 1069,
+              "candidate": 1080,
+              "delta": 11,
+              "pct": 1.028999064546305
+            },
+            "ate_rmse_m": {
+              "baseline": 1.0145287333488087,
+              "candidate": 0.18020509626217035,
+              "delta": -0.8343236370866383,
+              "pct": -82.23755618361443
+            },
+            "max_output_gap_s": {
+              "baseline": 1.2000000476837158,
+              "candidate": 0.10000014305114746,
+              "delta": -1.0999999046325684,
+              "pct": -91.66665507687509
+            }
+          }
+        }
+      },
+      "V2_02_medium_r1": {
+        "dataset": "V2_02_medium",
+        "repeat": 1,
+        "baseline": {
+          "dir": "output/fast_grid_drift_20261110/replay/baseline_fast/V2_02_medium_r1",
+          "metrics": {
+            "dataset": "V2_02_medium",
+            "label": "baseline_fast",
+            "rate": 1.0,
+            "wall_s": 121.96145120500114,
+            "cpu_seconds": 10.810000000000002,
+            "average_cpu_percent_one_core": 8.863456357066312,
+            "peak_rss_mib": 85.83984375,
+            "peak_threads": 20,
+            "output_poses": 1132,
+            "received_images": 2348,
+            "latency_misses": 0,
+            "latency_p50_ms": 4.591844,
+            "latency_p95_ms": 6.5671748500000025,
+            "latency_p99_ms": 14.005471740000047,
+            "failure_reboots": 0,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [],
+            "matched_poses": 1130,
+            "ate_rmse_m": 0.34691053642171366,
+            "ate_median_m": 0.3035840341629108,
+            "ate_p95_m": 0.547257410744035,
+            "trajectory_duration_s": 112.89999985694885,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "dataset": "V2_02_medium",
+          "repeat": 1,
+          "tracker": {
+            "stats_blocks": 24,
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "overflow_source": "last Tracker periodic/final stats block",
+            "weighted_mean_ms": {
+              "decode_ms": 0.0038330494037478705,
+              "detect_ms": 0.673901192504259,
+              "flow_ms": 2.188909710391823,
+              "input_image_ms": 3.208534923339012,
+              "pyramid_ms": 0.31383304940374784,
+              "queue_wait_ms": 0.010425894378194208,
+              "track_ms": 3.2040715502555366
+            },
+            "max_ms": {
+              "decode_ms": 0.05,
+              "detect_ms": 8.57,
+              "flow_ms": 6.74,
+              "input_image_ms": 13.36,
+              "pyramid_ms": 1.34,
+              "queue_wait_ms": 0.05,
+              "track_ms": 13.36
+            },
+            "features": {
+              "tracked_mean": 126.7863713798978,
+              "detected_mean": 26.306132879045997
+            },
+            "restart_diagnostics": {
+              "available": true,
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "events": []
+            }
+          }
+        },
+        "candidate": {
+          "dir": "output/fast_grid_drift_20261110/replay/fixed_fast/V2_02_medium_r1",
+          "metrics": {
+            "dataset": "V2_02_medium",
+            "label": "fixed_fast",
+            "rate": 1.0,
+            "wall_s": 121.95961944899864,
+            "cpu_seconds": 23.639999999999997,
+            "average_cpu_percent_one_core": 19.383464876983997,
+            "peak_rss_mib": 96.3671875,
+            "peak_threads": 20,
+            "output_poses": 1132,
+            "received_images": 2348,
+            "latency_misses": 0,
+            "latency_p50_ms": 10.4746685,
+            "latency_p95_ms": 12.404449050000002,
+            "latency_p99_ms": 15.591695520000034,
+            "failure_reboots": 0,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [],
+            "matched_poses": 1130,
+            "ate_rmse_m": 0.35973946278098096,
+            "ate_median_m": 0.34067698050654016,
+            "ate_p95_m": 0.5430662955430873,
+            "trajectory_duration_s": 112.89999985694885,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "dataset": "V2_02_medium",
+          "repeat": 1,
+          "tracker": {
+            "stats_blocks": 24,
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "overflow_source": "last Tracker periodic/final stats block",
+            "weighted_mean_ms": {
+              "decode_ms": 0.00596252129471891,
+              "detect_ms": 5.502316865417376,
+              "flow_ms": 2.7890119250425895,
+              "input_image_ms": 8.638977853492333,
+              "pyramid_ms": 0.30744463373083475,
+              "queue_wait_ms": 0.01,
+              "track_ms": 8.634940374787053
+            },
+            "max_ms": {
+              "decode_ms": 0.04,
+              "detect_ms": 13.29,
+              "flow_ms": 7.3,
+              "input_image_ms": 18.27,
+              "pyramid_ms": 1.38,
+              "queue_wait_ms": 0.1,
+              "track_ms": 18.26
+            },
+            "features": {
+              "tracked_mean": 158.7914821124361,
+              "detected_mean": 41.01243611584327
+            },
+            "restart_diagnostics": {
+              "available": true,
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "events": []
+            }
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1132,
+          "max_abs_position_delta_m": 0.7797122548006841,
+          "max_abs_axis_delta_m": 0.7677913235621965,
+          "baseline_ate_common": {
+            "matched_poses": 1130,
+            "ate_rmse_m": 0.34691053642171366,
+            "ate_median_m": 0.3035840341629108,
+            "ate_p95_m": 0.547257410744035,
+            "trajectory_duration_s": 112.89999985694885,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1130,
+            "ate_rmse_m": 0.35973946278098096,
+            "ate_median_m": 0.34067698050654016,
+            "ate_p95_m": 0.5430662955430873,
+            "trajectory_duration_s": 112.89999985694885,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 10.810000000000002,
+              "candidate": 23.639999999999997,
+              "delta": 12.829999999999995,
+              "pct": 118.68640148011094
+            },
+            "average_cpu_percent_one_core": {
+              "baseline": 8.863456357066312,
+              "candidate": 19.383464876983997,
+              "delta": 10.520008519917685,
+              "pct": 118.68968601092848
+            },
+            "peak_rss_mib": {
+              "baseline": 85.83984375,
+              "candidate": 96.3671875,
+              "delta": 10.52734375,
+              "pct": 12.263936291240045
+            },
+            "latency_p50_ms": {
+              "baseline": 4.591844,
+              "candidate": 10.4746685,
+              "delta": 5.8828245,
+              "pct": 128.11464196083318
+            },
+            "latency_p95_ms": {
+              "baseline": 6.5671748500000025,
+              "candidate": 12.404449050000002,
+              "delta": 5.8372741999999995,
+              "pct": 88.8856217982379
+            },
+            "latency_p99_ms": {
+              "baseline": 14.005471740000047,
+              "candidate": 15.591695520000034,
+              "delta": 1.5862237799999868,
+              "pct": 11.325743319803244
+            },
+            "wall_s": {
+              "baseline": 121.96145120500114,
+              "candidate": 121.95961944899864,
+              "delta": -0.001831756002502516,
+              "pct": -0.0015019139116535891
+            },
+            "output_poses": {
+              "baseline": 1132,
+              "candidate": 1132,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1130,
+              "candidate": 1130,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.34691053642171366,
+              "candidate": 0.35973946278098096,
+              "delta": 0.0128289263592673,
+              "pct": 3.6980503652596233
+            },
+            "max_output_gap_s": {
+              "baseline": 0.10000014305114746,
+              "candidate": 0.10000014305114746,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      },
+      "V2_03_difficult_r1": {
+        "dataset": "V2_03_difficult",
+        "repeat": 1,
+        "baseline": {
+          "dir": "output/fast_grid_drift_20261110/replay/baseline_fast/V2_03_difficult_r1",
+          "metrics": {
+            "dataset": "V2_03_difficult",
+            "label": "baseline_fast",
+            "rate": 1.0,
+            "wall_s": 121.37127338200116,
+            "cpu_seconds": 7.390000000000001,
+            "average_cpu_percent_one_core": 6.088755431230323,
+            "peak_rss_mib": 87.7421875,
+            "peak_threads": 20,
+            "output_poses": 1076,
+            "received_images": 1922,
+            "latency_misses": 0,
+            "latency_p50_ms": 3.278197,
+            "latency_p95_ms": 9.8843955,
+            "latency_p99_ms": 11.89490425,
+            "failure_reboots": 0,
+            "restart_requests": 1,
+            "reset_entry_events": 1,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 1,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 1,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [
+              {
+                "line_no": 183,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794307786.931872415] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 273: streak=31 skipped_total=136 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                "timestamp": 1794307786.9318724
+              },
+              {
+                "line_no": 184,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794307786.931948546] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794307786.9319487
+              }
+            ],
+            "matched_poses": 1075,
+            "ate_rmse_m": 1.948766660676051,
+            "ate_median_m": 0.5902448060155232,
+            "ate_p95_m": 4.033196466304902,
+            "trajectory_duration_s": 109.70000004768372,
+            "max_output_gap_s": 2.4499998092651367
+          },
+          "dataset": "V2_03_difficult",
+          "repeat": 1,
+          "tracker": {
+            "stats_blocks": 20,
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "overflow_source": "last Tracker periodic/final stats block",
+            "weighted_mean_ms": {
+              "decode_ms": 0.006878251821019771,
+              "detect_ms": 0.5343600416233091,
+              "flow_ms": 1.490582726326743,
+              "input_image_ms": 2.3678876170655565,
+              "pyramid_ms": 0.32040582726326744,
+              "queue_wait_ms": 0.011560874089490114,
+              "track_ms": 2.365691987513007
+            },
+            "max_ms": {
+              "decode_ms": 0.06,
+              "detect_ms": 7.46,
+              "flow_ms": 6.93,
+              "input_image_ms": 10.02,
+              "pyramid_ms": 1.29,
+              "queue_wait_ms": 0.03,
+              "track_ms": 10.02
+            },
+            "features": {
+              "tracked_mean": 72.79927159209157,
+              "detected_mean": 18.9105098855359
+            },
+            "restart_diagnostics": {
+              "available": true,
+              "restart_requests": 1,
+              "reset_entry_events": 1,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 1,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 1,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "events": [
+                {
+                  "line_no": 183,
+                  "kind": "request",
+                  "reason": "starvation",
+                  "message": "[ERROR] [1794307786.931872415] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 273: streak=31 skipped_total=136 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                  "timestamp": 1794307786.9318724
+                },
+                {
+                  "line_no": 184,
+                  "kind": "reset_entry",
+                  "reason": "unknown",
+                  "message": "[WARN] [1794307786.931948546] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                  "timestamp": 1794307786.9319487
+                }
+              ]
+            }
+          }
+        },
+        "candidate": {
+          "dir": "output/fast_grid_drift_20261110/replay/fixed_fast/V2_03_difficult_r1",
+          "metrics": {
+            "dataset": "V2_03_difficult",
+            "label": "fixed_fast",
+            "rate": 1.0,
+            "wall_s": 121.36670745500123,
+            "cpu_seconds": 20.139999999999997,
+            "average_cpu_percent_one_core": 16.59433663673149,
+            "peak_rss_mib": 95.15234375,
+            "peak_threads": 16,
+            "output_poses": 1103,
+            "received_images": 1922,
+            "latency_misses": 0,
+            "latency_p50_ms": 10.784232,
+            "latency_p95_ms": 14.400518799999999,
+            "latency_p99_ms": 17.393566160000002,
+            "failure_reboots": 0,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [],
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.41198383286502804,
+            "ate_median_m": 0.2602215789004235,
+            "ate_p95_m": 0.8726112518044561,
+            "trajectory_duration_s": 110.09999990463257,
+            "max_output_gap_s": 0.14999985694885254
+          },
+          "dataset": "V2_03_difficult",
+          "repeat": 1,
+          "tracker": {
+            "stats_blocks": 20,
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "overflow_source": "last Tracker periodic/final stats block",
+            "weighted_mean_ms": {
+              "decode_ms": 0.009479708636836628,
+              "detect_ms": 5.298501560874089,
+              "flow_ms": 3.2322580645161287,
+              "input_image_ms": 8.889719042663891,
+              "pyramid_ms": 0.3176899063475546,
+              "queue_wait_ms": 0.01,
+              "track_ms": 8.884516129032258
+            },
+            "max_ms": {
+              "decode_ms": 0.04,
+              "detect_ms": 13.14,
+              "flow_ms": 8.16,
+              "input_image_ms": 18.9,
+              "pyramid_ms": 1.33,
+              "queue_wait_ms": 0.04,
+              "track_ms": 18.9
+            },
+            "features": {
+              "tracked_mean": 123.7194588969823,
+              "detected_mean": 63.99979188345474
+            },
+            "restart_diagnostics": {
+              "available": true,
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "events": []
+            }
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1076,
+          "max_abs_position_delta_m": 9.989833688631634,
+          "max_abs_axis_delta_m": 9.743723913199208,
+          "baseline_ate_common": {
+            "matched_poses": 1075,
+            "ate_rmse_m": 1.948766660676051,
+            "ate_median_m": 0.5902448060155232,
+            "ate_p95_m": 4.033196466304902,
+            "trajectory_duration_s": 109.70000004768372,
+            "max_output_gap_s": 2.4499998092651367
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1075,
+            "ate_rmse_m": 0.40372665278400277,
+            "ate_median_m": 0.254935922447041,
+            "ate_p95_m": 0.8534118156541297,
+            "trajectory_duration_s": 109.70000004768372,
+            "max_output_gap_s": 2.4499998092651367
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 7.390000000000001,
+              "candidate": 20.139999999999997,
+              "delta": 12.749999999999996,
+              "pct": 172.530446549391
+            },
+            "average_cpu_percent_one_core": {
+              "baseline": 6.088755431230323,
+              "candidate": 16.59433663673149,
+              "delta": 10.505581205501167,
+              "pct": 172.54069939508736
+            },
+            "peak_rss_mib": {
+              "baseline": 87.7421875,
+              "candidate": 95.15234375,
+              "delta": 7.41015625,
+              "pct": 8.44537441011486
+            },
+            "latency_p50_ms": {
+              "baseline": 3.278197,
+              "candidate": 10.784232,
+              "delta": 7.506034999999999,
+              "pct": 228.96839329668106
+            },
+            "latency_p95_ms": {
+              "baseline": 9.8843955,
+              "candidate": 14.400518799999999,
+              "delta": 4.5161232999999985,
+              "pct": 45.689423293513485
+            },
+            "latency_p99_ms": {
+              "baseline": 11.89490425,
+              "candidate": 17.393566160000002,
+              "delta": 5.498661910000003,
+              "pct": 46.22703801924259
+            },
+            "wall_s": {
+              "baseline": 121.37127338200116,
+              "candidate": 121.36670745500123,
+              "delta": -0.004565926999930525,
+              "pct": -0.003761950313860374
+            },
+            "output_poses": {
+              "baseline": 1076,
+              "candidate": 1103,
+              "delta": 27,
+              "pct": 2.509293680297398
+            },
+            "matched_poses": {
+              "baseline": 1075,
+              "candidate": 1102,
+              "delta": 27,
+              "pct": 2.511627906976744
+            },
+            "ate_rmse_m": {
+              "baseline": 1.948766660676051,
+              "candidate": 0.41198383286502804,
+              "delta": -1.536782827811023,
+              "pct": -78.85925281982678
+            },
+            "max_output_gap_s": {
+              "baseline": 2.4499998092651367,
+              "candidate": 0.14999985694885254,
+              "delta": -2.299999952316284,
+              "pct": -93.87755638259237
+            }
+          }
+        }
+      }
+    },
+    "unmatched_baseline": [],
+    "unmatched_candidate": []
+  },
+  "validation": {
+    "ctest_programs": 12,
+    "cpp_test_cases": 140,
+    "python_tests": 54,
+    "arm_validated": false,
+    "arm_reason": "Old isolated ARM workspace API predates full naming refactor; no partial overlay/build attempted."
+  },
+  "repeat_trajectory_exact": {
+    "V2_01_easy": true,
+    "V2_03_difficult": true
+  },
+  "final_implementation": "FAST candidate Shi-Tomasi response/local maxima and no subpixel relocation; complete GFTT recovery when FAST cannot fill the requested quota.",
+  "limitations": [
+    "Local x86 validation only; no ARM build/replay for this revision.",
+    "GFTT recovery and quality screening cost more CPU than direct GFTT on the tested sequence.",
+    "Medium ATE increases by ~1.3 cm vs old FAST; no universal accuracy improvement claim."
+  ]
+}

@@ -250,3 +250,21 @@ ARM 检测与光流的最新实测见 [检测与光流延迟优化](docs/ARM_TRA
 的 medium 场景出现定位回退，默认保留 `gftt`；报告同时记录 GPU 运行时检查与 Ceres 对照。
 
 主里程计路由、速度/协方差坐标约定及独立启动方式见 [docs/PRIMARY_ODOMETRY.md](docs/PRIMARY_ODOMETRY.md)。
+
+## ARM balanced profile（实验）
+
+`src/vins_estimator/config/euroc/euroc_mono_imu_arm_balanced_config.yaml` 是本次 ARM 前端对比的
+opt-in profile：`gftt_pyramid`、`max_cnt=200`、`schur_warmup_frames=10`、`estimate_td=0`。
+相对实测的 `gftt_pyramid` n200/warm10/td0 config，仅将 `cpu_affinity_enabled` 改为 `true`；
+`cpu_affinity_cores: [6, 7]` 仅对应 `192.168.5.62 ARM test device` 的两个 Cortex-A76 核心。
+其他板必须修改 cores；这不表示其他模式或用户当前 mono YAML 可泛化。旧 shipped config
+仍保持 affinity disabled。
+
+```bash
+ros2 launch vins vins_mono_imu_launch.py \
+  config_file:=/home/sprout_stars/rmcode/VINS-Fusion/src/vins_estimator/config/euroc/euroc_mono_imu_arm_balanced_config.yaml \
+  opencv_threads:=1
+```
+
+`opencv_threads` 的 launch 默认值已是 1。该 profile 仅使用 EuRoC V2 mono 校准与
+3 个序列各 2 次实测（sample=2，非统计显著），不能泛化到所有相机或板卡。

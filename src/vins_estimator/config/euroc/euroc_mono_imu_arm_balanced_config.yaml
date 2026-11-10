@@ -1,0 +1,229 @@
+# ARM balanced validated profile (generated 2026-11-10).
+# Derived from the measured gftt_pyramid n200/warm10/td0 config: only
+# cpu_affinity_enabled differs (false -> true); all other algorithm values match.
+# CPU affinity is an explicit opt-in for the 192.168.5.62 ARM test device only:
+# cores 6 and 7 are its two Cortex-A76 cores. Change them on other boards.
+# This does not generalize to other modes or the user's current mono YAML.
+# EuRoC V2 calibration scope only; do not generalize to all cameras.
+# Launch with opencv_threads:=1 (the launch default is already 1).
+# VINS-Fusion 算法配置文件（ROS 2 参数 YAML）。
+# 通过 `config_file` 参数传递给各节点。
+# opencv_threads、tracking_queue_size 等仅属于节点的 ROS 参数
+# 必须通过 launch/--ros-args 传入，不会从本文件读取。
+/**:
+  ros__parameters:
+    # Launch-only CPU affinity; enable only after checking available CPU IDs.
+    # Applies to vins_node and its threads; direct ros2 run does not read these keys.
+    # ARM balanced profile opt-in; this machine uses only cores 6 and 7.
+    cpu_affinity_enabled: true
+    cpu_affinity_cores: [6, 7]
+    imu: 1
+    num_of_cam: 1
+    imu_topic: "/imu0"
+    image0_topic: "/cam0/image_raw"
+    image1_topic: "/cam1/image_raw"
+    output_path: "./output/"
+    cam0_calib: "cam0_pinhole.yaml"
+    cam1_calib: "camera1_info.yaml"
+    image_width: 752
+    image_height: 480
+    estimate_extrinsic: 0
+    body_T_cam0: [
+      0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
+      0.999557249008, 0.0149672133247, 0.025715529948, -0.064676986768,
+      -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949,
+      0.0, 0.0, 0.0, 1.0]
+    multiple_thread: 1
+    max_cnt: 200
+    min_dist: 20
+    # gftt：原分辨率检测；fast_grid：网格 FAST。gftt_pyramid 为实验选项：
+    # 在半分辨率金字塔检测后回原图细化，并缓存 LK 导数；会改变特征分布。
+    # 光流和相机标定始终使用原分辨率，默认保留 gftt。
+    # ARM medium 的 Schur EKF 对照出现精度回退，仅供实验；见 docs/ARM_TRACKER_ACCELERATION.md。
+    feature_detector: "gftt_pyramid"
+    fast_threshold: 20
+    grid_x: 5
+    grid_y: 5
+    detection_min_feature_ratio: 0.0
+    marginalization_threads: 4
+    solver_timeout_policy: "warn"
+    solver_timeout_retry_multiplier: 2.0
+    stage_timing: 0
+    stage_timing_interval: 100
+    ransac_outlier_rejection: 1
+    # 后端选择："ceres"（默认滑动窗口 NLS）或 "schur_ekf"
+    #（面向 ARM 的 Schur 补 EKF，参见 docs/BACKEND_SCHUR_EKF.md）。
+    backend_type: "schur_ekf"
+    schur_window_size: 5
+    # 初始化后先用 Ceres 求解若干图像帧，然后
+    # 再由 EKF 接管。这样可让初始化阶段的零偏/速度收敛。
+    schur_warmup_frames: 10
+    schur_max_features: 120
+    schur_min_observations: 2
+    # 跳过视觉观测不足的帧，而不是执行低秩更新。
+    schur_min_features: 12
+    # 单次更新的最小有效观测数。在完整的 V2_01_easy /
+    # V2_02_medium 上做 A/B 测试时，12 与 24 的 ATE 逐位一致，
+    # 因此采用较宽松的值（可让更多视觉观测稀少的帧参与更新）。
+    schur_min_update_observations: 12
+    schur_pixel_noise: 1.5
+    schur_chi2_multiplier: 5.0
+    schur_triangulation_iterations: 5.0
+    # 秩揭示：丢弃规范/尺度零空间，但若某帧的 Schur
+    # 信息矩阵存在显著负模态，则拒绝该帧。
+    schur_info_rank_rtol: 1.0e-10
+    schur_info_indefinite_tol: 1.0e-6
+    schur_point_block_rtol: 1.0e-8
+    # 若某帧保留的视觉信息条件数超过该阈值，则拒绝该帧
+    #（0 表示禁用检查）。真实 EuRoC 帧的条件数约为 1e2-1e3。
+    schur_condition_limit: 1.0e6
+    # 连续出现视觉观测不足的帧数达到该值后触发重启。这仅是
+    # *次级*兜底：下方的时间判据才是主要保护，通常会先触发。
+    # ARM 后端实际运行频率约为 10 Hz，因此 60 帧相当于 6 秒纯 IMU 传播
+    #（x86 上 20 Hz 时为 3 秒）；而旧值 20 在 ARM 上仅相当于 2 秒，
+    # 会先于时间判据触发。启用 schur_starvation_soft_restart 后，
+    # 该兜底也会执行软重启（保留 IMU/EKF 状态，不调用 clearState()）；
+    # 在软重启模式下，只有 schur_soft_restart_max_seconds 的升级机制
+    # 才会安排完整重启。
+    schur_max_consecutive_failures: 60
+    # 主要饥饿保护，使用传感器时间（帧头时间 + td）。如果自上次
+    # *已应用*的视觉更新以来经过这么多秒，则安排一次受控重启
+    #（受 schur_restart_cooldown_seconds 约束）。取 3.0 秒是因为
+    # ARM 上的视觉饥饿大多会在 1-2 秒内自行恢复，而每次重启都需要
+    # 完整的 Ceres 重新初始化。<= 0 表示禁用时间判据（仅保留帧数兜底）。
+    schur_max_no_update_seconds: 3.0
+    # 视觉饥饿时的过程噪声膨胀。自上次已应用的视觉更新起经过
+    # 这么多秒后，后续每次 IMU 传播都会将过程噪声协方差 Q 乘以
+    # schur_starvation_noise_scale，直到下一次成功更新将缩放系数
+    # 重置为 1.0。这样可在纯 IMU 传播期间让 P 增大，使后续视觉
+    # 更新更不容易被卡方门限拒绝。<= 0 表示禁用。
+    schur_starvation_seconds: 0.25
+    # 视觉饥饿期间使用的 Q 乘数。必须 >= 1.0（1.0 表示不缩放）。
+    schur_starvation_noise_scale: 3.0
+    # 深度饥饿：自上次已应用的视觉更新以来经过这么多秒后
+    #（基础饥饿阶段已激活），将 Q 乘数提升为
+    # schur_starvation_deep_noise_scale。这会让长时间纯 IMU
+    # 传播时 P 增长更快，避免最终视觉更新被过度门限拒绝。
+    # <= 0 表示禁用该升级机制。
+    schur_starvation_deep_seconds: 1.0
+    # 深度饥饿期间使用的 Q 乘数。必须为有限值且 >= 1.0。
+    schur_starvation_deep_noise_scale: 10.0
+    # 重启冷却，使用传感器时间：每经过这么多秒最多执行一次
+    # 受控重启。冷却生效期间，两个重启保护（上述时间判据和
+    # schur_max_consecutive_failures）都会被抑制，仅继续计数，
+    # 因此重启风暴会变成有界次数的重启。
+    # 必须为有限值且 >= 0；0 表示禁用冷却。
+    schur_restart_cooldown_seconds: 8.0
+    # P5 软饥饿重启：为 true 时，由饥饿触发的重启会保留
+    # IMU/EKF 名义状态（q/p/v/ba/bg），仅丢弃克隆窗口和协方差，
+    # 而不是调用 clearState() 并完整重新执行 Ceres 初始化。
+    # 在饥饿期间里程计仍可继续输出。默认 false 保持此前的
+    # 完整重启行为。
+    schur_starvation_soft_restart: false
+    # 软重启的升级兜底，使用传感器时间：若软重启后经过这么多秒
+    # 仍未应用任何视觉更新，则升级一次为完整的受控重启。
+    # <= 0 表示禁用该升级机制。
+    schur_soft_restart_max_seconds: 10.0
+    # P7“不重启、只保持”实验策略（ARM 实测出现严重漂移，保持关闭）：为 true 时，时间判据或帧数兜底
+    # 命中后既不调用 clearState()，也不调用 EkfState::reset()，更不重置或
+    # 重膨胀协方差 P。滤波器只停止接受视觉更新与克隆增广，继续按名义过程
+    # 噪声做纯 IMU 递推（P 自然增长）并逐帧照常发布里程计。完全无图像时，
+    # IMU 回调独立传播实时状态及协方差，由 imu_propagate 发布；两类里程计
+    # 均填入 EKF 协方差，见 docs/IMU_COVARIANCE_PROPAGATION.md。
+    # 陈旧的克隆块会被硬删除（仅删除视觉行列，保留 15 维 live P）；等 tracker 连续
+    # schur_hold_recovery_frames 帧提供不少于 schur_min_features 个观测后，
+    # 清空历史并从该帧起逐帧重建克隆窗口，恢复首帧不会吸收陈旧轨迹。
+    # 该策略优先级高于 schur_starvation_soft_restart，且不会触发任何重启。
+    # 默认 false 会逐位保持此前的行为。
+    schur_starvation_hold: false
+    # 退出保持状态前，tracker 需要连续满足观测数要求的帧数。
+    # 必须 >= 1；越大越保守（恢复判定越晚，但更不容易被单帧噪声骗过）。
+    schur_hold_recovery_frames: 2
+    # P6 饥饿自适应弱更新（“多接受、低权重”）。为 true 时，
+    # 若某帧距上次 *已应用* 的视觉更新之间的传感器时间间隔
+    # 超过 schur_starvation_seconds，则通过斜坡因子放宽卡方门限，
+    # 并以相同因子降低被接受观测的权重，使滤波器能够从门限
+    # 失效中恢复（漂移 -> 残差变大 -> 几乎所有特征轨迹被拒绝 ->
+    # 无校正 -> 漂移加剧），而无需承担一次完整的受控重启。
+    # 该斜坡复用 schur_starvation_seconds 和
+    # schur_starvation_deep_seconds；因子在
+    # schur_weak_update_max_scale 处饱和。默认 false 会逐位
+    # 保持此前的行为。
+    schur_starvation_weak_update: false
+    # 弱更新缩放系数的上限。必须为有限值且 >= 1.0；
+    # 1.0 等同于禁用该特性。该值越大，在长时间饥饿期间
+    # 接受的轨迹越多，但每条观测的置信度也越低。
+    schur_weak_update_max_scale: 10.0
+    # 滤波器初始协方差，由 Ceres 初始化结果设定。
+    # 因初始化阶段的零偏/速度较粗，此处适当放大。
+    schur_init_pos_sigma: 0.5
+    schur_init_vel_sigma: 0.5
+    schur_init_rot_sigma: 0.05
+    schur_init_ba_sigma: 0.5
+    schur_init_bg_sigma: 0.05
+    # EKF 的连续时间 IMU 噪声密度（单位^2/Hz）。这些参数
+    # 有意与 acc_n/gyr_n/acc_w/gyr_w 分开：VINS 通过
+    # IntegrationBase 的 V 矩阵应用后者（按 0.5*dt 缩放），
+    # 该矩阵并非谱密度。若在这里使用 acc_n/gyr_n，会使
+    # 速度过程噪声放大约 1/dt，并导致每次视觉更新都过度
+    # 修正速度。默认值来自 open_vins 的 EuRoC MAV 配置
+    #（config/euroc_mav/kalibr_imu_chain.yaml）。
+    schur_acc_noise: 2.0e-3
+    schur_gyr_noise: 1.6968e-4
+    schur_acc_bias_noise: 3.0e-3
+    schur_gyr_bias_noise: 1.9393e-5
+    # 保守落地静止约束（ZUPT 类伪观测）。详见
+    # docs/BACKEND_SCHUR_EKF.md 与 docs/SCHUR_LANDING_DRIFT.md。
+    # 通用代码默认关闭；本配置显式开启。必须同时满足：近期高加速度冲击、
+    # 持续低光流且特征空间覆盖足够、去偏后 IMU 低动态、当前估计速度低。
+    # 观测为 v=0 的有限协方差 EKF 更新（Joseph 形式），不是硬冻结。
+    schur_landing_zupt_enable: 1
+    # 连续视觉静止时间；需同时通过低光流、特征覆盖、IMU 与速度门控。
+    schur_landing_zupt_min_still_seconds: 0.3
+    # 光流按固定参考时间归一化，使阈值不随图像帧率变化。
+    schur_landing_zupt_flow_reference_seconds: 0.05
+    schur_landing_zupt_max_flow_px: 0.25
+    # 静态特征占匹配特征的比例下限，以及参与判定的最少特征数。
+    schur_landing_zupt_min_static_fraction: 0.7
+    schur_landing_zupt_min_features: 30
+    # 静止特征需覆盖的图像象限数。
+    schur_landing_zupt_min_quadrants: 3
+    # 冲击检测窗口与比力阈值；用于 arm 静止约束 episode，不按时刻硬编码。
+    schur_landing_zupt_impact_window_seconds: 6.0
+    schur_landing_zupt_impact_accel: 20.0
+    # 图像/IMU 连续性；超时或时间回退时清空静止证据。
+    schur_landing_zupt_max_image_gap_seconds: 0.25
+    # 去偏 IMU 统计窗口、最大采样间隙与最少样本数。
+    schur_landing_zupt_imu_window_seconds: 0.3
+    schur_landing_zupt_max_imu_gap_seconds: 0.05
+    schur_landing_zupt_min_imu_samples: 10
+    # 去偏后的低动态与低速门槛；退出阈值更宽，形成滞回但仍即时退出。
+    schur_landing_zupt_max_gyro: 0.08
+    schur_landing_zupt_max_accel_dev: 0.60
+    schur_landing_zupt_max_accel_std: 0.35
+    schur_landing_zupt_max_gyro_std: 0.05
+    schur_landing_zupt_max_speed: 0.25
+    schur_landing_zupt_exit_flow_px: 0.50
+    schur_landing_zupt_exit_speed: 0.35
+    schur_landing_zupt_exit_gyro: 0.15
+    schur_landing_zupt_exit_accel_dev: 1.0
+    # v=0 伪观测的 1-sigma；日志间隔用于更新计数诊断。
+    schur_landing_zupt_sigma: 0.005
+    schur_landing_zupt_update_log_interval: 20
+    freq: 10
+    F_threshold: 1.0
+    show_track: 1
+    flow_back: 1
+    max_solver_time: 0.04
+    max_num_iterations: 8
+    keyframe_parallax: 10.0
+    acc_n: 0.1
+    gyr_n: 0.01
+    acc_w: 0.001
+    gyr_w: 0.0001
+    g_norm: 9.81007
+    estimate_td: 0
+    td: 0.0
+    load_previous_pose_graph: 0
+    pose_graph_save_path: "./output/pose_graph/"
+    save_image: 1

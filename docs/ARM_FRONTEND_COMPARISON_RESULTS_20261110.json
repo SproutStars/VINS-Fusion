@@ -1,0 +1,3690 @@
+{
+  "schema": "vins-arm-frontend-comparison-final/v1",
+  "status": "complete",
+  "date": "2026-11-10",
+  "platform": "192.168.5.62 ARM test device; 2 Cortex-A76 + 6 Cortex-A55; aarch64",
+  "total_complete_full_sequence_runs": 21,
+  "source": "a0dfc4d56e4405d89c6daafd3a0fce34b97d27dd",
+  "binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+  "fixed_conditions": {
+    "backend_type": "schur_ekf",
+    "schur_warmup_frames": 10,
+    "estimate_td": 0,
+    "flow_back": 1,
+    "ransac_outlier_rejection": 1,
+    "min_dist": 20,
+    "freq": 10,
+    "opencv_threads": 1,
+    "affinity": [
+      6,
+      7
+    ],
+    "playback_rate": 1.0,
+    "camera_calibration": "EuRoC V2 cam0_pinhole.yaml"
+  },
+  "screen": {
+    "gftt": {
+      "V2_01_easy": {
+        "label": "screen_gftt_n200_warm10",
+        "dataset": "V2_01_easy",
+        "metrics": {
+          "dataset": "V2_01_easy",
+          "label": "screen_gftt_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 119.05459821899785,
+          "cpu_seconds": 82.74999999999999,
+          "average_cpu_percent_one_core": 69.50592521238323,
+          "peak_rss_mib": 99.375,
+          "peak_threads": 18,
+          "output_poses": 1083,
+          "received_images": 2280,
+          "latency_misses": 0,
+          "latency_p50_ms": 34.259393,
+          "latency_p95_ms": 40.2561055,
+          "latency_p99_ms": 46.314092260000045,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1080,
+          "ate_rmse_m": 0.230585829676278,
+          "ate_median_m": 0.23000396319982036,
+          "ate_p95_m": 0.34756570509270507,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 23,
+          "sum_frames": 2280,
+          "total_frames": 2280,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.01043859649122807,
+            "detect_ms": 14.318245614035087,
+            "flow_ms": 16.044561403508773,
+            "input_image_ms": 31.530438596491226,
+            "pyramid_ms": 1.0106140350877193,
+            "queue_wait_ms": 0.06289473684210527,
+            "track_ms": 31.513070175438596
+          },
+          "max_ms": {
+            "decode_ms": 0.16,
+            "detect_ms": 33.33,
+            "flow_ms": 29.88,
+            "input_image_ms": 50.92,
+            "pyramid_ms": 3.73,
+            "queue_wait_ms": 17.41,
+            "track_ms": 50.89
+          },
+          "features": {
+            "tracked_mean": 182.5456140350877,
+            "detected_mean": 18.616666666666667
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.11995533131426461,
+        "config_sha256": "82df52b62246241d23d9530f149e0d85c27b7bcc049d595c77cbfaf73ee93679",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_gftt_n200_warm10",
+          "--datasets",
+          "V2_01_easy",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_02_medium": {
+        "label": "screen_gftt_n200_warm10",
+        "dataset": "V2_02_medium",
+        "metrics": {
+          "dataset": "V2_02_medium",
+          "label": "screen_gftt_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 123.85436737300188,
+          "cpu_seconds": 82.88999999999999,
+          "average_cpu_percent_one_core": 66.92537514673752,
+          "peak_rss_mib": 102.71875,
+          "peak_threads": 22,
+          "output_poses": 1133,
+          "received_images": 2348,
+          "latency_misses": 0,
+          "latency_p50_ms": 32.84948,
+          "latency_p95_ms": 40.41386059999996,
+          "latency_p99_ms": 48.885082000000004,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1131,
+          "ate_rmse_m": 1.0880468548830007,
+          "ate_median_m": 0.8443183226261425,
+          "ate_p95_m": 1.8299851944989463,
+          "trajectory_duration_s": 113.0,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 24,
+          "sum_frames": 2348,
+          "total_frames": 2348,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.01,
+            "detect_ms": 12.94427597955707,
+            "flow_ms": 16.175332197614992,
+            "input_image_ms": 30.353492333901194,
+            "pyramid_ms": 1.075655877342419,
+            "queue_wait_ms": 0.06170357751277683,
+            "track_ms": 30.329471890971043
+          },
+          "max_ms": {
+            "decode_ms": 0.11,
+            "detect_ms": 35.57,
+            "flow_ms": 35.85,
+            "input_image_ms": 58.49,
+            "pyramid_ms": 2.8,
+            "queue_wait_ms": 18.93,
+            "track_ms": 58.48
+          },
+          "features": {
+            "tracked_mean": 159.03918228279386,
+            "detected_mean": 41.58432708688245
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 1.0525864829530722,
+        "config_sha256": "82df52b62246241d23d9530f149e0d85c27b7bcc049d595c77cbfaf73ee93679",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_gftt_n200_warm10",
+          "--datasets",
+          "V2_02_medium",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_03_difficult": {
+        "label": "screen_gftt_n200_warm10",
+        "dataset": "V2_03_difficult",
+        "metrics": {
+          "dataset": "V2_03_difficult",
+          "label": "screen_gftt_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 122.89063502200224,
+          "cpu_seconds": 74.61000000000001,
+          "average_cpu_percent_one_core": 60.7125188885564,
+          "peak_rss_mib": 99.62890625,
+          "peak_threads": 18,
+          "output_poses": 1103,
+          "received_images": 1922,
+          "latency_misses": 0,
+          "latency_p50_ms": 35.914204,
+          "latency_p95_ms": 55.03663559999996,
+          "latency_p99_ms": 66.04010218,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1102,
+          "ate_rmse_m": 0.48823306241615133,
+          "ate_median_m": 0.32821298749990224,
+          "ate_p95_m": 1.0788484289746945,
+          "trajectory_duration_s": 110.09999990463257,
+          "max_output_gap_s": 0.14999985694885254
+        },
+        "tracking": {
+          "stats_blocks": 20,
+          "sum_frames": 1922,
+          "total_frames": 1922,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.011675338189386058,
+            "detect_ms": 12.700353798126953,
+            "flow_ms": 18.599885535900107,
+            "input_image_ms": 32.73083246618106,
+            "pyramid_ms": 1.2780020811654527,
+            "queue_wait_ms": 0.17491155046826223,
+            "track_ms": 32.7045889698231
+          },
+          "max_ms": {
+            "decode_ms": 0.18,
+            "detect_ms": 38.23,
+            "flow_ms": 54.28,
+            "input_image_ms": 78.64,
+            "pyramid_ms": 3.74,
+            "queue_wait_ms": 29.0,
+            "track_ms": 78.62
+          },
+          "features": {
+            "tracked_mean": 123.82091571279916,
+            "detected_mean": 63.90291363163371
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.28072181323743095,
+        "config_sha256": "82df52b62246241d23d9530f149e0d85c27b7bcc049d595c77cbfaf73ee93679",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_gftt_n200_warm10",
+          "--datasets",
+          "V2_03_difficult",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      }
+    },
+    "fast_grid": {
+      "V2_01_easy": {
+        "label": "screen_fast_grid_n200_warm10",
+        "dataset": "V2_01_easy",
+        "metrics": {
+          "dataset": "V2_01_easy",
+          "label": "screen_fast_grid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 119.0574929760005,
+          "cpu_seconds": 80.92999999999999,
+          "average_cpu_percent_one_core": 67.97556203901739,
+          "peak_rss_mib": 103.83984375,
+          "peak_threads": 18,
+          "output_poses": 1077,
+          "received_images": 2280,
+          "latency_misses": 0,
+          "latency_p50_ms": 33.748502,
+          "latency_p95_ms": 42.9200446,
+          "latency_p99_ms": 53.43287404,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1074,
+          "ate_rmse_m": 0.20337723833350815,
+          "ate_median_m": 0.18793444202630494,
+          "ate_p95_m": 0.316480948551244,
+          "trajectory_duration_s": 107.29999995231628,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 23,
+          "sum_frames": 2280,
+          "total_frames": 2280,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.011228070175438597,
+            "detect_ms": 12.850964912280702,
+            "flow_ms": 14.747017543859648,
+            "input_image_ms": 30.001491228070172,
+            "pyramid_ms": 2.234561403508772,
+            "queue_wait_ms": 0.09087719298245614,
+            "track_ms": 29.978508771929825
+          },
+          "max_ms": {
+            "decode_ms": 0.49,
+            "detect_ms": 27.47,
+            "flow_ms": 30.84,
+            "input_image_ms": 53.96,
+            "pyramid_ms": 7.53,
+            "queue_wait_ms": 15.71,
+            "track_ms": 53.94
+          },
+          "features": {
+            "tracked_mean": 182.6640350877193,
+            "detected_mean": 17.57982456140351
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.11480957100004285,
+        "config_sha256": "8eb89cd8708d08d0a69a80cdead23583038ebe8f722f7c34f462895a72d30cc6",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/fast_grid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_fast_grid_n200_warm10",
+          "--datasets",
+          "V2_01_easy",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_02_medium": {
+        "label": "screen_fast_grid_n200_warm10",
+        "dataset": "V2_02_medium",
+        "metrics": {
+          "dataset": "V2_02_medium",
+          "label": "screen_fast_grid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 123.54672741700051,
+          "cpu_seconds": 84.78,
+          "average_cpu_percent_one_core": 68.62180955538118,
+          "peak_rss_mib": 106.99609375,
+          "peak_threads": 22,
+          "output_poses": 1133,
+          "received_images": 2348,
+          "latency_misses": 0,
+          "latency_p50_ms": 33.769644,
+          "latency_p95_ms": 42.27015819999999,
+          "latency_p99_ms": 48.583573600000015,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1131,
+          "ate_rmse_m": 0.2955490531751204,
+          "ate_median_m": 0.26405552169245466,
+          "ate_p95_m": 0.4862709352105387,
+          "trajectory_duration_s": 113.0,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 24,
+          "sum_frames": 2348,
+          "total_frames": 2348,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.01,
+            "detect_ms": 15.712640545144804,
+            "flow_ms": 13.445604770017034,
+            "input_image_ms": 31.308739352640544,
+            "pyramid_ms": 2.0022487223168652,
+            "queue_wait_ms": 0.07700170357751278,
+            "track_ms": 31.286388415672914
+          },
+          "max_ms": {
+            "decode_ms": 0.11,
+            "detect_ms": 33.48,
+            "flow_ms": 31.71,
+            "input_image_ms": 55.21,
+            "pyramid_ms": 5.36,
+            "queue_wait_ms": 16.22,
+            "track_ms": 55.2
+          },
+          "features": {
+            "tracked_mean": 158.8105621805792,
+            "detected_mean": 40.94633730834753
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.1944163072578011,
+        "config_sha256": "8eb89cd8708d08d0a69a80cdead23583038ebe8f722f7c34f462895a72d30cc6",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/fast_grid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_fast_grid_n200_warm10",
+          "--datasets",
+          "V2_02_medium",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_03_difficult": {
+        "label": "screen_fast_grid_n200_warm10",
+        "dataset": "V2_03_difficult",
+        "metrics": {
+          "dataset": "V2_03_difficult",
+          "label": "screen_fast_grid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 122.91434343100264,
+          "cpu_seconds": 77.31,
+          "average_cpu_percent_one_core": 62.89746000506246,
+          "peak_rss_mib": 104.046875,
+          "peak_threads": 22,
+          "output_poses": 1077,
+          "received_images": 1922,
+          "latency_misses": 0,
+          "latency_p50_ms": 37.044046,
+          "latency_p95_ms": 55.9270502,
+          "latency_p99_ms": 70.5353606,
+          "failure_reboots": 0,
+          "restart_requests": 2,
+          "reset_entry_events": 2,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 2,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 2,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [
+            {
+              "line_no": 95,
+              "kind": "request",
+              "reason": "starvation",
+              "message": "[ERROR] [1794317255.776189700] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 114: streak=31 skipped_total=82 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+              "timestamp": 1794317255.7761898
+            },
+            {
+              "line_no": 96,
+              "kind": "reset_entry",
+              "reason": "unknown",
+              "message": "[WARN] [1794317255.776499740] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+              "timestamp": 1794317255.7764997
+            },
+            {
+              "line_no": 149,
+              "kind": "request",
+              "reason": "starvation",
+              "message": "[ERROR] [1794317270.072291251] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 128: streak=31 skipped_total=92 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+              "timestamp": 1794317270.0722911
+            },
+            {
+              "line_no": 150,
+              "kind": "reset_entry",
+              "reason": "unknown",
+              "message": "[WARN] [1794317270.072691831] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+              "timestamp": 1794317270.072692
+            }
+          ],
+          "matched_poses": 1076,
+          "ate_rmse_m": 16.65322090016045,
+          "ate_median_m": 5.038856723441195,
+          "ate_p95_m": 32.205169352913586,
+          "trajectory_duration_s": 110.09999990463257,
+          "max_output_gap_s": 1.5999999046325684
+        },
+        "tracking": {
+          "stats_blocks": 20,
+          "sum_frames": 1922,
+          "total_frames": 1922,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.010634755463059314,
+            "detect_ms": 16.314370447450575,
+            "flow_ms": 15.520405827263268,
+            "input_image_ms": 34.33807492195629,
+            "pyramid_ms": 2.3574713839750263,
+            "queue_wait_ms": 0.16855359001040582,
+            "track_ms": 34.315359001040584
+          },
+          "max_ms": {
+            "decode_ms": 0.21,
+            "detect_ms": 40.81,
+            "flow_ms": 43.08,
+            "input_image_ms": 69.81,
+            "pyramid_ms": 9.17,
+            "queue_wait_ms": 27.24,
+            "track_ms": 69.76
+          },
+          "features": {
+            "tracked_mean": 123.47211238293444,
+            "detected_mean": 63.5309053069719
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 2,
+            "reset_entry_events": 2,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 2,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 2,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [
+              {
+                "line_no": 95,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794317255.776189700] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 114: streak=31 skipped_total=82 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                "timestamp": 1794317255.7761898
+              },
+              {
+                "line_no": 96,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794317255.776499740] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794317255.7764997
+              },
+              {
+                "line_no": 149,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794317270.072291251] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 128: streak=31 skipped_total=92 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                "timestamp": 1794317270.0722911
+              },
+              {
+                "line_no": 150,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794317270.072691831] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794317270.072692
+              }
+            ]
+          }
+        },
+        "max_output_step_m": 126.52467981882386,
+        "config_sha256": "8eb89cd8708d08d0a69a80cdead23583038ebe8f722f7c34f462895a72d30cc6",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/fast_grid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_fast_grid_n200_warm10",
+          "--datasets",
+          "V2_03_difficult",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      }
+    },
+    "gftt_pyramid": {
+      "V2_01_easy": {
+        "label": "screen_gftt_pyramid_n200_warm10",
+        "dataset": "V2_01_easy",
+        "metrics": {
+          "dataset": "V2_01_easy",
+          "label": "screen_gftt_pyramid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 119.0124318470007,
+          "cpu_seconds": 73.81000000000002,
+          "average_cpu_percent_one_core": 62.01873103045927,
+          "peak_rss_mib": 103.3046875,
+          "peak_threads": 22,
+          "output_poses": 1083,
+          "received_images": 2280,
+          "latency_misses": 0,
+          "latency_p50_ms": 31.353601,
+          "latency_p95_ms": 35.775272099999974,
+          "latency_p99_ms": 43.13302228000004,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1080,
+          "ate_rmse_m": 0.2747650040030964,
+          "ate_median_m": 0.261610010316431,
+          "ate_p95_m": 0.4722617879130572,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 23,
+          "sum_frames": 2280,
+          "total_frames": 2280,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.011754385964912281,
+            "detect_ms": 5.640000000000001,
+            "flow_ms": 17.138947368421054,
+            "input_image_ms": 25.91438596491228,
+            "pyramid_ms": 2.932982456140351,
+            "queue_wait_ms": 0.1268421052631579,
+            "track_ms": 25.884298245614033
+          },
+          "max_ms": {
+            "decode_ms": 0.5,
+            "detect_ms": 11.33,
+            "flow_ms": 37.3,
+            "input_image_ms": 49.39,
+            "pyramid_ms": 5.73,
+            "queue_wait_ms": 9.59,
+            "track_ms": 49.38
+          },
+          "features": {
+            "tracked_mean": 170.48508771929824,
+            "detected_mean": 15.339473684210526
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.10510572816936185,
+        "config_sha256": "cec054510dc1b0fc5c469cb76832cf82ebab392b712c092388d82b38f8512c02",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_gftt_pyramid_n200_warm10",
+          "--datasets",
+          "V2_01_easy",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_02_medium": {
+        "label": "screen_gftt_pyramid_n200_warm10",
+        "dataset": "V2_02_medium",
+        "metrics": {
+          "dataset": "V2_02_medium",
+          "label": "screen_gftt_pyramid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 123.52834623600211,
+          "cpu_seconds": 75.5,
+          "average_cpu_percent_one_core": 61.11957481868697,
+          "peak_rss_mib": 97.6875,
+          "peak_threads": 22,
+          "output_poses": 1128,
+          "received_images": 2348,
+          "latency_misses": 0,
+          "latency_p50_ms": 30.027476999999998,
+          "latency_p95_ms": 37.078109799999964,
+          "latency_p99_ms": 48.56309403000003,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1126,
+          "ate_rmse_m": 0.3471615064176764,
+          "ate_median_m": 0.2999213163268477,
+          "ate_p95_m": 0.5303933108368136,
+          "trajectory_duration_s": 112.5,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 24,
+          "sum_frames": 2348,
+          "total_frames": 2348,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.011703577512776831,
+            "detect_ms": 6.38855195911414,
+            "flow_ms": 16.28930153321976,
+            "input_image_ms": 25.747529812606473,
+            "pyramid_ms": 2.8803407155025553,
+            "queue_wait_ms": 0.12448040885860305,
+            "track_ms": 25.709642248722314
+          },
+          "max_ms": {
+            "decode_ms": 0.32,
+            "detect_ms": 35.69,
+            "flow_ms": 40.52,
+            "input_image_ms": 65.23,
+            "pyramid_ms": 9.3,
+            "queue_wait_ms": 25.04,
+            "track_ms": 65.22
+          },
+          "features": {
+            "tracked_mean": 145.78654173764906,
+            "detected_mean": 34.632879045996596
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.19654544596749127,
+        "config_sha256": "cec054510dc1b0fc5c469cb76832cf82ebab392b712c092388d82b38f8512c02",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_gftt_pyramid_n200_warm10",
+          "--datasets",
+          "V2_02_medium",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_03_difficult": {
+        "label": "screen_gftt_pyramid_n200_warm10",
+        "dataset": "V2_03_difficult",
+        "metrics": {
+          "dataset": "V2_03_difficult",
+          "label": "screen_gftt_pyramid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 122.89455327599717,
+          "cpu_seconds": 66.32000000000001,
+          "average_cpu_percent_one_core": 53.964962833672736,
+          "peak_rss_mib": 103.3984375,
+          "peak_threads": 22,
+          "output_poses": 1101,
+          "received_images": 1922,
+          "latency_misses": 0,
+          "latency_p50_ms": 31.201355,
+          "latency_p95_ms": 48.485719,
+          "latency_p99_ms": 61.479587,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1100,
+          "ate_rmse_m": 0.33329836234721655,
+          "ate_median_m": 0.27612617301624953,
+          "ate_p95_m": 0.5982371668193074,
+          "trajectory_duration_s": 109.89999985694885,
+          "max_output_gap_s": 0.14999985694885254
+        },
+        "tracking": {
+          "stats_blocks": 20,
+          "sum_frames": 1922,
+          "total_frames": 1922,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.014797086368366286,
+            "detect_ms": 7.518033298647242,
+            "flow_ms": 15.555015608740893,
+            "input_image_ms": 26.41382934443288,
+            "pyramid_ms": 3.171716961498439,
+            "queue_wait_ms": 0.15011446409989593,
+            "track_ms": 26.384869927159208
+          },
+          "max_ms": {
+            "decode_ms": 0.12,
+            "detect_ms": 39.33,
+            "flow_ms": 46.18,
+            "input_image_ms": 69.48,
+            "pyramid_ms": 5.68,
+            "queue_wait_ms": 12.42,
+            "track_ms": 69.45
+          },
+          "features": {
+            "tracked_mean": 104.86930280957337,
+            "detected_mean": 38.25941727367326
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.23277697301168293,
+        "config_sha256": "cec054510dc1b0fc5c469cb76832cf82ebab392b712c092388d82b38f8512c02",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "screen_gftt_pyramid_n200_warm10",
+          "--datasets",
+          "V2_03_difficult",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      }
+    }
+  },
+  "tuning": {
+    "150": {
+      "V2_01_easy": {
+        "label": "tune_gftt_pyramid_n150_warm10",
+        "dataset": "V2_01_easy",
+        "metrics": {
+          "dataset": "V2_01_easy",
+          "label": "tune_gftt_pyramid_n150_warm10",
+          "rate": 1.0,
+          "wall_s": 118.97306693100109,
+          "cpu_seconds": 71.39999999999999,
+          "average_cpu_percent_one_core": 60.01358277282094,
+          "peak_rss_mib": 97.9921875,
+          "peak_threads": 22,
+          "output_poses": 1061,
+          "received_images": 2280,
+          "latency_misses": 0,
+          "latency_p50_ms": 29.517526,
+          "latency_p95_ms": 35.503613,
+          "latency_p99_ms": 43.124001800000045,
+          "failure_reboots": 0,
+          "restart_requests": 2,
+          "reset_entry_events": 2,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 2,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 2,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [
+            {
+              "line_no": 96,
+              "kind": "request",
+              "reason": "starvation",
+              "message": "[ERROR] [1794317382.817764454] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 114: streak=31 skipped_total=60 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+              "timestamp": 1794317382.8177645
+            },
+            {
+              "line_no": 97,
+              "kind": "reset_entry",
+              "reason": "unknown",
+              "message": "[WARN] [1794317382.818173202] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+              "timestamp": 1794317382.8181732
+            },
+            {
+              "line_no": 132,
+              "kind": "request",
+              "reason": "starvation",
+              "message": "[ERROR] [1794317390.833368943] [vins_fusion]: Schur EKF visually starved for 4.700 s (> 3.000 s) at frame 69: streak=47 skipped_total=60 max_no_update_gap=4.700 s; scheduling a controlled estimator restart",
+              "timestamp": 1794317390.833369
+            },
+            {
+              "line_no": 133,
+              "kind": "reset_entry",
+              "reason": "unknown",
+              "message": "[WARN] [1794317390.833691441] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+              "timestamp": 1794317390.8336914
+            }
+          ],
+          "matched_poses": 1058,
+          "ate_rmse_m": 3.43513861579666,
+          "ate_median_m": 0.8396139666284584,
+          "ate_p95_m": 3.325421692767859,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 1.1999998092651367
+        },
+        "tracking": {
+          "stats_blocks": 23,
+          "sum_frames": 2280,
+          "total_frames": 2280,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.01605263157894737,
+            "detect_ms": 5.587280701754386,
+            "flow_ms": 15.171052631578947,
+            "input_image_ms": 24.56956140350877,
+            "pyramid_ms": 3.6292105263157897,
+            "queue_wait_ms": 0.1013157894736842,
+            "track_ms": 24.53982456140351
+          },
+          "max_ms": {
+            "decode_ms": 0.18,
+            "detect_ms": 11.99,
+            "flow_ms": 31.92,
+            "input_image_ms": 44.05,
+            "pyramid_ms": 9.17,
+            "queue_wait_ms": 8.91,
+            "track_ms": 44.03
+          },
+          "features": {
+            "tracked_mean": 137.08508771929826,
+            "detected_mean": 11.735087719298246
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 2,
+            "reset_entry_events": 2,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 2,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 2,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [
+              {
+                "line_no": 96,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794317382.817764454] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 114: streak=31 skipped_total=60 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                "timestamp": 1794317382.8177645
+              },
+              {
+                "line_no": 97,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794317382.818173202] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794317382.8181732
+              },
+              {
+                "line_no": 132,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794317390.833368943] [vins_fusion]: Schur EKF visually starved for 4.700 s (> 3.000 s) at frame 69: streak=47 skipped_total=60 max_no_update_gap=4.700 s; scheduling a controlled estimator restart",
+                "timestamp": 1794317390.833369
+              },
+              {
+                "line_no": 133,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794317390.833691441] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794317390.8336914
+              }
+            ]
+          }
+        },
+        "max_output_step_m": 33.83819630708821,
+        "config_sha256": "56dcab7e0b4e18135733ca4d5e18781c07358041d95c689577b1ace93a53c3f3",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n150_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "tune_gftt_pyramid_n150_warm10",
+          "--datasets",
+          "V2_01_easy",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_02_medium": {
+        "label": "tune_gftt_pyramid_n150_warm10",
+        "dataset": "V2_02_medium",
+        "metrics": {
+          "dataset": "V2_02_medium",
+          "label": "tune_gftt_pyramid_n150_warm10",
+          "rate": 1.0,
+          "wall_s": 122.45343654300086,
+          "cpu_seconds": 73.71,
+          "average_cpu_percent_one_core": 60.19430902138538,
+          "peak_rss_mib": 95.63671875,
+          "peak_threads": 18,
+          "output_poses": 1123,
+          "received_images": 2348,
+          "latency_misses": 0,
+          "latency_p50_ms": 29.379407,
+          "latency_p95_ms": 36.31673929999999,
+          "latency_p99_ms": 44.967462319999996,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1121,
+          "ate_rmse_m": 0.3978494320393503,
+          "ate_median_m": 0.2545865902018306,
+          "ate_p95_m": 0.7120796610111599,
+          "trajectory_duration_s": 112.0,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 24,
+          "sum_frames": 2348,
+          "total_frames": 2348,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.012759795570698467,
+            "detect_ms": 6.409744463373084,
+            "flow_ms": 14.903986371379897,
+            "input_image_ms": 24.687069846678025,
+            "pyramid_ms": 3.2031856899488926,
+            "queue_wait_ms": 0.1210732538330494,
+            "track_ms": 24.65580919931857
+          },
+          "max_ms": {
+            "decode_ms": 0.18,
+            "detect_ms": 34.78,
+            "flow_ms": 35.07,
+            "input_image_ms": 55.45,
+            "pyramid_ms": 6.82,
+            "queue_wait_ms": 17.52,
+            "track_ms": 55.44
+          },
+          "features": {
+            "tracked_mean": 123.14701873935265,
+            "detected_mean": 27.65127768313458
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.24103961547623123,
+        "config_sha256": "56dcab7e0b4e18135733ca4d5e18781c07358041d95c689577b1ace93a53c3f3",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n150_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "tune_gftt_pyramid_n150_warm10",
+          "--datasets",
+          "V2_02_medium",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_03_difficult": {
+        "label": "tune_gftt_pyramid_n150_warm10",
+        "dataset": "V2_03_difficult",
+        "metrics": {
+          "dataset": "V2_03_difficult",
+          "label": "tune_gftt_pyramid_n150_warm10",
+          "rate": 1.0,
+          "wall_s": 122.0226412789998,
+          "cpu_seconds": 65.3,
+          "average_cpu_percent_one_core": 53.51465868591896,
+          "peak_rss_mib": 90.328125,
+          "peak_threads": 22,
+          "output_poses": 1046,
+          "received_images": 1922,
+          "latency_misses": 0,
+          "latency_p50_ms": 30.8266775,
+          "latency_p95_ms": 45.969167,
+          "latency_p99_ms": 57.41756689999998,
+          "failure_reboots": 0,
+          "restart_requests": 1,
+          "reset_entry_events": 1,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 1,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 1,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [
+            {
+              "line_no": 116,
+              "kind": "request",
+              "reason": "starvation",
+              "message": "[ERROR] [1794317687.601289647] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 197: streak=31 skipped_total=136 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+              "timestamp": 1794317687.6012897
+            },
+            {
+              "line_no": 117,
+              "kind": "reset_entry",
+              "reason": "unknown",
+              "message": "[WARN] [1794317687.601595395] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+              "timestamp": 1794317687.6015954
+            }
+          ],
+          "matched_poses": 1045,
+          "ate_rmse_m": 25.56715973609477,
+          "ate_median_m": 7.925622325771078,
+          "ate_p95_m": 55.31038474832453,
+          "trajectory_duration_s": 110.09999990463257,
+          "max_output_gap_s": 5.799999952316284
+        },
+        "tracking": {
+          "stats_blocks": 20,
+          "sum_frames": 1922,
+          "total_frames": 1922,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.0163579604578564,
+            "detect_ms": 7.626160249739854,
+            "flow_ms": 14.71420395421436,
+            "input_image_ms": 25.837148803329864,
+            "pyramid_ms": 3.338699271592091,
+            "queue_wait_ms": 0.15149843912591052,
+            "track_ms": 25.807783558792924
+          },
+          "max_ms": {
+            "decode_ms": 0.2,
+            "detect_ms": 40.21,
+            "flow_ms": 45.21,
+            "input_image_ms": 64.32,
+            "pyramid_ms": 5.53,
+            "queue_wait_ms": 14.28,
+            "track_ms": 64.29
+          },
+          "features": {
+            "tracked_mean": 93.69375650364204,
+            "detected_mean": 33.951196670135275
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 1,
+            "reset_entry_events": 1,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 1,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 1,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [
+              {
+                "line_no": 116,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794317687.601289647] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 197: streak=31 skipped_total=136 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                "timestamp": 1794317687.6012897
+              },
+              {
+                "line_no": 117,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794317687.601595395] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794317687.6015954
+              }
+            ]
+          }
+        },
+        "max_output_step_m": 164.14722086954262,
+        "config_sha256": "56dcab7e0b4e18135733ca4d5e18781c07358041d95c689577b1ace93a53c3f3",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n150_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "tune_gftt_pyramid_n150_warm10",
+          "--datasets",
+          "V2_03_difficult",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      }
+    },
+    "120": {
+      "V2_01_easy": {
+        "label": "tune_gftt_pyramid_n120_warm10",
+        "dataset": "V2_01_easy",
+        "metrics": {
+          "dataset": "V2_01_easy",
+          "label": "tune_gftt_pyramid_n120_warm10",
+          "rate": 1.0,
+          "wall_s": 120.24042282400114,
+          "cpu_seconds": 74.05999999999999,
+          "average_cpu_percent_one_core": 61.593263114521335,
+          "peak_rss_mib": 94.203125,
+          "peak_threads": 18,
+          "output_poses": 1083,
+          "received_images": 2280,
+          "latency_misses": 0,
+          "latency_p50_ms": 30.675662,
+          "latency_p95_ms": 34.6583958,
+          "latency_p99_ms": 39.58734108000003,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1080,
+          "ate_rmse_m": 0.3070658277121777,
+          "ate_median_m": 0.17700006767367174,
+          "ate_p95_m": 0.7836243145411554,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 23,
+          "sum_frames": 2280,
+          "total_frames": 2280,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.02,
+            "detect_ms": 6.3950000000000005,
+            "flow_ms": 14.616578947368422,
+            "input_image_ms": 25.46201754385965,
+            "pyramid_ms": 4.275175438596491,
+            "queue_wait_ms": 0.09201754385964912,
+            "track_ms": 25.430175438596493
+          },
+          "max_ms": {
+            "decode_ms": 0.16,
+            "detect_ms": 37.23,
+            "flow_ms": 31.87,
+            "input_image_ms": 58.26,
+            "pyramid_ms": 20.83,
+            "queue_wait_ms": 11.35,
+            "track_ms": 58.15
+          },
+          "features": {
+            "tracked_mean": 113.07894736842105,
+            "detected_mean": 9.25438596491228
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.10417941975928897,
+        "config_sha256": "7be9f9b58378285fa349e8abcf6e4376f897e12b3e6b4ed3572760db472e2bfd",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n120_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "tune_gftt_pyramid_n120_warm10",
+          "--datasets",
+          "V2_01_easy",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_02_medium": {
+        "label": "tune_gftt_pyramid_n120_warm10",
+        "dataset": "V2_02_medium",
+        "metrics": {
+          "dataset": "V2_02_medium",
+          "label": "tune_gftt_pyramid_n120_warm10",
+          "rate": 1.0,
+          "wall_s": 122.53896682899722,
+          "cpu_seconds": 72.59,
+          "average_cpu_percent_one_core": 59.23829935770483,
+          "peak_rss_mib": 97.09765625,
+          "peak_threads": 22,
+          "output_poses": 1137,
+          "received_images": 2348,
+          "latency_misses": 0,
+          "latency_p50_ms": 29.031632,
+          "latency_p95_ms": 35.5495382,
+          "latency_p99_ms": 43.423026480000004,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1135,
+          "ate_rmse_m": 0.423861145083453,
+          "ate_median_m": 0.3846142497873188,
+          "ate_p95_m": 0.6386367030139553,
+          "trajectory_duration_s": 113.39999985694885,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 24,
+          "sum_frames": 2348,
+          "total_frames": 2348,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.014037478705281091,
+            "detect_ms": 7.896064735945485,
+            "flow_ms": 13.013202725724021,
+            "input_image_ms": 24.574020442930156,
+            "pyramid_ms": 3.5147700170357754,
+            "queue_wait_ms": 0.10913117546848382,
+            "track_ms": 24.54763202725724
+          },
+          "max_ms": {
+            "decode_ms": 0.29,
+            "detect_ms": 29.17,
+            "flow_ms": 29.9,
+            "input_image_ms": 49.7,
+            "pyramid_ms": 9.27,
+            "queue_wait_ms": 10.46,
+            "track_ms": 49.67
+          },
+          "features": {
+            "tracked_mean": 103.92793867120953,
+            "detected_mean": 22.004599659284498
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.2012314800752467,
+        "config_sha256": "7be9f9b58378285fa349e8abcf6e4376f897e12b3e6b4ed3572760db472e2bfd",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n120_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "tune_gftt_pyramid_n120_warm10",
+          "--datasets",
+          "V2_02_medium",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_03_difficult": {
+        "label": "tune_gftt_pyramid_n120_warm10",
+        "dataset": "V2_03_difficult",
+        "metrics": {
+          "dataset": "V2_03_difficult",
+          "label": "tune_gftt_pyramid_n120_warm10",
+          "rate": 1.0,
+          "wall_s": 121.83132561000093,
+          "cpu_seconds": 65.1,
+          "average_cpu_percent_one_core": 53.43453309241186,
+          "peak_rss_mib": 97.015625,
+          "peak_threads": 22,
+          "output_poses": 1096,
+          "received_images": 1922,
+          "latency_misses": 0,
+          "latency_p50_ms": 30.8652125,
+          "latency_p95_ms": 43.71576275,
+          "latency_p99_ms": 52.87805624999995,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1095,
+          "ate_rmse_m": 0.6815263428973558,
+          "ate_median_m": 0.6037775419821114,
+          "ate_p95_m": 1.1436794697013961,
+          "trajectory_duration_s": 109.39999985694885,
+          "max_output_gap_s": 0.14999985694885254
+        },
+        "tracking": {
+          "stats_blocks": 20,
+          "sum_frames": 1922,
+          "total_frames": 1922,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.018439125910509883,
+            "detect_ms": 7.773860561914672,
+            "flow_ms": 13.916201873048907,
+            "input_image_ms": 25.377689906347555,
+            "pyramid_ms": 3.5361290322580645,
+            "queue_wait_ms": 0.1287825182101977,
+            "track_ms": 25.346763787721127
+          },
+          "max_ms": {
+            "decode_ms": 0.15,
+            "detect_ms": 28.31,
+            "flow_ms": 37.58,
+            "input_image_ms": 57.1,
+            "pyramid_ms": 6.04,
+            "queue_wait_ms": 8.47,
+            "track_ms": 57.09
+          },
+          "features": {
+            "tracked_mean": 83.50738813735693,
+            "detected_mean": 29.507284079084286
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.21733390195081112,
+        "config_sha256": "7be9f9b58378285fa349e8abcf6e4376f897e12b3e6b4ed3572760db472e2bfd",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n120_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "tune_gftt_pyramid_n120_warm10",
+          "--datasets",
+          "V2_03_difficult",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      }
+    }
+  },
+  "repeat": {
+    "gftt": {
+      "V2_01_easy": {
+        "label": "repeat_gftt_n200_warm10",
+        "dataset": "V2_01_easy",
+        "metrics": {
+          "dataset": "V2_01_easy",
+          "label": "repeat_gftt_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 119.10765539799831,
+          "cpu_seconds": 82.78,
+          "average_cpu_percent_one_core": 69.50015070264843,
+          "peak_rss_mib": 98.63671875,
+          "peak_threads": 18,
+          "output_poses": 1083,
+          "received_images": 2280,
+          "latency_misses": 0,
+          "latency_p50_ms": 34.319486,
+          "latency_p95_ms": 40.17237629999999,
+          "latency_p99_ms": 46.96292122000001,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1080,
+          "ate_rmse_m": 0.2316460197425299,
+          "ate_median_m": 0.23194084933441672,
+          "ate_p95_m": 0.3488538913499601,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 23,
+          "sum_frames": 2280,
+          "total_frames": 2280,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.01043859649122807,
+            "detect_ms": 14.311140350877194,
+            "flow_ms": 16.049298245614036,
+            "input_image_ms": 31.52745614035088,
+            "pyramid_ms": 1.0099122807017544,
+            "queue_wait_ms": 0.0581578947368421,
+            "track_ms": 31.50877192982456
+          },
+          "max_ms": {
+            "decode_ms": 0.15,
+            "detect_ms": 24.61,
+            "flow_ms": 29.76,
+            "input_image_ms": 51.17,
+            "pyramid_ms": 2.98,
+            "queue_wait_ms": 18.33,
+            "track_ms": 51.14
+          },
+          "features": {
+            "tracked_mean": 182.5456140350877,
+            "detected_mean": 18.616666666666667
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.11994152356584849,
+        "config_sha256": "82df52b62246241d23d9530f149e0d85c27b7bcc049d595c77cbfaf73ee93679",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "repeat_gftt_n200_warm10",
+          "--datasets",
+          "V2_01_easy",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_02_medium": {
+        "label": "repeat_gftt_n200_warm10",
+        "dataset": "V2_02_medium",
+        "metrics": {
+          "dataset": "V2_02_medium",
+          "label": "repeat_gftt_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 122.41978586599726,
+          "cpu_seconds": 82.42999999999999,
+          "average_cpu_percent_one_core": 67.33388677074575,
+          "peak_rss_mib": 101.8515625,
+          "peak_threads": 22,
+          "output_poses": 1133,
+          "received_images": 2348,
+          "latency_misses": 0,
+          "latency_p50_ms": 32.824279,
+          "latency_p95_ms": 40.28748139999999,
+          "latency_p99_ms": 48.64279124000001,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1131,
+          "ate_rmse_m": 1.0880468548830007,
+          "ate_median_m": 0.8443183226261425,
+          "ate_p95_m": 1.8299851944989463,
+          "trajectory_duration_s": 113.0,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 24,
+          "sum_frames": 2348,
+          "total_frames": 2348,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.01,
+            "detect_ms": 12.793134582623509,
+            "flow_ms": 16.25543441226576,
+            "input_image_ms": 30.290204429301532,
+            "pyramid_ms": 1.0848722316865418,
+            "queue_wait_ms": 0.06637137989778535,
+            "track_ms": 30.26594548551959
+          },
+          "max_ms": {
+            "decode_ms": 0.1,
+            "detect_ms": 35.98,
+            "flow_ms": 36.03,
+            "input_image_ms": 59.69,
+            "pyramid_ms": 2.81,
+            "queue_wait_ms": 19.47,
+            "track_ms": 59.68
+          },
+          "features": {
+            "tracked_mean": 159.03918228279386,
+            "detected_mean": 41.58432708688245
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 1.0525864829530722,
+        "config_sha256": "82df52b62246241d23d9530f149e0d85c27b7bcc049d595c77cbfaf73ee93679",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "repeat_gftt_n200_warm10",
+          "--datasets",
+          "V2_02_medium",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_03_difficult": {
+        "label": "repeat_gftt_n200_warm10",
+        "dataset": "V2_03_difficult",
+        "metrics": {
+          "dataset": "V2_03_difficult",
+          "label": "repeat_gftt_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 122.14809389600123,
+          "cpu_seconds": 75.42,
+          "average_cpu_percent_one_core": 61.744721177731805,
+          "peak_rss_mib": 98.66015625,
+          "peak_threads": 22,
+          "output_poses": 1045,
+          "received_images": 1922,
+          "latency_misses": 0,
+          "latency_p50_ms": 36.33133,
+          "latency_p95_ms": 55.1477594,
+          "latency_p99_ms": 67.51752643999993,
+          "failure_reboots": 0,
+          "restart_requests": 1,
+          "reset_entry_events": 1,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 1,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 1,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [
+            {
+              "line_no": 113,
+              "kind": "request",
+              "reason": "starvation",
+              "message": "[ERROR] [1794318795.986347377] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 196: streak=31 skipped_total=118 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+              "timestamp": 1794318795.9863474
+            },
+            {
+              "line_no": 114,
+              "kind": "reset_entry",
+              "reason": "unknown",
+              "message": "[WARN] [1794318795.986795465] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+              "timestamp": 1794318795.9867954
+            }
+          ],
+          "matched_poses": 1044,
+          "ate_rmse_m": 13.572146854283808,
+          "ate_median_m": 4.442291060266963,
+          "ate_p95_m": 29.1510429774662,
+          "trajectory_duration_s": 110.09999990463257,
+          "max_output_gap_s": 5.8999998569488525
+        },
+        "tracking": {
+          "stats_blocks": 20,
+          "sum_frames": 1922,
+          "total_frames": 1922,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.011675338189386058,
+            "detect_ms": 12.741508844953174,
+            "flow_ms": 18.667939646201873,
+            "input_image_ms": 32.8435691987513,
+            "pyramid_ms": 1.2846514047866804,
+            "queue_wait_ms": 0.2189073881373569,
+            "track_ms": 32.82137356919875
+          },
+          "max_ms": {
+            "decode_ms": 0.17,
+            "detect_ms": 51.74,
+            "flow_ms": 46.21,
+            "input_image_ms": 73.85,
+            "pyramid_ms": 12.45,
+            "queue_wait_ms": 54.73,
+            "track_ms": 73.82
+          },
+          "features": {
+            "tracked_mean": 123.82091571279916,
+            "detected_mean": 63.90291363163371
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 1,
+            "reset_entry_events": 1,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 1,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 1,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": [
+              {
+                "line_no": 113,
+                "kind": "request",
+                "reason": "starvation",
+                "message": "[ERROR] [1794318795.986347377] [vins_fusion]: Schur EKF visually starved for 3.100 s (> 3.000 s) at frame 196: streak=31 skipped_total=118 max_no_update_gap=3.100 s; scheduling a controlled estimator restart",
+                "timestamp": 1794318795.9863474
+              },
+              {
+                "line_no": 114,
+                "kind": "reset_entry",
+                "reason": "unknown",
+                "message": "[WARN] [1794318795.986795465] [vins_fusion]: Resetting estimator state after solver failure; current-frame observations and IMU preintegration inputs were already consumed, so the next frame starts a clean initialization instead of extending a stale image-frame history",
+                "timestamp": 1794318795.9867954
+              }
+            ]
+          }
+        },
+        "max_output_step_m": 88.96115541938087,
+        "config_sha256": "82df52b62246241d23d9530f149e0d85c27b7bcc049d595c77cbfaf73ee93679",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "repeat_gftt_n200_warm10",
+          "--datasets",
+          "V2_03_difficult",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      }
+    },
+    "gftt_pyramid": {
+      "V2_01_easy": {
+        "label": "repeat_gftt_pyramid_n200_warm10",
+        "dataset": "V2_01_easy",
+        "metrics": {
+          "dataset": "V2_01_easy",
+          "label": "repeat_gftt_pyramid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 119.02469683899835,
+          "cpu_seconds": 73.99000000000001,
+          "average_cpu_percent_one_core": 62.16356938097005,
+          "peak_rss_mib": 102.515625,
+          "peak_threads": 22,
+          "output_poses": 1083,
+          "received_images": 2280,
+          "latency_misses": 0,
+          "latency_p50_ms": 31.485155,
+          "latency_p95_ms": 35.74938399999999,
+          "latency_p99_ms": 45.36897348000013,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1080,
+          "ate_rmse_m": 0.2747650040030964,
+          "ate_median_m": 0.261610010316431,
+          "ate_p95_m": 0.4722617879130572,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 23,
+          "sum_frames": 2280,
+          "total_frames": 2280,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.011315789473684211,
+            "detect_ms": 5.650175438596491,
+            "flow_ms": 17.127719298245612,
+            "input_image_ms": 25.937105263157893,
+            "pyramid_ms": 2.955438596491228,
+            "queue_wait_ms": 0.12587719298245614,
+            "track_ms": 25.90921052631579
+          },
+          "max_ms": {
+            "decode_ms": 0.19,
+            "detect_ms": 12.88,
+            "flow_ms": 36.75,
+            "input_image_ms": 48.83,
+            "pyramid_ms": 9.31,
+            "queue_wait_ms": 9.54,
+            "track_ms": 48.81
+          },
+          "features": {
+            "tracked_mean": 170.48508771929824,
+            "detected_mean": 15.339473684210526
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.10510572816936185,
+        "config_sha256": "cec054510dc1b0fc5c469cb76832cf82ebab392b712c092388d82b38f8512c02",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "repeat_gftt_pyramid_n200_warm10",
+          "--datasets",
+          "V2_01_easy",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_02_medium": {
+        "label": "repeat_gftt_pyramid_n200_warm10",
+        "dataset": "V2_02_medium",
+        "metrics": {
+          "dataset": "V2_02_medium",
+          "label": "repeat_gftt_pyramid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 122.47971721600334,
+          "cpu_seconds": 75.53999999999999,
+          "average_cpu_percent_one_core": 61.67551796905182,
+          "peak_rss_mib": 96.75390625,
+          "peak_threads": 22,
+          "output_poses": 1128,
+          "received_images": 2348,
+          "latency_misses": 0,
+          "latency_p50_ms": 30.099912,
+          "latency_p95_ms": 36.783113549999996,
+          "latency_p99_ms": 49.62510139000002,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1126,
+          "ate_rmse_m": 0.3471615064176764,
+          "ate_median_m": 0.2999213163268477,
+          "ate_p95_m": 0.5303933108368136,
+          "trajectory_duration_s": 112.5,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "tracking": {
+          "stats_blocks": 24,
+          "sum_frames": 2348,
+          "total_frames": 2348,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.010851788756388417,
+            "detect_ms": 6.370732538330494,
+            "flow_ms": 16.329045996592843,
+            "input_image_ms": 25.719386712095403,
+            "pyramid_ms": 2.841328790459966,
+            "queue_wait_ms": 0.12383304940374787,
+            "track_ms": 25.69235093696763
+          },
+          "max_ms": {
+            "decode_ms": 0.11,
+            "detect_ms": 37.7,
+            "flow_ms": 40.34,
+            "input_image_ms": 65.92,
+            "pyramid_ms": 8.82,
+            "queue_wait_ms": 27.59,
+            "track_ms": 65.91
+          },
+          "features": {
+            "tracked_mean": 145.78654173764906,
+            "detected_mean": 34.632879045996596
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.19654544596749127,
+        "config_sha256": "cec054510dc1b0fc5c469cb76832cf82ebab392b712c092388d82b38f8512c02",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "repeat_gftt_pyramid_n200_warm10",
+          "--datasets",
+          "V2_02_medium",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      },
+      "V2_03_difficult": {
+        "label": "repeat_gftt_pyramid_n200_warm10",
+        "dataset": "V2_03_difficult",
+        "metrics": {
+          "dataset": "V2_03_difficult",
+          "label": "repeat_gftt_pyramid_n200_warm10",
+          "rate": 1.0,
+          "wall_s": 121.97725975399953,
+          "cpu_seconds": 66.23,
+          "average_cpu_percent_one_core": 54.29700596125121,
+          "peak_rss_mib": 102.82421875,
+          "peak_threads": 22,
+          "output_poses": 1101,
+          "received_images": 1922,
+          "latency_misses": 0,
+          "latency_p50_ms": 31.100564,
+          "latency_p95_ms": 47.354166,
+          "latency_p99_ms": 61.308524,
+          "failure_reboots": 0,
+          "restart_requests": 0,
+          "reset_entry_events": 0,
+          "actual_resets_completed": null,
+          "failure_detection_triggers": 0,
+          "starvation_restarts": 0,
+          "soft_restart_escalations": 0,
+          "legacy_failure_reboots": 0,
+          "by_reason": {
+            "solver_failure": 0,
+            "initialization": 0,
+            "failure_detection": 0,
+            "starvation": 0,
+            "backstop": 0,
+            "soft_escalation": 0,
+            "legacy": 0,
+            "other": 0
+          },
+          "events": [],
+          "matched_poses": 1100,
+          "ate_rmse_m": 0.33329836234721655,
+          "ate_median_m": 0.27612617301624953,
+          "ate_p95_m": 0.5982371668193074,
+          "trajectory_duration_s": 109.89999985694885,
+          "max_output_gap_s": 0.14999985694885254
+        },
+        "tracking": {
+          "stats_blocks": 20,
+          "sum_frames": 1922,
+          "total_frames": 1922,
+          "frames_consistent": true,
+          "overflow_events_cumulative": 0,
+          "overflow_dropped_pairs_cumulative": 0,
+          "overflow_source": "last Tracker periodic/final stats block",
+          "weighted_mean_ms": {
+            "decode_ms": 0.015317377731529658,
+            "detect_ms": 7.590582726326743,
+            "flow_ms": 15.604994797086368,
+            "input_image_ms": 26.52563995837669,
+            "pyramid_ms": 3.16579604578564,
+            "queue_wait_ms": 0.15491155046826224,
+            "track_ms": 26.499281997918835
+          },
+          "max_ms": {
+            "decode_ms": 0.13,
+            "detect_ms": 39.06,
+            "flow_ms": 46.48,
+            "input_image_ms": 72.85,
+            "pyramid_ms": 7.69,
+            "queue_wait_ms": 18.6,
+            "track_ms": 72.82
+          },
+          "features": {
+            "tracked_mean": 104.86930280957337,
+            "detected_mean": 38.25941727367326
+          },
+          "restart_diagnostics": {
+            "available": true,
+            "restart_requests": 0,
+            "reset_entry_events": 0,
+            "actual_resets_completed": null,
+            "failure_detection_triggers": 0,
+            "starvation_restarts": 0,
+            "soft_restart_escalations": 0,
+            "legacy_failure_reboots": 0,
+            "by_reason": {
+              "solver_failure": 0,
+              "initialization": 0,
+              "failure_detection": 0,
+              "starvation": 0,
+              "backstop": 0,
+              "soft_escalation": 0,
+              "legacy": 0,
+              "other": 0
+            },
+            "events": []
+          }
+        },
+        "max_output_step_m": 0.23277697301168293,
+        "config_sha256": "cec054510dc1b0fc5c469cb76832cf82ebab392b712c092388d82b38f8512c02",
+        "actual_binary_sha256": "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a",
+        "wrapper_sha256": "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f",
+        "source_revision": "a586dcd0b957d501fc1d8cf739f14fe8bc433a96",
+        "command": [
+          "/usr/bin/python3",
+          "/home/pinydrone/vins_frontends_20261110/workspace/src/VINS-Fusion/scripts/benchmark_euroc.py",
+          "--binary",
+          "/home/pinydrone/vins_frontends_20261110/binaries/run_vins_a76.sh",
+          "--config",
+          "/home/pinydrone/vins_frontends_20261110/configs/gftt_pyramid_n200_warm10.yaml",
+          "--bags-root",
+          "/home/pinydrone/vins_balance_20261110/bags",
+          "--output",
+          "/home/pinydrone/vins_frontends_20261110/results",
+          "--label",
+          "repeat_gftt_pyramid_n200_warm10",
+          "--datasets",
+          "V2_03_difficult",
+          "--rate",
+          "1",
+          "--repeats",
+          "1",
+          "--domain-id",
+          "183",
+          "--parameter",
+          "opencv_threads:=1"
+        ]
+      }
+    }
+  },
+  "pairwise_common_timestamp_comparisons": {
+    "fast_grid_vs_gftt": {
+      "V2_01_easy": {
+        "common_timestamps": 1077,
+        "max_abs_position_delta_m": 0.3302520279689007,
+        "max_abs_axis_delta_m": 0.31988436581665447,
+        "baseline_ate_common": {
+          "matched_poses": 1074,
+          "ate_rmse_m": 0.23049143807804598,
+          "ate_median_m": 0.23008843896416503,
+          "ate_p95_m": 0.34744929891970155,
+          "trajectory_duration_s": 107.29999995231628,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "candidate_ate_common": {
+          "matched_poses": 1074,
+          "ate_rmse_m": 0.20337723833350776,
+          "ate_median_m": 0.18793444202630372,
+          "ate_p95_m": 0.31648094855124276,
+          "trajectory_duration_s": 107.29999995231628,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "changes": {
+          "cpu_seconds": {
+            "baseline": 82.74999999999999,
+            "candidate": 80.92999999999999,
+            "delta": -1.8199999999999932,
+            "pct": -2.1993957703927416
+          },
+          "average_cpu_percent_one_core": {
+            "baseline": 69.50592521238323,
+            "candidate": 67.97556203901739,
+            "delta": -1.530363173365842,
+            "pct": -2.2017736886310684
+          },
+          "peak_rss_mib": {
+            "baseline": 99.375,
+            "candidate": 103.83984375,
+            "delta": 4.46484375,
+            "pct": 4.492924528301887
+          },
+          "latency_p50_ms": {
+            "baseline": 34.259393,
+            "candidate": 33.748502,
+            "delta": -0.5108910000000009,
+            "pct": -1.4912435839128872
+          },
+          "latency_p95_ms": {
+            "baseline": 40.2561055,
+            "candidate": 42.9200446,
+            "delta": 2.6639391000000003,
+            "pct": 6.61747843442034
+          },
+          "latency_p99_ms": {
+            "baseline": 46.314092260000045,
+            "candidate": 53.43287404,
+            "delta": 7.118781779999956,
+            "pct": 15.370660273413613
+          },
+          "wall_s": {
+            "baseline": 119.05459821899785,
+            "candidate": 119.0574929760005,
+            "delta": 0.0028947570026502945,
+            "pct": 0.002431453338178055
+          },
+          "output_poses": {
+            "baseline": 1083,
+            "candidate": 1077,
+            "delta": -6,
+            "pct": -0.554016620498615
+          },
+          "matched_poses": {
+            "baseline": 1080,
+            "candidate": 1074,
+            "delta": -6,
+            "pct": -0.5555555555555556
+          },
+          "ate_rmse_m": {
+            "baseline": 0.230585829676278,
+            "candidate": 0.20337723833350815,
+            "delta": -0.027208591342769844,
+            "pct": -11.799767306155928
+          },
+          "max_output_gap_s": {
+            "baseline": 0.10000014305114746,
+            "candidate": 0.10000014305114746,
+            "delta": 0.0,
+            "pct": 0.0
+          }
+        }
+      },
+      "V2_02_medium": {
+        "common_timestamps": 1133,
+        "max_abs_position_delta_m": 4.347588871545512,
+        "max_abs_axis_delta_m": 4.081770237036588,
+        "baseline_ate_common": {
+          "matched_poses": 1131,
+          "ate_rmse_m": 1.0880468548830007,
+          "ate_median_m": 0.8443183226261423,
+          "ate_p95_m": 1.829985194498946,
+          "trajectory_duration_s": 113.0,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "candidate_ate_common": {
+          "matched_poses": 1131,
+          "ate_rmse_m": 0.2955490531751204,
+          "ate_median_m": 0.26405552169245466,
+          "ate_p95_m": 0.4862709352105382,
+          "trajectory_duration_s": 113.0,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "changes": {
+          "cpu_seconds": {
+            "baseline": 82.88999999999999,
+            "candidate": 84.78,
+            "delta": 1.8900000000000148,
+            "pct": 2.2801302931596275
+          },
+          "average_cpu_percent_one_core": {
+            "baseline": 66.92537514673752,
+            "candidate": 68.62180955538118,
+            "delta": 1.696434408643654,
+            "pct": 2.5348149411551737
+          },
+          "peak_rss_mib": {
+            "baseline": 102.71875,
+            "candidate": 106.99609375,
+            "delta": 4.27734375,
+            "pct": 4.164131426832978
+          },
+          "latency_p50_ms": {
+            "baseline": 32.84948,
+            "candidate": 33.769644,
+            "delta": 0.9201639999999998,
+            "pct": 2.8011524078919963
+          },
+          "latency_p95_ms": {
+            "baseline": 40.41386059999996,
+            "candidate": 42.27015819999999,
+            "delta": 1.8562976000000333,
+            "pct": 4.59322017852468
+          },
+          "latency_p99_ms": {
+            "baseline": 48.885082000000004,
+            "candidate": 48.583573600000015,
+            "delta": -0.3015083999999888,
+            "pct": -0.6167697540120497
+          },
+          "wall_s": {
+            "baseline": 123.85436737300188,
+            "candidate": 123.54672741700051,
+            "delta": -0.30763995600136695,
+            "pct": -0.2483884601944422
+          },
+          "output_poses": {
+            "baseline": 1133,
+            "candidate": 1133,
+            "delta": 0,
+            "pct": 0.0
+          },
+          "matched_poses": {
+            "baseline": 1131,
+            "candidate": 1131,
+            "delta": 0,
+            "pct": 0.0
+          },
+          "ate_rmse_m": {
+            "baseline": 1.0880468548830007,
+            "candidate": 0.2955490531751204,
+            "delta": -0.7924978017078803,
+            "pct": -72.83673475560929
+          },
+          "max_output_gap_s": {
+            "baseline": 0.10000014305114746,
+            "candidate": 0.10000014305114746,
+            "delta": 0.0,
+            "pct": 0.0
+          }
+        }
+      },
+      "V2_03_difficult": {
+        "common_timestamps": 1077,
+        "max_abs_position_delta_m": 127.64230452457434,
+        "max_abs_axis_delta_m": 88.30501409851354,
+        "baseline_ate_common": {
+          "matched_poses": 1076,
+          "ate_rmse_m": 0.49158950125531164,
+          "ate_median_m": 0.33045821265046443,
+          "ate_p95_m": 1.1218225072190249,
+          "trajectory_duration_s": 110.09999990463257,
+          "max_output_gap_s": 1.5999999046325684
+        },
+        "candidate_ate_common": {
+          "matched_poses": 1076,
+          "ate_rmse_m": 16.653220900160456,
+          "ate_median_m": 5.038856723441198,
+          "ate_p95_m": 32.2051693529136,
+          "trajectory_duration_s": 110.09999990463257,
+          "max_output_gap_s": 1.5999999046325684
+        },
+        "changes": {
+          "cpu_seconds": {
+            "baseline": 74.61000000000001,
+            "candidate": 77.31,
+            "delta": 2.6999999999999886,
+            "pct": 3.6188178528347246
+          },
+          "average_cpu_percent_one_core": {
+            "baseline": 60.7125188885564,
+            "candidate": 62.89746000506246,
+            "delta": 2.18494111650606,
+            "pct": 3.5988312731954464
+          },
+          "peak_rss_mib": {
+            "baseline": 99.62890625,
+            "candidate": 104.046875,
+            "delta": 4.41796875,
+            "pct": 4.434424622623015
+          },
+          "latency_p50_ms": {
+            "baseline": 35.914204,
+            "candidate": 37.044046,
+            "delta": 1.1298420000000036,
+            "pct": 3.145947491972824
+          },
+          "latency_p95_ms": {
+            "baseline": 55.03663559999996,
+            "candidate": 55.9270502,
+            "delta": 0.8904146000000353,
+            "pct": 1.6178579782228475
+          },
+          "latency_p99_ms": {
+            "baseline": 66.04010218,
+            "candidate": 70.5353606,
+            "delta": 4.495258419999999,
+            "pct": 6.806861697075585
+          },
+          "wall_s": {
+            "baseline": 122.89063502200224,
+            "candidate": 122.91434343100264,
+            "delta": 0.02370840900039184,
+            "pct": 0.019292282927944104
+          },
+          "output_poses": {
+            "baseline": 1103,
+            "candidate": 1077,
+            "delta": -26,
+            "pct": -2.357207615593835
+          },
+          "matched_poses": {
+            "baseline": 1102,
+            "candidate": 1076,
+            "delta": -26,
+            "pct": -2.3593466424682394
+          },
+          "ate_rmse_m": {
+            "baseline": 0.48823306241615133,
+            "candidate": 16.65322090016045,
+            "delta": 16.1649878377443,
+            "pct": 3310.9162574422044
+          },
+          "max_output_gap_s": {
+            "baseline": 0.14999985694885254,
+            "candidate": 1.5999999046325684,
+            "delta": 1.4500000476837158,
+            "pct": 966.6676203418925
+          }
+        }
+      }
+    },
+    "gftt_pyramid_vs_gftt": {
+      "V2_01_easy": {
+        "common_timestamps": 1083,
+        "max_abs_position_delta_m": 0.7136890732680108,
+        "max_abs_axis_delta_m": 0.6673560604592024,
+        "baseline_ate_common": {
+          "matched_poses": 1080,
+          "ate_rmse_m": 0.23058582967627822,
+          "ate_median_m": 0.2300039631998209,
+          "ate_p95_m": 0.34756570509270485,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "candidate_ate_common": {
+          "matched_poses": 1080,
+          "ate_rmse_m": 0.2747650040030962,
+          "ate_median_m": 0.26161001031643005,
+          "ate_p95_m": 0.47226178791305673,
+          "trajectory_duration_s": 107.90000009536743,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "changes": {
+          "cpu_seconds": {
+            "baseline": 82.74999999999999,
+            "candidate": 73.81000000000002,
+            "delta": -8.93999999999997,
+            "pct": -10.803625377643469
+          },
+          "average_cpu_percent_one_core": {
+            "baseline": 69.50592521238323,
+            "candidate": 62.01873103045927,
+            "delta": -7.487194181923961,
+            "pct": -10.772022901710884
+          },
+          "peak_rss_mib": {
+            "baseline": 99.375,
+            "candidate": 103.3046875,
+            "delta": 3.9296875,
+            "pct": 3.9544025157232703
+          },
+          "latency_p50_ms": {
+            "baseline": 34.259393,
+            "candidate": 31.353601,
+            "delta": -2.9057920000000017,
+            "pct": -8.481738132371468
+          },
+          "latency_p95_ms": {
+            "baseline": 40.2561055,
+            "candidate": 35.775272099999974,
+            "delta": -4.480833400000023,
+            "pct": -11.130816914219443
+          },
+          "latency_p99_ms": {
+            "baseline": 46.314092260000045,
+            "candidate": 43.13302228000004,
+            "delta": -3.1810699800000037,
+            "pct": -6.8684709659038035
+          },
+          "wall_s": {
+            "baseline": 119.05459821899785,
+            "candidate": 119.0124318470007,
+            "delta": -0.04216637199715478,
+            "pct": -0.03541767611494588
+          },
+          "output_poses": {
+            "baseline": 1083,
+            "candidate": 1083,
+            "delta": 0,
+            "pct": 0.0
+          },
+          "matched_poses": {
+            "baseline": 1080,
+            "candidate": 1080,
+            "delta": 0,
+            "pct": 0.0
+          },
+          "ate_rmse_m": {
+            "baseline": 0.230585829676278,
+            "candidate": 0.2747650040030964,
+            "delta": 0.04417917432681839,
+            "pct": 19.1595356873586
+          },
+          "max_output_gap_s": {
+            "baseline": 0.10000014305114746,
+            "candidate": 0.10000014305114746,
+            "delta": 0.0,
+            "pct": 0.0
+          }
+        }
+      },
+      "V2_02_medium": {
+        "common_timestamps": 1128,
+        "max_abs_position_delta_m": 3.8785094763960637,
+        "max_abs_axis_delta_m": 3.571047492013104,
+        "baseline_ate_common": {
+          "matched_poses": 1126,
+          "ate_rmse_m": 1.0850133727631686,
+          "ate_median_m": 0.8403097283694858,
+          "ate_p95_m": 1.8327382240607994,
+          "trajectory_duration_s": 112.5,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "candidate_ate_common": {
+          "matched_poses": 1126,
+          "ate_rmse_m": 0.3471615064176765,
+          "ate_median_m": 0.29992131632684804,
+          "ate_p95_m": 0.5303933108368142,
+          "trajectory_duration_s": 112.5,
+          "max_output_gap_s": 0.10000014305114746
+        },
+        "changes": {
+          "cpu_seconds": {
+            "baseline": 82.88999999999999,
+            "candidate": 75.5,
+            "delta": -7.389999999999986,
+            "pct": -8.91543008806851
+          },
+          "average_cpu_percent_one_core": {
+            "baseline": 66.92537514673752,
+            "candidate": 61.11957481868697,
+            "delta": -5.805800328050552,
+            "pct": -8.675035911746509
+          },
+          "peak_rss_mib": {
+            "baseline": 102.71875,
+            "candidate": 97.6875,
+            "delta": -5.03125,
+            "pct": -4.8980833586857315
+          },
+          "latency_p50_ms": {
+            "baseline": 32.84948,
+            "candidate": 30.027476999999998,
+            "delta": -2.8220030000000023,
+            "pct": -8.590708285184428
+          },
+          "latency_p95_ms": {
+            "baseline": 40.41386059999996,
+            "candidate": 37.078109799999964,
+            "delta": -3.3357507999999925,
+            "pct": -8.253977102103422
+          },
+          "latency_p99_ms": {
+            "baseline": 48.885082000000004,
+            "candidate": 48.56309403000003,
+            "delta": -0.3219879699999737,
+            "pct": -0.6586630457119284
+          },
+          "wall_s": {
+            "baseline": 123.85436737300188,
+            "candidate": 123.52834623600211,
+            "delta": -0.32602113699977053,
+            "pct": -0.2632294233257999
+          },
+          "output_poses": {
+            "baseline": 1133,
+            "candidate": 1128,
+            "delta": -5,
+            "pct": -0.44130626654898497
+          },
+          "matched_poses": {
+            "baseline": 1131,
+            "candidate": 1126,
+            "delta": -5,
+            "pct": -0.4420866489832007
+          },
+          "ate_rmse_m": {
+            "baseline": 1.0880468548830007,
+            "candidate": 0.3471615064176764,
+            "delta": -0.7408853484653243,
+            "pct": -68.0931473805871
+          },
+          "max_output_gap_s": {
+            "baseline": 0.10000014305114746,
+            "candidate": 0.10000014305114746,
+            "delta": 0.0,
+            "pct": 0.0
+          }
+        }
+      },
+      "V2_03_difficult": {
+        "common_timestamps": 1101,
+        "max_abs_position_delta_m": 2.003150902007973,
+        "max_abs_axis_delta_m": 1.6668873370884036,
+        "baseline_ate_common": {
+          "matched_poses": 1100,
+          "ate_rmse_m": 0.48624666101978903,
+          "ate_median_m": 0.3275518512398169,
+          "ate_p95_m": 0.9679785921686249,
+          "trajectory_duration_s": 109.89999985694885,
+          "max_output_gap_s": 0.14999985694885254
+        },
+        "candidate_ate_common": {
+          "matched_poses": 1100,
+          "ate_rmse_m": 0.3332983623472165,
+          "ate_median_m": 0.2761261730162497,
+          "ate_p95_m": 0.5982371668193077,
+          "trajectory_duration_s": 109.89999985694885,
+          "max_output_gap_s": 0.14999985694885254
+        },
+        "changes": {
+          "cpu_seconds": {
+            "baseline": 74.61000000000001,
+            "candidate": 66.32000000000001,
+            "delta": -8.290000000000006,
+            "pct": -11.111111111111118
+          },
+          "average_cpu_percent_one_core": {
+            "baseline": 60.7125188885564,
+            "candidate": 53.964962833672736,
+            "delta": -6.747556054883667,
+            "pct": -11.113945160584503
+          },
+          "peak_rss_mib": {
+            "baseline": 99.62890625,
+            "candidate": 103.3984375,
+            "delta": 3.76953125,
+            "pct": 3.783571848657126
+          },
+          "latency_p50_ms": {
+            "baseline": 35.914204,
+            "candidate": 31.201355,
+            "delta": -4.7128489999999985,
+            "pct": -13.122521106133938
+          },
+          "latency_p95_ms": {
+            "baseline": 55.03663559999996,
+            "candidate": 48.485719,
+            "delta": -6.550916599999958,
+            "pct": -11.9028289585346
+          },
+          "latency_p99_ms": {
+            "baseline": 66.04010218,
+            "candidate": 61.479587,
+            "delta": -4.560515180000003,
+            "pct": -6.905675535706754
+          },
+          "wall_s": {
+            "baseline": 122.89063502200224,
+            "candidate": 122.89455327599717,
+            "delta": 0.0039182539949251805,
+            "pct": 0.0031884073137254595
+          },
+          "output_poses": {
+            "baseline": 1103,
+            "candidate": 1101,
+            "delta": -2,
+            "pct": -0.1813236627379873
+          },
+          "matched_poses": {
+            "baseline": 1102,
+            "candidate": 1100,
+            "delta": -2,
+            "pct": -0.18148820326678766
+          },
+          "ate_rmse_m": {
+            "baseline": 0.48823306241615133,
+            "candidate": 0.33329836234721655,
+            "delta": -0.15493470006893478,
+            "pct": -31.733758320708382
+          },
+          "max_output_gap_s": {
+            "baseline": 0.14999985694885254,
+            "candidate": 0.14999985694885254,
+            "delta": 0.0,
+            "pct": 0.0
+          }
+        }
+      }
+    }
+  },
+  "pyramid_exact_trajectory_repeats": {
+    "V2_01_easy": {
+      "exact_trajectory_repeat": true
+    },
+    "V2_02_medium": {
+      "exact_trajectory_repeat": true
+    },
+    "V2_03_difficult": {
+      "exact_trajectory_repeat": true
+    }
+  },
+  "thermal": [
+    {
+      "run": "repeat_gftt_n200_warm10_V2_01_easy",
+      "samples": 122,
+      "peak_temp_c": 83.426,
+      "start_temp_c": 72.393,
+      "end_temp_c": 77.762,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "repeat_gftt_n200_warm10_V2_02_medium",
+      "samples": 125,
+      "peak_temp_c": 83.367,
+      "start_temp_c": 80.181,
+      "end_temp_c": 79.886,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "repeat_gftt_n200_warm10_V2_03_difficult",
+      "samples": 127,
+      "peak_temp_c": 83.19,
+      "start_temp_c": 75.933,
+      "end_temp_c": 78.588,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "repeat_gftt_pyramid_n200_warm10_V2_01_easy",
+      "samples": 122,
+      "peak_temp_c": 82.246,
+      "start_temp_c": 80.24,
+      "end_temp_c": 76.641,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "repeat_gftt_pyramid_n200_warm10_V2_02_medium",
+      "samples": 124,
+      "peak_temp_c": 78.647,
+      "start_temp_c": 74.222,
+      "end_temp_c": 76.051,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "repeat_gftt_pyramid_n200_warm10_V2_03_difficult",
+      "samples": 124,
+      "peak_temp_c": 81.243,
+      "start_temp_c": 75.933,
+      "end_temp_c": 76.641,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_fast_grid_n200_warm10_V2_01_easy",
+      "samples": 121,
+      "peak_temp_c": 90.86,
+      "start_temp_c": 85.55,
+      "end_temp_c": 81.538,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_fast_grid_n200_warm10_V2_02_medium",
+      "samples": 126,
+      "peak_temp_c": 87.497,
+      "start_temp_c": 76.7,
+      "end_temp_c": 81.479,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_fast_grid_n200_warm10_V2_03_difficult",
+      "samples": 125,
+      "peak_temp_c": 86.317,
+      "start_temp_c": 80.299,
+      "end_temp_c": 80.122,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_gftt_n200_warm10_V2_01_easy",
+      "samples": 121,
+      "peak_temp_c": 87.733,
+      "start_temp_c": 78.529,
+      "end_temp_c": 82.482,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_gftt_n200_warm10_V2_02_medium",
+      "samples": 126,
+      "peak_temp_c": 84.606,
+      "start_temp_c": 79.65,
+      "end_temp_c": 80.063,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_gftt_n200_warm10_V2_03_difficult",
+      "samples": 125,
+      "peak_temp_c": 82.482,
+      "start_temp_c": 79.355,
+      "end_temp_c": 77.939,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_gftt_pyramid_n200_warm10_V2_01_easy",
+      "samples": 121,
+      "peak_temp_c": 86.966,
+      "start_temp_c": 86.14,
+      "end_temp_c": 78.824,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_gftt_pyramid_n200_warm10_V2_02_medium",
+      "samples": 126,
+      "peak_temp_c": 84.429,
+      "start_temp_c": 81.479,
+      "end_temp_c": 78.411,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "screen_gftt_pyramid_n200_warm10_V2_03_difficult",
+      "samples": 125,
+      "peak_temp_c": 82.482,
+      "start_temp_c": 76.641,
+      "end_temp_c": 76.523,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "tune_gftt_pyramid_n120_warm10_V2_01_easy",
+      "samples": 125,
+      "peak_temp_c": 77.998,
+      "start_temp_c": 73.75,
+      "end_temp_c": 74.871,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 1404000.0
+    },
+    {
+      "run": "tune_gftt_pyramid_n120_warm10_V2_02_medium",
+      "samples": 125,
+      "peak_temp_c": 77.88,
+      "start_temp_c": 74.871,
+      "end_temp_c": 75.225,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "tune_gftt_pyramid_n120_warm10_V2_03_difficult",
+      "samples": 124,
+      "peak_temp_c": 80.594,
+      "start_temp_c": 75.166,
+      "end_temp_c": 73.986,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "tune_gftt_pyramid_n150_warm10_V2_01_easy",
+      "samples": 121,
+      "peak_temp_c": 84.606,
+      "start_temp_c": 84.606,
+      "end_temp_c": 78.116,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "tune_gftt_pyramid_n150_warm10_V2_02_medium",
+      "samples": 125,
+      "peak_temp_c": 81.538,
+      "start_temp_c": 75.697,
+      "end_temp_c": 76.641,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    },
+    {
+      "run": "tune_gftt_pyramid_n150_warm10_V2_03_difficult",
+      "samples": 124,
+      "peak_temp_c": 78.47,
+      "start_temp_c": 74.871,
+      "end_temp_c": 74.812,
+      "a76_frequency_min_khz": 416000.0,
+      "a76_frequency_max_khz": 2002000.0
+    }
+  ],
+  "manifest_audit": {
+    "complete_runs": [
+      "repeat_gftt_n200_warm10/V2_01_easy_r1",
+      "repeat_gftt_n200_warm10/V2_02_medium_r1",
+      "repeat_gftt_n200_warm10/V2_03_difficult_r1",
+      "repeat_gftt_pyramid_n200_warm10/V2_01_easy_r1",
+      "repeat_gftt_pyramid_n200_warm10/V2_02_medium_r1",
+      "repeat_gftt_pyramid_n200_warm10/V2_03_difficult_r1",
+      "screen_fast_grid_n200_warm10/V2_01_easy_r1",
+      "screen_fast_grid_n200_warm10/V2_02_medium_r1",
+      "screen_fast_grid_n200_warm10/V2_03_difficult_r1",
+      "screen_gftt_n200_warm10/V2_01_easy_r1",
+      "screen_gftt_n200_warm10/V2_02_medium_r1",
+      "screen_gftt_n200_warm10/V2_03_difficult_r1",
+      "screen_gftt_pyramid_n200_warm10/V2_01_easy_r1",
+      "screen_gftt_pyramid_n200_warm10/V2_02_medium_r1",
+      "screen_gftt_pyramid_n200_warm10/V2_03_difficult_r1",
+      "tune_gftt_pyramid_n120_warm10/V2_01_easy_r1",
+      "tune_gftt_pyramid_n120_warm10/V2_02_medium_r1",
+      "tune_gftt_pyramid_n120_warm10/V2_03_difficult_r1",
+      "tune_gftt_pyramid_n150_warm10/V2_01_easy_r1",
+      "tune_gftt_pyramid_n150_warm10/V2_02_medium_r1",
+      "tune_gftt_pyramid_n150_warm10/V2_03_difficult_r1"
+    ],
+    "issues": [],
+    "actual_binary_hashes": [
+      "b7174d459f5e767e92930f30a03971591e8995e8a48f445c110f344589afc70a"
+    ],
+    "wrapper_hashes": [
+      "175c6db13c878722a753708f391d7fdad45eec5abf9a7c314fd7e77822ed802f"
+    ]
+  },
+  "selected_profile": {
+    "path": "src/vins_estimator/config/euroc/euroc_mono_imu_arm_balanced_config.yaml",
+    "sha256": "4e701091c3b9e5bc1495ede71f131d2aeb3811f15def94429ae142070f6704af",
+    "parameters": {
+      "feature_detector": "gftt_pyramid",
+      "max_cnt": 200,
+      "min_dist": 20,
+      "schur_warmup_frames": 10,
+      "estimate_td": 0,
+      "flow_back": 1,
+      "ransac_outlier_rejection": 1,
+      "cpu_affinity_enabled": true,
+      "cpu_affinity_cores": [
+        6,
+        7
+      ]
+    },
+    "semantic_difference_from_measured_config": {
+      "cpu_affinity_enabled": [
+        false,
+        true
+      ]
+    }
+  },
+  "validation": {
+    "arm_ctest_programs": 3,
+    "arm_cpp_tests": 83,
+    "arm_failures": 0,
+    "python_tests": 60,
+    "python_failures": 0,
+    "launch_load_check": "passed",
+    "working_source_unchanged_during_benchmark": true
+  },
+  "conclusions": [
+    "Recommend gftt_pyramid, 200 features, warmup10, td0, forward/back LK + RANSAC, cv1, A76 affinity within tested scope.",
+    "Pyramid n200 completed all three V2 sequences twice with zero restart requests and exactly repeated trajectories.",
+    "Compared with GFTT, CPU time improves about 8-12% and P95 latency about 8-14%; easy ATE is ~4.4 cm worse.",
+    "FAST hybrid difficult fails at 16.65 m with two restart requests; not recommended as the general ARM default.",
+    "GFTT medium ~1.088 m repeats; difficult changes from 0.488 m to 13.572 m with one restart request. Do not hide failure by averaging.",
+    "Pyramid n150 fails easy/difficult; n120 has small CPU savings and worse ATE. Retain n200.",
+    "RSS is process-level and not consistently lower; this is not a low-memory claim."
+  ],
+  "limitations": [
+    "Only three EuRoC V2 mono sequences on one ARM device; two repetitions for GFTT/pyramid200, single screening for FAST/reduced-count configurations.",
+    "No claim of statistical significance or universal accuracy; initialization/solver wall-time and thermal/scheduling can affect trajectories.",
+    "Temporal endpoint span is not gap-free coverage. ATE must be read together with output counts, max gaps, restart entries and common timestamp sets.",
+    "No production default or current user mono configuration was overwritten; standalone opt-in profile uses this device CPU IDs and EuRoC calibration.",
+    "New hardware-acceleration, backend, noise or threshold searches were not performed."
+  ]
+}
