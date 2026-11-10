@@ -15,455 +15,297 @@ namespace camodocal
 {
 
 CataCamera::Parameters::Parameters()
- : Camera::Parameters(MEI)
- , m_xi(0.0)
- , m_k1(0.0)
- , m_k2(0.0)
- , m_p1(0.0)
- , m_p2(0.0)
- , m_gamma1(0.0)
- , m_gamma2(0.0)
- , m_u0(0.0)
- , m_v0(0.0)
-{
-
-}
-
-CataCamera::Parameters::Parameters(const std::string& cameraName,
-                                   int w, int h,
-                                   double xi,
-                                   double k1, double k2,
-                                   double p1, double p2,
-                                   double gamma1, double gamma2,
-                                   double u0, double v0)
- : Camera::Parameters(MEI, cameraName, w, h)
- , m_xi(xi)
- , m_k1(k1)
- , m_k2(k2)
- , m_p1(p1)
- , m_p2(p2)
- , m_gamma1(gamma1)
- , m_gamma2(gamma2)
- , m_u0(u0)
- , m_v0(v0)
+  : Camera::Parameters(MEI), m_xi_(0.0), m_k1_(0.0), m_k2_(0.0), m_p1_(0.0), m_p2_(0.0), m_gamma1_(0.0),
+    m_gamma2_(0.0), m_u0_(0.0), m_v0_(0.0)
 {
 }
 
-double&
-CataCamera::Parameters::xi(void)
+CataCamera::Parameters::Parameters(
+  const std::string & _cameraName, int _w, int _h, double _xi, double _k1, double _k2, double _p1, double _p2,
+  double _gamma1, double _gamma2, double _u0, double _v0)
+  : Camera::Parameters(MEI, _cameraName, _w, _h), m_xi_(_xi), m_k1_(_k1), m_k2_(_k2), m_p1_(_p1), m_p2_(_p2),
+    m_gamma1_(_gamma1), m_gamma2_(_gamma2), m_u0_(_u0), m_v0_(_v0)
 {
-    return m_xi;
 }
 
-double&
-CataCamera::Parameters::k1(void)
-{
-    return m_k1;
-}
+double & CataCamera::Parameters::xi() { return m_xi_; }
 
-double&
-CataCamera::Parameters::k2(void)
-{
-    return m_k2;
-}
+double & CataCamera::Parameters::k1() { return m_k1_; }
 
-double&
-CataCamera::Parameters::p1(void)
-{
-    return m_p1;
-}
+double & CataCamera::Parameters::k2() { return m_k2_; }
 
-double&
-CataCamera::Parameters::p2(void)
-{
-    return m_p2;
-}
+double & CataCamera::Parameters::p1() { return m_p1_; }
 
-double&
-CataCamera::Parameters::gamma1(void)
-{
-    return m_gamma1;
-}
+double & CataCamera::Parameters::p2() { return m_p2_; }
 
-double&
-CataCamera::Parameters::gamma2(void)
-{
-    return m_gamma2;
-}
+double & CataCamera::Parameters::gamma1() { return m_gamma1_; }
 
-double&
-CataCamera::Parameters::u0(void)
-{
-    return m_u0;
-}
+double & CataCamera::Parameters::gamma2() { return m_gamma2_; }
 
-double&
-CataCamera::Parameters::v0(void)
-{
-    return m_v0;
-}
+double & CataCamera::Parameters::u0() { return m_u0_; }
 
-double
-CataCamera::Parameters::xi(void) const
-{
-    return m_xi;
-}
+double & CataCamera::Parameters::v0() { return m_v0_; }
 
-double
-CataCamera::Parameters::k1(void) const
-{
-    return m_k1;
-}
+double CataCamera::Parameters::xi() const { return m_xi_; }
 
-double
-CataCamera::Parameters::k2(void) const
-{
-    return m_k2;
-}
+double CataCamera::Parameters::k1() const { return m_k1_; }
 
-double
-CataCamera::Parameters::p1(void) const
-{
-    return m_p1;
-}
+double CataCamera::Parameters::k2() const { return m_k2_; }
 
-double
-CataCamera::Parameters::p2(void) const
-{
-    return m_p2;
-}
+double CataCamera::Parameters::p1() const { return m_p1_; }
 
-double
-CataCamera::Parameters::gamma1(void) const
-{
-    return m_gamma1;
-}
+double CataCamera::Parameters::p2() const { return m_p2_; }
 
-double
-CataCamera::Parameters::gamma2(void) const
-{
-    return m_gamma2;
-}
+double CataCamera::Parameters::gamma1() const { return m_gamma1_; }
 
-double
-CataCamera::Parameters::u0(void) const
-{
-    return m_u0;
-}
+double CataCamera::Parameters::gamma2() const { return m_gamma2_; }
 
-double
-CataCamera::Parameters::v0(void) const
-{
-    return m_v0;
-}
+double CataCamera::Parameters::u0() const { return m_u0_; }
 
-bool
-CataCamera::Parameters::readFromYamlFile(const std::string& filename)
-{
-    cv::FileStorage fs(filename, cv::FileStorage::READ);
+double CataCamera::Parameters::v0() const { return m_v0_; }
 
-    if (!fs.isOpened())
-    {
-        return false;
+bool CataCamera::Parameters::readFromYamlFile(const std::string & _filename)
+{
+  cv::FileStorage fs(_filename, cv::FileStorage::READ);
+
+  if (!fs.isOpened()) {
+    return false;
+  }
+
+  if (!fs["model_type"].isNone()) {
+    std::string sModelType;
+    fs["model_type"] >> sModelType;
+
+    if (sModelType.compare("MEI") != 0) {
+      return false;
     }
+  }
 
-    if (!fs["model_type"].isNone())
-    {
-        std::string sModelType;
-        fs["model_type"] >> sModelType;
+  m_modelType_ = MEI;
+  fs["camera_name"] >> m_cameraName_;
+  m_imageWidth_ = static_cast<int>(fs["image_width"]);
+  m_imageHeight_ = static_cast<int>(fs["image_height"]);
 
-        if (sModelType.compare("MEI") != 0)
-        {
-            return false;
-        }
-    }
+  cv::FileNode n = fs["mirror_parameters"];
+  m_xi_ = static_cast<double>(n["xi"]);
 
-    m_modelType = MEI;
-    fs["camera_name"] >> m_cameraName;
-    m_imageWidth = static_cast<int>(fs["image_width"]);
-    m_imageHeight = static_cast<int>(fs["image_height"]);
+  n = fs["distortion_parameters"];
+  m_k1_ = static_cast<double>(n["k1"]);
+  m_k2_ = static_cast<double>(n["k2"]);
+  m_p1_ = static_cast<double>(n["p1"]);
+  m_p2_ = static_cast<double>(n["p2"]);
 
-    cv::FileNode n = fs["mirror_parameters"];
-    m_xi = static_cast<double>(n["xi"]);
+  n = fs["projection_parameters"];
+  m_gamma1_ = static_cast<double>(n["gamma1"]);
+  m_gamma2_ = static_cast<double>(n["gamma2"]);
+  m_u0_ = static_cast<double>(n["u0"]);
+  m_v0_ = static_cast<double>(n["v0"]);
 
-    n = fs["distortion_parameters"];
-    m_k1 = static_cast<double>(n["k1"]);
-    m_k2 = static_cast<double>(n["k2"]);
-    m_p1 = static_cast<double>(n["p1"]);
-    m_p2 = static_cast<double>(n["p2"]);
-
-    n = fs["projection_parameters"];
-    m_gamma1 = static_cast<double>(n["gamma1"]);
-    m_gamma2 = static_cast<double>(n["gamma2"]);
-    m_u0 = static_cast<double>(n["u0"]);
-    m_v0 = static_cast<double>(n["v0"]);
-
-    return true;
+  return true;
 }
 
-void
-CataCamera::Parameters::writeToYamlFile(const std::string& filename) const
+void CataCamera::Parameters::writeToYamlFile(const std::string & _filename) const
 {
-    cv::FileStorage fs(filename, cv::FileStorage::WRITE);
+  cv::FileStorage fs(_filename, cv::FileStorage::WRITE);
 
-    fs << "model_type" << "MEI";
-    fs << "camera_name" << m_cameraName;
-    fs << "image_width" << m_imageWidth;
-    fs << "image_height" << m_imageHeight;
+  fs << "model_type" << "MEI";
+  fs << "camera_name" << m_cameraName_;
+  fs << "image_width" << m_imageWidth_;
+  fs << "image_height" << m_imageHeight_;
 
-    // mirror: xi
-    fs << "mirror_parameters";
-    fs << "{" << "xi" << m_xi << "}";
+  // mirror: xi
+  fs << "mirror_parameters";
+  fs << "{" << "xi" << m_xi_ << "}";
 
-    // radial distortion: k1, k2
-    // tangential distortion: p1, p2
-    fs << "distortion_parameters";
-    fs << "{" << "k1" << m_k1
-              << "k2" << m_k2
-              << "p1" << m_p1
-              << "p2" << m_p2 << "}";
+  // radial distortion: k1, k2
+  // tangential distortion: p1, p2
+  fs << "distortion_parameters";
+  fs << "{" << "k1" << m_k1_ << "k2" << m_k2_ << "p1" << m_p1_ << "p2" << m_p2_ << "}";
 
-    // projection: gamma1, gamma2, u0, v0
-    fs << "projection_parameters";
-    fs << "{" << "gamma1" << m_gamma1
-              << "gamma2" << m_gamma2
-              << "u0" << m_u0
-              << "v0" << m_v0 << "}";
+  // projection: gamma1, gamma2, u0, v0
+  fs << "projection_parameters";
+  fs << "{" << "gamma1" << m_gamma1_ << "gamma2" << m_gamma2_ << "u0" << m_u0_ << "v0" << m_v0_ << "}";
 
-    fs.release();
+  fs.release();
 }
 
-CataCamera::Parameters&
-CataCamera::Parameters::operator=(const CataCamera::Parameters& other)
+CataCamera::Parameters & CataCamera::Parameters::operator=(const CataCamera::Parameters & _other)
 {
-    if (this != &other)
-    {
-        m_modelType = other.m_modelType;
-        m_cameraName = other.m_cameraName;
-        m_imageWidth = other.m_imageWidth;
-        m_imageHeight = other.m_imageHeight;
-        m_xi = other.m_xi;
-        m_k1 = other.m_k1;
-        m_k2 = other.m_k2;
-        m_p1 = other.m_p1;
-        m_p2 = other.m_p2;
-        m_gamma1 = other.m_gamma1;
-        m_gamma2 = other.m_gamma2;
-        m_u0 = other.m_u0;
-        m_v0 = other.m_v0;
-    }
+  if (this != &_other) {
+    m_modelType_ = _other.m_modelType_;
+    m_cameraName_ = _other.m_cameraName_;
+    m_imageWidth_ = _other.m_imageWidth_;
+    m_imageHeight_ = _other.m_imageHeight_;
+    m_xi_ = _other.m_xi_;
+    m_k1_ = _other.m_k1_;
+    m_k2_ = _other.m_k2_;
+    m_p1_ = _other.m_p1_;
+    m_p2_ = _other.m_p2_;
+    m_gamma1_ = _other.m_gamma1_;
+    m_gamma2_ = _other.m_gamma2_;
+    m_u0_ = _other.m_u0_;
+    m_v0_ = _other.m_v0_;
+  }
 
-    return *this;
+  return *this;
 }
 
-std::ostream&
-operator<< (std::ostream& out, const CataCamera::Parameters& params)
+std::ostream & operator<<(std::ostream & _out, const CataCamera::Parameters & _params)
 {
-    out << "Camera Parameters:" << std::endl;
-    out << "    model_type " << "MEI" << std::endl;
-    out << "   camera_name " << params.m_cameraName << std::endl;
-    out << "   image_width " << params.m_imageWidth << std::endl;
-    out << "  image_height " << params.m_imageHeight << std::endl;
+  _out << "Camera Parameters:" << '\n';
+  _out << "    model_type " << "MEI" << '\n';
+  _out << "   camera_name " << _params.m_cameraName_ << '\n';
+  _out << "   image_width " << _params.m_imageWidth_ << '\n';
+  _out << "  image_height " << _params.m_imageHeight_ << '\n';
 
-    out << "Mirror Parameters" << std::endl;
-    out << std::fixed << std::setprecision(10);
-    out << "            xi " << params.m_xi << std::endl;
+  _out << "Mirror Parameters" << '\n';
+  _out << std::fixed << std::setprecision(10);
+  _out << "            xi " << _params.m_xi_ << '\n';
 
-    // radial distortion: k1, k2
-    // tangential distortion: p1, p2
-    out << "Distortion Parameters" << std::endl;
-    out << "            k1 " << params.m_k1 << std::endl
-        << "            k2 " << params.m_k2 << std::endl
-        << "            p1 " << params.m_p1 << std::endl
-        << "            p2 " << params.m_p2 << std::endl;
+  // radial distortion: k1, k2
+  // tangential distortion: p1, p2
+  _out << "Distortion Parameters" << '\n';
+  _out << "            k1 " << _params.m_k1_ << '\n'
+       << "            k2 " << _params.m_k2_ << '\n'
+       << "            p1 " << _params.m_p1_ << '\n'
+       << "            p2 " << _params.m_p2_ << '\n';
 
-    // projection: gamma1, gamma2, u0, v0
-    out << "Projection Parameters" << std::endl;
-    out << "        gamma1 " << params.m_gamma1 << std::endl
-        << "        gamma2 " << params.m_gamma2 << std::endl
-        << "            u0 " << params.m_u0 << std::endl
-        << "            v0 " << params.m_v0 << std::endl;
+  // projection: gamma1, gamma2, u0, v0
+  _out << "Projection Parameters" << '\n';
+  _out << "        gamma1 " << _params.m_gamma1_ << '\n'
+       << "        gamma2 " << _params.m_gamma2_ << '\n'
+       << "            u0 " << _params.m_u0_ << '\n'
+       << "            v0 " << _params.m_v0_ << '\n';
 
-    return out;
+  return _out;
 }
 
 CataCamera::CataCamera()
- : m_inv_K11(1.0)
- , m_inv_K13(0.0)
- , m_inv_K22(1.0)
- , m_inv_K23(0.0)
- , m_noDistortion(true)
+  : m_inv_K11_(1.0), m_inv_K13_(0.0), m_inv_K22_(1.0), m_inv_K23_(0.0), m_noDistortion_(true)
 {
-
 }
 
-CataCamera::CataCamera(const std::string& cameraName,
-                       int imageWidth, int imageHeight,
-                       double xi, double k1, double k2, double p1, double p2,
-                       double gamma1, double gamma2, double u0, double v0)
- : mParameters(cameraName, imageWidth, imageHeight,
-               xi, k1, k2, p1, p2, gamma1, gamma2, u0, v0)
+CataCamera::CataCamera(
+  const std::string & _cameraName, int _imageWidth, int _imageHeight, double _xi, double _k1, double _k2,
+  double _p1, double _p2, double _gamma1, double _gamma2, double _u0, double _v0)
+  : mParameters_(_cameraName, _imageWidth, _imageHeight, _xi, _k1, _k2, _p1, _p2, _gamma1, _gamma2, _u0, _v0)
 {
-    if ((mParameters.k1() == 0.0) &&
-        (mParameters.k2() == 0.0) &&
-        (mParameters.p1() == 0.0) &&
-        (mParameters.p2() == 0.0))
-    {
-        m_noDistortion = true;
+  m_noDistortion_ = (mParameters_.k1() == 0.0) && (mParameters_.k2() == 0.0) && (mParameters_.p1() == 0.0) &&
+                    (mParameters_.p2() == 0.0);
+
+  // Inverse camera projection matrix parameters
+  m_inv_K11_ = 1.0 / mParameters_.gamma1();
+  m_inv_K13_ = -mParameters_.u0() / mParameters_.gamma1();
+  m_inv_K22_ = 1.0 / mParameters_.gamma2();
+  m_inv_K23_ = -mParameters_.v0() / mParameters_.gamma2();
+}
+
+CataCamera::CataCamera(const CataCamera::Parameters & _params) : mParameters_(_params)
+{
+  m_noDistortion_ = (mParameters_.k1() == 0.0) && (mParameters_.k2() == 0.0) && (mParameters_.p1() == 0.0) &&
+                    (mParameters_.p2() == 0.0);
+
+  // Inverse camera projection matrix parameters
+  m_inv_K11_ = 1.0 / mParameters_.gamma1();
+  m_inv_K13_ = -mParameters_.u0() / mParameters_.gamma1();
+  m_inv_K22_ = 1.0 / mParameters_.gamma2();
+  m_inv_K23_ = -mParameters_.v0() / mParameters_.gamma2();
+}
+
+Camera::ModelType_e CataCamera::modelType() const { return mParameters_.modelType(); }
+
+const std::string & CataCamera::cameraName() const { return mParameters_.cameraName(); }
+
+int CataCamera::imageWidth() const { return mParameters_.imageWidth(); }
+
+int CataCamera::imageHeight() const { return mParameters_.imageHeight(); }
+
+void CataCamera::estimateIntrinsics(
+  const cv::Size & _boardSize, const std::vector<std::vector<cv::Point3f>> & _objectPoints,
+  const std::vector<std::vector<cv::Point2f>> & _imagePoints)
+{
+  Parameters params = getParameters();
+
+  double u0 = params.imageWidth() / 2.0;
+  double v0 = params.imageHeight() / 2.0;
+
+  double gamma0 = 0.0;
+  double minReprojErr = std::numeric_limits<double>::max();
+
+  std::vector<cv::Mat> rvecs, tvecs;
+  rvecs.assign(_objectPoints.size(), cv::Mat());
+  tvecs.assign(_objectPoints.size(), cv::Mat());
+
+  params.xi() = 1.0;
+  params.k1() = 0.0;
+  params.k2() = 0.0;
+  params.p1() = 0.0;
+  params.p2() = 0.0;
+  params.u0() = u0;
+  params.v0() = v0;
+
+  // Initialize gamma (focal length)
+  // Use non-radial line image and xi = 1
+  for (size_t i = 0; i < _imagePoints.size(); ++i) {
+    for (int r = 0; r < _boardSize.height; ++r) {
+      cv::Mat P(_boardSize.width, 4, CV_64F);
+      for (int c = 0; c < _boardSize.width; ++c) {
+        const cv::Point2f & imagePoint = _imagePoints.at(i).at(r * _boardSize.width + c);
+
+        double u = imagePoint.x - u0;
+        double v = imagePoint.y - v0;
+
+        P.at<double>(c, 0) = u;
+        P.at<double>(c, 1) = v;
+        P.at<double>(c, 2) = 0.5;
+        P.at<double>(c, 3) = -0.5 * (square(u) + square(v));
+      }
+
+      cv::Mat C;
+      cv::SVD::solveZ(P, C);
+
+      double t = square(C.at<double>(0)) + square(C.at<double>(1)) + C.at<double>(2) * C.at<double>(3);
+      if (t < 0.0) {
+        continue;
+      }
+
+      // check that line image is not radial
+      double d = sqrt(1.0 / t);
+      double nx = C.at<double>(0) * d;
+      double ny = C.at<double>(1) * d;
+      if (hypot(nx, ny) > 0.95) {
+        continue;
+      }
+
+      double gamma = sqrt(C.at<double>(2) / C.at<double>(3));
+
+      params.gamma1() = gamma;
+      params.gamma2() = gamma;
+      setParameters(params);
+
+      for (size_t j = 0; j < _objectPoints.size(); ++j) {
+        estimateExtrinsics(_objectPoints.at(j), _imagePoints.at(j), rvecs.at(j), tvecs.at(j));
+      }
+
+      double reprojErr = reprojectionError(_objectPoints, _imagePoints, rvecs, tvecs, cv::noArray());
+
+      if (reprojErr < minReprojErr) {
+        minReprojErr = reprojErr;
+        gamma0 = gamma;
+      }
     }
-    else
-    {
-        m_noDistortion = false;
-    }
+  }
 
-    // Inverse camera projection matrix parameters
-    m_inv_K11 = 1.0 / mParameters.gamma1();
-    m_inv_K13 = -mParameters.u0() / mParameters.gamma1();
-    m_inv_K22 = 1.0 / mParameters.gamma2();
-    m_inv_K23 = -mParameters.v0() / mParameters.gamma2();
-}
+  if (gamma0 <= 0.0 && minReprojErr >= std::numeric_limits<double>::max()) {
+    std::cout << "[" << params.cameraName() << "] " << "# INFO: CataCamera model fails with given data. "
+              << '\n';
 
-CataCamera::CataCamera(const CataCamera::Parameters& params)
- : mParameters(params)
-{
-    if ((mParameters.k1() == 0.0) &&
-        (mParameters.k2() == 0.0) &&
-        (mParameters.p1() == 0.0) &&
-        (mParameters.p2() == 0.0))
-    {
-        m_noDistortion = true;
-    }
-    else
-    {
-        m_noDistortion = false;
-    }
+    return;
+  }
 
-    // Inverse camera projection matrix parameters
-    m_inv_K11 = 1.0 / mParameters.gamma1();
-    m_inv_K13 = -mParameters.u0() / mParameters.gamma1();
-    m_inv_K22 = 1.0 / mParameters.gamma2();
-    m_inv_K23 = -mParameters.v0() / mParameters.gamma2();
-}
-
-Camera::ModelType
-CataCamera::modelType(void) const
-{
-    return mParameters.modelType();
-}
-
-const std::string&
-CataCamera::cameraName(void) const
-{
-    return mParameters.cameraName();
-}
-
-int
-CataCamera::imageWidth(void) const
-{
-    return mParameters.imageWidth();
-}
-
-int
-CataCamera::imageHeight(void) const
-{
-    return mParameters.imageHeight();
-}
-
-void
-CataCamera::estimateIntrinsics(const cv::Size& boardSize,
-                               const std::vector< std::vector<cv::Point3f> >& objectPoints,
-                               const std::vector< std::vector<cv::Point2f> >& imagePoints)
-{
-    Parameters params = getParameters();
-
-    double u0 = params.imageWidth() / 2.0;
-    double v0 = params.imageHeight() / 2.0;
-
-    double gamma0 = 0.0;
-    double minReprojErr = std::numeric_limits<double>::max();
-
-    std::vector<cv::Mat> rvecs, tvecs;
-    rvecs.assign(objectPoints.size(), cv::Mat());
-    tvecs.assign(objectPoints.size(), cv::Mat());
-
-    params.xi() = 1.0;
-    params.k1() = 0.0;
-    params.k2() = 0.0;
-    params.p1() = 0.0;
-    params.p2() = 0.0;
-    params.u0() = u0;
-    params.v0() = v0;
-
-    // Initialize gamma (focal length)
-    // Use non-radial line image and xi = 1
-    for (size_t i = 0; i < imagePoints.size(); ++i)
-    {
-        for (int r = 0; r < boardSize.height; ++r)
-        {
-            cv::Mat P(boardSize.width, 4, CV_64F);
-            for (int c = 0; c < boardSize.width; ++c)
-            {
-                const cv::Point2f& imagePoint = imagePoints.at(i).at(r * boardSize.width + c);
-
-                double u = imagePoint.x - u0;
-                double v = imagePoint.y - v0;
-
-                P.at<double>(c, 0) = u;
-                P.at<double>(c, 1) = v;
-                P.at<double>(c, 2) = 0.5;
-                P.at<double>(c, 3) = -0.5 * (square(u) + square(v));
-            }
-
-            cv::Mat C;
-            cv::SVD::solveZ(P, C);
-
-            double t = square(C.at<double>(0)) + square(C.at<double>(1)) + C.at<double>(2) * C.at<double>(3);
-            if (t < 0.0)
-            {
-                continue;
-            }
-
-            // check that line image is not radial
-            double d = sqrt(1.0 / t);
-            double nx = C.at<double>(0) * d;
-            double ny = C.at<double>(1) * d;
-            if (hypot(nx, ny) > 0.95)
-            {
-                continue;
-            }
-
-            double gamma = sqrt(C.at<double>(2) / C.at<double>(3));
-
-            params.gamma1() = gamma;
-            params.gamma2() = gamma;
-            setParameters(params);
-
-            for (size_t j = 0; j < objectPoints.size(); ++j)
-            {
-                estimateExtrinsics(objectPoints.at(j), imagePoints.at(j), rvecs.at(j), tvecs.at(j));
-            }
-
-            double reprojErr = reprojectionError(objectPoints, imagePoints, rvecs, tvecs, cv::noArray());
-
-            if (reprojErr < minReprojErr)
-            {
-                minReprojErr = reprojErr;
-                gamma0 = gamma;
-            }
-        }
-    }
-
-    if (gamma0 <= 0.0 && minReprojErr >= std::numeric_limits<double>::max())
-    {
-        std::cout << "[" << params.cameraName() << "] "
-                  << "# INFO: CataCamera model fails with given data. " << std::endl;
-
-        return;
-    }
-
-    params.gamma1() = gamma0;
-    params.gamma2() = gamma0;
-    setParameters(params);
+  params.gamma1() = gamma0;
+  params.gamma2() = gamma0;
+  setParameters(params);
 }
 
 /** 
@@ -472,78 +314,68 @@ CataCamera::estimateIntrinsics(const cv::Size& boardSize,
  * \param p image coordinates
  * \param P coordinates of the point on the sphere
  */
-void
-CataCamera::liftSphere(const Eigen::Vector2d& p, Eigen::Vector3d& P) const
+void CataCamera::liftSphere(const Eigen::Vector2d & _p, Eigen::Vector3d & _P) const
 {
-    double mx_d, my_d,mx2_d, mxy_d, my2_d, mx_u, my_u;
-    double rho2_d, rho4_d, radDist_d, Dx_d, Dy_d, inv_denom_d;
-    double lambda;
+  double mx_d, my_d, mx2_d, mxy_d, my2_d, mx_u, my_u;
+  double rho2_d, rho4_d, radDist_d, Dx_d, Dy_d, inv_denom_d;
+  double lambda;
 
-    // Lift points to normalised plane
-    mx_d = m_inv_K11 * p(0) + m_inv_K13;
-    my_d = m_inv_K22 * p(1) + m_inv_K23;
+  // Lift points to normalised plane
+  mx_d = m_inv_K11_ * _p(0) + m_inv_K13_;
+  my_d = m_inv_K22_ * _p(1) + m_inv_K23_;
 
-    if (m_noDistortion)
-    {
-        mx_u = mx_d;
-        my_u = my_d;
+  if (m_noDistortion_) {
+    mx_u = mx_d;
+    my_u = my_d;
+  } else {
+    // Apply inverse distortion model
+    if (0) {
+      double k1 = mParameters_.k1();
+      double k2 = mParameters_.k2();
+      double p1 = mParameters_.p1();
+      double p2 = mParameters_.p2();
+
+      // Inverse distortion model
+      // proposed by Heikkila
+      mx2_d = mx_d * mx_d;
+      my2_d = my_d * my_d;
+      mxy_d = mx_d * my_d;
+      rho2_d = mx2_d + my2_d;
+      rho4_d = rho2_d * rho2_d;
+      radDist_d = k1 * rho2_d + k2 * rho4_d;
+      Dx_d = mx_d * radDist_d + p2 * (rho2_d + 2 * mx2_d) + 2 * p1 * mxy_d;
+      Dy_d = my_d * radDist_d + p1 * (rho2_d + 2 * my2_d) + 2 * p2 * mxy_d;
+      inv_denom_d = 1 / (1 + 4 * k1 * rho2_d + 6 * k2 * rho4_d + 8 * p1 * my_d + 8 * p2 * mx_d);
+
+      mx_u = mx_d - inv_denom_d * Dx_d;
+      my_u = my_d - inv_denom_d * Dy_d;
+    } else {
+      // Recursive distortion model
+      int n = 6;
+      Eigen::Vector2d d_u;
+      distortion(Eigen::Vector2d(mx_d, my_d), d_u);
+      // Approximate value
+      mx_u = mx_d - d_u(0);
+      my_u = my_d - d_u(1);
+
+      for (int i = 1; i < n; ++i) {
+        distortion(Eigen::Vector2d(mx_u, my_u), d_u);
+        mx_u = mx_d - d_u(0);
+        my_u = my_d - d_u(1);
+      }
     }
-    else
-    {
-        // Apply inverse distortion model
-        if (0)
-        {
-            double k1 = mParameters.k1();
-            double k2 = mParameters.k2();
-            double p1 = mParameters.p1();
-            double p2 = mParameters.p2();
+  }
 
-            // Inverse distortion model
-            // proposed by Heikkila
-            mx2_d = mx_d*mx_d;
-            my2_d = my_d*my_d;
-            mxy_d = mx_d*my_d;
-            rho2_d = mx2_d+my2_d;
-            rho4_d = rho2_d*rho2_d;
-            radDist_d = k1*rho2_d+k2*rho4_d;
-            Dx_d = mx_d*radDist_d + p2*(rho2_d+2*mx2_d) + 2*p1*mxy_d;
-            Dy_d = my_d*radDist_d + p1*(rho2_d+2*my2_d) + 2*p2*mxy_d;
-            inv_denom_d = 1/(1+4*k1*rho2_d+6*k2*rho4_d+8*p1*my_d+8*p2*mx_d);
-
-            mx_u = mx_d - inv_denom_d*Dx_d;
-            my_u = my_d - inv_denom_d*Dy_d;
-        }
-        else
-        {
-            // Recursive distortion model
-            int n = 6;
-            Eigen::Vector2d d_u;
-            distortion(Eigen::Vector2d(mx_d, my_d), d_u);
-            // Approximate value
-            mx_u = mx_d - d_u(0);
-            my_u = my_d - d_u(1);
-
-            for (int i = 1; i < n; ++i)
-            {
-                distortion(Eigen::Vector2d(mx_u, my_u), d_u);
-                mx_u = mx_d - d_u(0);
-                my_u = my_d - d_u(1);
-            }
-        }
-    }
-
-    // Lift normalised points to the sphere (inv_hslash)
-    double xi = mParameters.xi();
-    if (xi == 1.0)
-    {
-        lambda = 2.0 / (mx_u * mx_u + my_u * my_u + 1.0);
-        P << lambda * mx_u, lambda * my_u, lambda - 1.0;
-    }
-    else
-    {
-        lambda = (xi + sqrt(1.0 + (1.0 - xi * xi) * (mx_u * mx_u + my_u * my_u))) / (1.0 + mx_u * mx_u + my_u * my_u);
-        P << lambda * mx_u, lambda * my_u, lambda - xi;
-    }
+  // Lift normalised points to the sphere (inv_hslash)
+  double xi = mParameters_.xi();
+  if (xi == 1.0) {
+    lambda = 2.0 / (mx_u * mx_u + my_u * my_u + 1.0);
+    _P << lambda * mx_u, lambda * my_u, lambda - 1.0;
+  } else {
+    lambda =
+      (xi + sqrt(1.0 + (1.0 - xi * xi) * (mx_u * mx_u + my_u * my_u))) / (1.0 + mx_u * mx_u + my_u * my_u);
+    _P << lambda * mx_u, lambda * my_u, lambda - xi;
+  }
 }
 
 /** 
@@ -552,77 +384,66 @@ CataCamera::liftSphere(const Eigen::Vector2d& p, Eigen::Vector3d& P) const
  * \param p image coordinates
  * \param P coordinates of the projective ray
  */
-void
-CataCamera::liftProjective(const Eigen::Vector2d& p, Eigen::Vector3d& P) const
+void CataCamera::liftProjective(const Eigen::Vector2d & _p, Eigen::Vector3d & _P) const
 {
-    double mx_d, my_d,mx2_d, mxy_d, my2_d, mx_u, my_u;
-    double rho2_d, rho4_d, radDist_d, Dx_d, Dy_d, inv_denom_d;
-    //double lambda;
+  double mx_d, my_d, mx2_d, mxy_d, my2_d, mx_u, my_u;
+  double rho2_d, rho4_d, radDist_d, Dx_d, Dy_d, inv_denom_d;
+  //double lambda;
 
-    // Lift points to normalised plane
-    mx_d = m_inv_K11 * p(0) + m_inv_K13;
-    my_d = m_inv_K22 * p(1) + m_inv_K23;
+  // Lift points to normalised plane
+  mx_d = m_inv_K11_ * _p(0) + m_inv_K13_;
+  my_d = m_inv_K22_ * _p(1) + m_inv_K23_;
 
-    if (m_noDistortion)
-    {
-        mx_u = mx_d;
-        my_u = my_d;
+  if (m_noDistortion_) {
+    mx_u = mx_d;
+    my_u = my_d;
+  } else {
+    if (0) {
+      double k1 = mParameters_.k1();
+      double k2 = mParameters_.k2();
+      double p1 = mParameters_.p1();
+      double p2 = mParameters_.p2();
+
+      // Apply inverse distortion model
+      // proposed by Heikkila
+      mx2_d = mx_d * mx_d;
+      my2_d = my_d * my_d;
+      mxy_d = mx_d * my_d;
+      rho2_d = mx2_d + my2_d;
+      rho4_d = rho2_d * rho2_d;
+      radDist_d = k1 * rho2_d + k2 * rho4_d;
+      Dx_d = mx_d * radDist_d + p2 * (rho2_d + 2 * mx2_d) + 2 * p1 * mxy_d;
+      Dy_d = my_d * radDist_d + p1 * (rho2_d + 2 * my2_d) + 2 * p2 * mxy_d;
+      inv_denom_d = 1 / (1 + 4 * k1 * rho2_d + 6 * k2 * rho4_d + 8 * p1 * my_d + 8 * p2 * mx_d);
+
+      mx_u = mx_d - inv_denom_d * Dx_d;
+      my_u = my_d - inv_denom_d * Dy_d;
+    } else {
+      // Recursive distortion model
+      int n = 8;
+      Eigen::Vector2d d_u;
+      distortion(Eigen::Vector2d(mx_d, my_d), d_u);
+      // Approximate value
+      mx_u = mx_d - d_u(0);
+      my_u = my_d - d_u(1);
+
+      for (int i = 1; i < n; ++i) {
+        distortion(Eigen::Vector2d(mx_u, my_u), d_u);
+        mx_u = mx_d - d_u(0);
+        my_u = my_d - d_u(1);
+      }
     }
-    else
-    {
-        if (0)
-        {
-            double k1 = mParameters.k1();
-            double k2 = mParameters.k2();
-            double p1 = mParameters.p1();
-            double p2 = mParameters.p2();
+  }
 
-            // Apply inverse distortion model
-            // proposed by Heikkila
-            mx2_d = mx_d*mx_d;
-            my2_d = my_d*my_d;
-            mxy_d = mx_d*my_d;
-            rho2_d = mx2_d+my2_d;
-            rho4_d = rho2_d*rho2_d;
-            radDist_d = k1*rho2_d+k2*rho4_d;
-            Dx_d = mx_d*radDist_d + p2*(rho2_d+2*mx2_d) + 2*p1*mxy_d;
-            Dy_d = my_d*radDist_d + p1*(rho2_d+2*my2_d) + 2*p2*mxy_d;
-            inv_denom_d = 1/(1+4*k1*rho2_d+6*k2*rho4_d+8*p1*my_d+8*p2*mx_d);
-
-            mx_u = mx_d - inv_denom_d*Dx_d;
-            my_u = my_d - inv_denom_d*Dy_d;
-        }
-        else
-        {
-            // Recursive distortion model
-            int n = 8;
-            Eigen::Vector2d d_u;
-            distortion(Eigen::Vector2d(mx_d, my_d), d_u);
-            // Approximate value
-            mx_u = mx_d - d_u(0);
-            my_u = my_d - d_u(1);
-
-            for (int i = 1; i < n; ++i)
-            {
-                distortion(Eigen::Vector2d(mx_u, my_u), d_u);
-                mx_u = mx_d - d_u(0);
-                my_u = my_d - d_u(1);
-            }
-        }
-    }
-
-    // Obtain a projective ray
-    double xi = mParameters.xi();
-    if (xi == 1.0)
-    {
-        P << mx_u, my_u, (1.0 - mx_u * mx_u - my_u * my_u) / 2.0;
-    }
-    else
-    {
-        // Reuse variable
-        rho2_d = mx_u * mx_u + my_u * my_u;
-        P << mx_u, my_u, 1.0 - xi * (rho2_d + 1.0) / (xi + sqrt(1.0 + (1.0 - xi * xi) * rho2_d));
-    }
+  // Obtain a projective ray
+  double xi = mParameters_.xi();
+  if (xi == 1.0) {
+    _P << mx_u, my_u, (1.0 - mx_u * mx_u - my_u * my_u) / 2.0;
+  } else {
+    // Reuse variable
+    rho2_d = mx_u * mx_u + my_u * my_u;
+    _P << mx_u, my_u, 1.0 - xi * (rho2_d + 1.0) / (xi + sqrt(1.0 + (1.0 - xi * xi) * rho2_d));
+  }
 }
 
 
@@ -632,30 +453,25 @@ CataCamera::liftProjective(const Eigen::Vector2d& p, Eigen::Vector3d& P) const
  * \param P 3D point coordinates
  * \param p return value, contains the image point coordinates
  */
-void
-CataCamera::spaceToPlane(const Eigen::Vector3d& P, Eigen::Vector2d& p) const
+void CataCamera::spaceToPlane(const Eigen::Vector3d & _P, Eigen::Vector2d & _p) const
 {
-    Eigen::Vector2d p_u, p_d;
+  Eigen::Vector2d p_u, p_d;
 
-    // Project points to the normalised plane
-    double z = P(2) + mParameters.xi() * P.norm();
-    p_u << P(0) / z, P(1) / z;
+  // Project points to the normalised plane
+  double z = _P(2) + mParameters_.xi() * _P.norm();
+  p_u << _P(0) / z, _P(1) / z;
 
-    if (m_noDistortion)
-    {
-        p_d = p_u;
-    }
-    else
-    {
-        // Apply distortion
-        Eigen::Vector2d d_u;
-        distortion(p_u, d_u);
-        p_d = p_u + d_u;
-    }
+  if (m_noDistortion_) {
+    p_d = p_u;
+  } else {
+    // Apply distortion
+    Eigen::Vector2d d_u;
+    distortion(p_u, d_u);
+    p_d = p_u + d_u;
+  }
 
-    // Apply generalised projection matrix
-    p << mParameters.gamma1() * p_d(0) + mParameters.u0(),
-         mParameters.gamma2() * p_d(1) + mParameters.v0();
+  // Apply generalised projection matrix
+  _p << mParameters_.gamma1() * p_d(0) + mParameters_.u0(), mParameters_.gamma2() * p_d(1) + mParameters_.v0();
 }
 
 #if 0
@@ -734,26 +550,21 @@ CataCamera::spaceToPlane(const Eigen::Vector3d& P, Eigen::Vector2d& p,
  * \param p_u 2D point coordinates
  * \return image point coordinates
  */
-void
-CataCamera::undistToPlane(const Eigen::Vector2d& p_u, Eigen::Vector2d& p) const
+void CataCamera::undistToPlane(const Eigen::Vector2d & _p_u, Eigen::Vector2d & _p) const
 {
-    Eigen::Vector2d p_d;
+  Eigen::Vector2d p_d;
 
-    if (m_noDistortion)
-    {
-        p_d = p_u;
-    }
-    else
-    {
-        // Apply distortion
-        Eigen::Vector2d d_u;
-        distortion(p_u, d_u);
-        p_d = p_u + d_u;
-    }
+  if (m_noDistortion_) {
+    p_d = _p_u;
+  } else {
+    // Apply distortion
+    Eigen::Vector2d d_u;
+    distortion(_p_u, d_u);
+    p_d = _p_u + d_u;
+  }
 
-    // Apply generalised projection matrix
-    p << mParameters.gamma1() * p_d(0) + mParameters.u0(),
-         mParameters.gamma2() * p_d(1) + mParameters.v0();
+  // Apply generalised projection matrix
+  _p << mParameters_.gamma1() * p_d(0) + mParameters_.u0(), mParameters_.gamma2() * p_d(1) + mParameters_.v0();
 }
 
 /** 
@@ -762,23 +573,22 @@ CataCamera::undistToPlane(const Eigen::Vector2d& p_u, Eigen::Vector2d& p) const
  * \param p_u undistorted coordinates of point on the normalised plane
  * \return to obtain the distorted point: p_d = p_u + d_u
  */
-void
-CataCamera::distortion(const Eigen::Vector2d& p_u, Eigen::Vector2d& d_u) const
+void CataCamera::distortion(const Eigen::Vector2d & _p_u, Eigen::Vector2d & _d_u) const
 {
-    double k1 = mParameters.k1();
-    double k2 = mParameters.k2();
-    double p1 = mParameters.p1();
-    double p2 = mParameters.p2();
+  double k1 = mParameters_.k1();
+  double k2 = mParameters_.k2();
+  double p1 = mParameters_.p1();
+  double p2 = mParameters_.p2();
 
-    double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
+  double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
 
-    mx2_u = p_u(0) * p_u(0);
-    my2_u = p_u(1) * p_u(1);
-    mxy_u = p_u(0) * p_u(1);
-    rho2_u = mx2_u + my2_u;
-    rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
-    d_u << p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
-           p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
+  mx2_u = _p_u(0) * _p_u(0);
+  my2_u = _p_u(1) * _p_u(1);
+  mxy_u = _p_u(0) * _p_u(1);
+  rho2_u = mx2_u + my2_u;
+  rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
+  _d_u << _p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
+    _p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
 }
 
 /** 
@@ -788,218 +598,178 @@ CataCamera::distortion(const Eigen::Vector2d& p_u, Eigen::Vector2d& d_u) const
  * \param p_u undistorted coordinates of point on the normalised plane
  * \return to obtain the distorted point: p_d = p_u + d_u
  */
-void
-CataCamera::distortion(const Eigen::Vector2d& p_u, Eigen::Vector2d& d_u,
-                       Eigen::Matrix2d& J) const
+void CataCamera::distortion(const Eigen::Vector2d & _p_u, Eigen::Vector2d & _d_u, Eigen::Matrix2d & _J) const
 {
-    double k1 = mParameters.k1();
-    double k2 = mParameters.k2();
-    double p1 = mParameters.p1();
-    double p2 = mParameters.p2();
+  double k1 = mParameters_.k1();
+  double k2 = mParameters_.k2();
+  double p1 = mParameters_.p1();
+  double p2 = mParameters_.p2();
 
-    double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
+  double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
 
-    mx2_u = p_u(0) * p_u(0);
-    my2_u = p_u(1) * p_u(1);
-    mxy_u = p_u(0) * p_u(1);
-    rho2_u = mx2_u + my2_u;
-    rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
-    d_u << p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
-           p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
+  mx2_u = _p_u(0) * _p_u(0);
+  my2_u = _p_u(1) * _p_u(1);
+  mxy_u = _p_u(0) * _p_u(1);
+  rho2_u = mx2_u + my2_u;
+  rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
+  _d_u << _p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
+    _p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
 
-    double dxdmx = 1.0 + rad_dist_u + k1 * 2.0 * mx2_u + k2 * rho2_u * 4.0 * mx2_u + 2.0 * p1 * p_u(1) + 6.0 * p2 * p_u(0);
-    double dydmx = k1 * 2.0 * p_u(0) * p_u(1) + k2 * 4.0 * rho2_u * p_u(0) * p_u(1) + p1 * 2.0 * p_u(0) + 2.0 * p2 * p_u(1);
-    double dxdmy = dydmx;
-    double dydmy = 1.0 + rad_dist_u + k1 * 2.0 * my2_u + k2 * rho2_u * 4.0 * my2_u + 6.0 * p1 * p_u(1) + 2.0 * p2 * p_u(0);
+  double dxdmx =
+    1.0 + rad_dist_u + k1 * 2.0 * mx2_u + k2 * rho2_u * 4.0 * mx2_u + 2.0 * p1 * _p_u(1) + 6.0 * p2 * _p_u(0);
+  double dydmx = k1 * 2.0 * _p_u(0) * _p_u(1) + k2 * 4.0 * rho2_u * _p_u(0) * _p_u(1) + p1 * 2.0 * _p_u(0) +
+                 2.0 * p2 * _p_u(1);
+  double dxdmy = dydmx;
+  double dydmy =
+    1.0 + rad_dist_u + k1 * 2.0 * my2_u + k2 * rho2_u * 4.0 * my2_u + 6.0 * p1 * _p_u(1) + 2.0 * p2 * _p_u(0);
 
-    J << dxdmx, dxdmy,
-         dydmx, dydmy;
+  _J << dxdmx, dxdmy, dydmx, dydmy;
 }
 
-void
-CataCamera::initUndistortMap(cv::Mat& map1, cv::Mat& map2, double fScale) const
+void CataCamera::initUndistortMap(cv::Mat & _map1, cv::Mat & _map2, double _fScale) const
 {
-    cv::Size imageSize(mParameters.imageWidth(), mParameters.imageHeight());
+  cv::Size imageSize(mParameters_.imageWidth(), mParameters_.imageHeight());
 
-    cv::Mat mapX = cv::Mat::zeros(imageSize, CV_32F);
-    cv::Mat mapY = cv::Mat::zeros(imageSize, CV_32F);
+  cv::Mat mapX = cv::Mat::zeros(imageSize, CV_32F);
+  cv::Mat mapY = cv::Mat::zeros(imageSize, CV_32F);
 
-    for (int v = 0; v < imageSize.height; ++v)
-    {
-        for (int u = 0; u < imageSize.width; ++u)
-        {
-            double mx_u = m_inv_K11 / fScale * u + m_inv_K13 / fScale;
-            double my_u = m_inv_K22 / fScale * v + m_inv_K23 / fScale;
+  for (int v = 0; v < imageSize.height; ++v) {
+    for (int u = 0; u < imageSize.width; ++u) {
+      double mx_u = m_inv_K11_ / _fScale * u + m_inv_K13_ / _fScale;
+      double my_u = m_inv_K22_ / _fScale * v + m_inv_K23_ / _fScale;
 
-            double xi = mParameters.xi();
-            double d2 = mx_u * mx_u + my_u * my_u;
+      double xi = mParameters_.xi();
+      double d2 = mx_u * mx_u + my_u * my_u;
 
-            Eigen::Vector3d P;
-            P << mx_u, my_u, 1.0 - xi * (d2 + 1.0) / (xi + sqrt(1.0 + (1.0 - xi * xi) * d2));
+      Eigen::Vector3d P;
+      P << mx_u, my_u, 1.0 - xi * (d2 + 1.0) / (xi + sqrt(1.0 + (1.0 - xi * xi) * d2));
 
-            Eigen::Vector2d p;
-            spaceToPlane(P, p);
+      Eigen::Vector2d p;
+      spaceToPlane(P, p);
 
-            mapX.at<float>(v,u) = p(0);
-            mapY.at<float>(v,u) = p(1);
-        }
+      mapX.at<float>(v, u) = p(0);
+      mapY.at<float>(v, u) = p(1);
     }
+  }
 
-    cv::convertMaps(mapX, mapY, map1, map2, CV_32FC1, false);
+  cv::convertMaps(mapX, mapY, _map1, _map2, CV_32FC1, false);
 }
 
-cv::Mat
-CataCamera::initUndistortRectifyMap(cv::Mat& map1, cv::Mat& map2,
-                                    float fx, float fy,
-                                    cv::Size imageSize,
-                                    float cx, float cy,
-                                    cv::Mat rmat) const
+cv::Mat CataCamera::initUndistortRectifyMap(
+  cv::Mat & _map1, cv::Mat & _map2, float _fx, float _fy, cv::Size _imageSize, float _cx, float _cy,
+  cv::Mat _rmat) const
 {
-    if (imageSize == cv::Size(0, 0))
-    {
-        imageSize = cv::Size(mParameters.imageWidth(), mParameters.imageHeight());
+  if (_imageSize == cv::Size(0, 0)) {
+    _imageSize = cv::Size(mParameters_.imageWidth(), mParameters_.imageHeight());
+  }
+
+  cv::Mat mapX = cv::Mat::zeros(_imageSize.height, _imageSize.width, CV_32F);
+  cv::Mat mapY = cv::Mat::zeros(_imageSize.height, _imageSize.width, CV_32F);
+
+  Eigen::Matrix3f K_rect;
+
+  if (_cx == -1.0f && _cy == -1.0f) {
+    K_rect << _fx, 0, _imageSize.width / 2, 0, _fy, _imageSize.height / 2, 0, 0, 1;
+  } else {
+    K_rect << _fx, 0, _cx, 0, _fy, _cy, 0, 0, 1;
+  }
+
+  if (_fx == -1.0f || _fy == -1.0f) {
+    K_rect(0, 0) = mParameters_.gamma1();
+    K_rect(1, 1) = mParameters_.gamma2();
+  }
+
+  Eigen::Matrix3f K_rect_inv = K_rect.inverse();
+
+  Eigen::Matrix3f R, R_inv;
+  cv::cv2eigen(_rmat, R);
+  R_inv = R.inverse();
+
+  for (int v = 0; v < _imageSize.height; ++v) {
+    for (int u = 0; u < _imageSize.width; ++u) {
+      Eigen::Vector3f xo;
+      xo << u, v, 1;
+
+      Eigen::Vector3f uo = R_inv * K_rect_inv * xo;
+
+      Eigen::Vector2d p;
+      spaceToPlane(uo.cast<double>(), p);
+
+      mapX.at<float>(v, u) = p(0);
+      mapY.at<float>(v, u) = p(1);
     }
+  }
 
-    cv::Mat mapX = cv::Mat::zeros(imageSize.height, imageSize.width, CV_32F);
-    cv::Mat mapY = cv::Mat::zeros(imageSize.height, imageSize.width, CV_32F);
+  cv::convertMaps(mapX, mapY, _map1, _map2, CV_32FC1, false);
 
-    Eigen::Matrix3f K_rect;
-
-    if (cx == -1.0f && cy == -1.0f)
-    {
-        K_rect << fx, 0, imageSize.width / 2,
-                  0, fy, imageSize.height / 2,
-                  0, 0, 1;
-    }
-    else
-    {
-        K_rect << fx, 0, cx,
-                  0, fy, cy,
-                  0, 0, 1;
-    }
-
-    if (fx == -1.0f || fy == -1.0f)
-    {
-        K_rect(0,0) = mParameters.gamma1();
-        K_rect(1,1) = mParameters.gamma2();
-    }
-
-    Eigen::Matrix3f K_rect_inv = K_rect.inverse();
-
-    Eigen::Matrix3f R, R_inv;
-    cv::cv2eigen(rmat, R);
-    R_inv = R.inverse();
-
-    for (int v = 0; v < imageSize.height; ++v)
-    {
-        for (int u = 0; u < imageSize.width; ++u)
-        {
-            Eigen::Vector3f xo;
-            xo << u, v, 1;
-
-            Eigen::Vector3f uo = R_inv * K_rect_inv * xo;
-
-            Eigen::Vector2d p;
-            spaceToPlane(uo.cast<double>(), p);
-
-            mapX.at<float>(v,u) = p(0);
-            mapY.at<float>(v,u) = p(1);
-        }
-    }
-
-    cv::convertMaps(mapX, mapY, map1, map2, CV_32FC1, false);
-
-    cv::Mat K_rect_cv;
-    cv::eigen2cv(K_rect, K_rect_cv);
-    return K_rect_cv;
+  cv::Mat K_rect_cv;
+  cv::eigen2cv(K_rect, K_rect_cv);
+  return K_rect_cv;
 }
 
-int
-CataCamera::parameterCount(void) const
+int CataCamera::parameterCount() const { return 9; }
+
+const CataCamera::Parameters & CataCamera::getParameters() const { return mParameters_; }
+
+void CataCamera::setParameters(const CataCamera::Parameters & _parameters)
 {
-    return 9;
+  mParameters_ = _parameters;
+
+  m_noDistortion_ = (mParameters_.k1() == 0.0) && (mParameters_.k2() == 0.0) && (mParameters_.p1() == 0.0) &&
+                    (mParameters_.p2() == 0.0);
+
+  m_inv_K11_ = 1.0 / mParameters_.gamma1();
+  m_inv_K13_ = -mParameters_.u0() / mParameters_.gamma1();
+  m_inv_K22_ = 1.0 / mParameters_.gamma2();
+  m_inv_K23_ = -mParameters_.v0() / mParameters_.gamma2();
 }
 
-const CataCamera::Parameters&
-CataCamera::getParameters(void) const
+void CataCamera::readParameters(const std::vector<double> & _parameterVec)
 {
-    return mParameters;
+  if ((int)_parameterVec.size() != parameterCount()) {
+    return;
+  }
+
+  Parameters params = getParameters();
+
+  params.xi() = _parameterVec.at(0);
+  params.k1() = _parameterVec.at(1);
+  params.k2() = _parameterVec.at(2);
+  params.p1() = _parameterVec.at(3);
+  params.p2() = _parameterVec.at(4);
+  params.gamma1() = _parameterVec.at(5);
+  params.gamma2() = _parameterVec.at(6);
+  params.u0() = _parameterVec.at(7);
+  params.v0() = _parameterVec.at(8);
+
+  setParameters(params);
 }
 
-void
-CataCamera::setParameters(const CataCamera::Parameters& parameters)
+void CataCamera::writeParameters(std::vector<double> & _parameterVec) const
 {
-    mParameters = parameters;
-
-    if ((mParameters.k1() == 0.0) &&
-        (mParameters.k2() == 0.0) &&
-        (mParameters.p1() == 0.0) &&
-        (mParameters.p2() == 0.0))
-    {
-        m_noDistortion = true;
-    }
-    else
-    {
-        m_noDistortion = false;
-    }
-
-    m_inv_K11 = 1.0 / mParameters.gamma1();
-    m_inv_K13 = -mParameters.u0() / mParameters.gamma1();
-    m_inv_K22 = 1.0 / mParameters.gamma2();
-    m_inv_K23 = -mParameters.v0() / mParameters.gamma2();
+  _parameterVec.resize(parameterCount());
+  _parameterVec.at(0) = mParameters_.xi();
+  _parameterVec.at(1) = mParameters_.k1();
+  _parameterVec.at(2) = mParameters_.k2();
+  _parameterVec.at(3) = mParameters_.p1();
+  _parameterVec.at(4) = mParameters_.p2();
+  _parameterVec.at(5) = mParameters_.gamma1();
+  _parameterVec.at(6) = mParameters_.gamma2();
+  _parameterVec.at(7) = mParameters_.u0();
+  _parameterVec.at(8) = mParameters_.v0();
 }
 
-void
-CataCamera::readParameters(const std::vector<double>& parameterVec)
+void CataCamera::writeParametersToYamlFile(const std::string & _filename) const
 {
-    if ((int)parameterVec.size() != parameterCount())
-    {
-        return;
-    }
-
-    Parameters params = getParameters();
-
-    params.xi() = parameterVec.at(0);
-    params.k1() = parameterVec.at(1);
-    params.k2() = parameterVec.at(2);
-    params.p1() = parameterVec.at(3);
-    params.p2() = parameterVec.at(4);
-    params.gamma1() = parameterVec.at(5);
-    params.gamma2() = parameterVec.at(6);
-    params.u0() = parameterVec.at(7);
-    params.v0() = parameterVec.at(8);
-
-    setParameters(params);
+  mParameters_.writeToYamlFile(_filename);
 }
 
-void
-CataCamera::writeParameters(std::vector<double>& parameterVec) const
+std::string CataCamera::parametersToString() const
 {
-    parameterVec.resize(parameterCount());
-    parameterVec.at(0) = mParameters.xi();
-    parameterVec.at(1) = mParameters.k1();
-    parameterVec.at(2) = mParameters.k2();
-    parameterVec.at(3) = mParameters.p1();
-    parameterVec.at(4) = mParameters.p2();
-    parameterVec.at(5) = mParameters.gamma1();
-    parameterVec.at(6) = mParameters.gamma2();
-    parameterVec.at(7) = mParameters.u0();
-    parameterVec.at(8) = mParameters.v0();
+  std::ostringstream oss;
+  oss << mParameters_;
+
+  return oss.str();
 }
 
-void
-CataCamera::writeParametersToYamlFile(const std::string& filename) const
-{
-    mParameters.writeToYamlFile(filename);
-}
-
-std::string
-CataCamera::parametersToString(void) const
-{
-    std::ostringstream oss;
-    oss << mParameters;
-
-    return oss.str();
-}
-
-}
+} // namespace camodocal

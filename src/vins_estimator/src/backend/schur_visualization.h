@@ -13,8 +13,8 @@
 #pragma once
 
 #include <eigen3/Eigen/Dense>
-#include <vector>
 #include <unordered_set>
+#include <vector>
 
 #include "ekf_state.h"
 #include "schur_update.h"
@@ -24,43 +24,40 @@ namespace vins
 namespace backend
 {
 
-struct SchurVisualizationPoint
-{
-    int feature_id = -1;
-    Eigen::Vector3d world_point = Eigen::Vector3d::Zero();
-    Eigen::Vector2d normalized_uv = Eigen::Vector2d::Zero();
-    Eigen::Vector2d pixel_uv = Eigen::Vector2d::Zero();
+struct SchurVisualizationPoint_s {
+  int feature_id_ = -1;
+  Eigen::Vector3d world_point_ = Eigen::Vector3d::Zero();
+  Eigen::Vector2d normalized_uv_ = Eigen::Vector2d::Zero();
+  Eigen::Vector2d pixel_uv_ = Eigen::Vector2d::Zero();
 };
 
-struct SchurVisualizationSnapshot
-{
-    bool valid = false;
-    double timestamp = 0.0;  // sensor time used for diagnostics
-    Eigen::Vector4d q_wxyz = Eigen::Vector4d(1, 0, 0, 0);
-    Eigen::Vector3d p = Eigen::Vector3d::Zero();
-    // All finite tracks retained in the current clone window.
-    std::vector<SchurVisualizationPoint> cloud_points;
-    // Accepted, actually consumed tracks passing the stricter margin geometry
-    // gate. At most one point per continuously tracked feature lifetime.
-    std::vector<SchurVisualizationPoint> margin_points;
-    // Tracks that also have a raw-pixel observation in the keyframe clone.
-    std::vector<SchurVisualizationPoint> keyframe_points;
+struct SchurVisualizationSnapshot_s {
+  bool valid_ = false;
+  double timestamp_ = 0.0;  // sensor time used for diagnostics
+  Eigen::Vector4d q_wxyz_ = Eigen::Vector4d(1, 0, 0, 0);
+  Eigen::Vector3d p_ = Eigen::Vector3d::Zero();
+  // All finite tracks retained in the current clone window.
+  std::vector<SchurVisualizationPoint_s> cloud_points_;
+  // Accepted, actually consumed tracks passing the stricter margin geometry
+  // gate. At most one point per continuously tracked feature lifetime.
+  std::vector<SchurVisualizationPoint_s> margin_points_;
+  // Tracks that also have a raw-pixel observation in the keyframe clone.
+  std::vector<SchurVisualizationPoint_s> keyframe_points_;
 };
 
 // Publication bookkeeping only. Retain IDs while they occur in the current
 // image OR retained measurement history, including across consumed segments.
 // Storage is bounded by the live tracks, not by the length of the run. A lost
 // feature is forgotten once no retained observations can publish it again.
-class MarginPublicationHistory
-{
-  public:
-    void retain(const std::unordered_set<int> &live_ids);
-    bool mark(int feature_id) { return published_.insert(feature_id).second; }
-    void clear() { published_.clear(); }
-    size_t size() const { return published_.size(); }
+class MarginPublicationHistory {
+public:
+  void retain(const std::unordered_set<int> & _live_ids);
+  bool mark(int _feature_id) { return published_.insert(_feature_id).second; }
+  void clear() { published_.clear(); }
+  size_t size() const { return published_.size(); }
 
-  private:
-    std::unordered_set<int> published_;
+private:
+  std::unordered_set<int> published_;
 };
 
 // Margin-only quality thresholds: >=3 distinct clones, >=1 degree of actual
@@ -73,12 +70,11 @@ class MarginPublicationHistory
 // is the clone corresponding to the image frame being published; pass a
 // negative value to skip keyframe-point selection. The returned snapshot is
 // invalid only when the filter state itself is not usable.
-SchurVisualizationSnapshot makeSchurVisualizationSnapshot(
-    const EkfState &state, const std::vector<CameraExtrinsics> &cameras,
-    const SchurUpdater &updater, const std::vector<FeatureTrack> &tracks,
-    int keyframe_clone_index, double timestamp,
-    const std::vector<int> &accepted_consumed_feature_ids = {},
-    MarginPublicationHistory *margin_history = nullptr);
+SchurVisualizationSnapshot_s makeSchurVisualizationSnapshot(
+  const EkfState & _state, const std::vector<CameraExtrinsics_s> & _cameras, const SchurUpdater & _updater,
+  const std::vector<FeatureTrack_s> & _tracks, int _keyframe_clone_index, double _timestamp,
+  const std::vector<int> & _accepted_consumed_feature_ids = {},
+  MarginPublicationHistory * _margin_history = nullptr);
 
 }  // namespace backend
 }  // namespace vins

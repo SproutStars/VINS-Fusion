@@ -10,31 +10,31 @@
  *******************************************************/
 
 #pragma once
-#include <eigen3/Eigen/Dense>
-#include <iostream>
+#include "../estimator/feature_manager.h"
 #include "../factor/imu_factor.h"
 #include "../utility/utility.h"
-#include <vins_common/ros_utils.hpp>
+#include <eigen3/Eigen/Dense>
+#include <iostream>
 #include <map>
-#include "../estimator/feature_manager.h"
+#include <vins_common/ros_utils.hpp>
 
 using namespace Eigen;
 using namespace std;
 
-class ImageFrame
-{
-    public:
-        ImageFrame(){};
-        ImageFrame(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>>& _points, double _t):t{_t},is_key_frame{false}
-        {
-            points = _points;
-        };
-        map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;
-        double t;
-        Matrix3d R;
-        Vector3d T;
-        IntegrationBase *pre_integration;
-        bool is_key_frame;
+class ImageFrame {
+public:
+  ImageFrame() = default;
+  ImageFrame(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> & _points, double _t)
+    : t_{_t}, is_key_frame_{false}
+  {
+    points_ = _points;
+  };
+  map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> points_;
+  double t_;
+  Matrix3d R_;
+  Vector3d T_;
+  IntegrationBase * pre_integration_;
+  bool is_key_frame_;
 };
-void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs);
-bool VisualIMUAlignment(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs, Vector3d &g, VectorXd &x);
+void solveGyroscopeBias(map<double, ImageFrame> & _all_image_frame, Vector3d * _Bgs);
+bool VisualIMUAlignment(map<double, ImageFrame> & _all_image_frame, Vector3d * _Bgs, Vector3d & _g, VectorXd & _x);

@@ -5,73 +5,40 @@ namespace camodocal
 
 Transform::Transform()
 {
-    m_q.setIdentity();
-    m_t.setZero();
+  m_q_.setIdentity();
+  m_t_.setZero();
 }
 
-Transform::Transform(const Eigen::Matrix4d& H)
+Transform::Transform(const Eigen::Matrix4d & _H)
 {
-   m_q = Eigen::Quaterniond(H.block<3,3>(0,0));
-   m_t = H.block<3,1>(0,3);
+  m_q_ = Eigen::Quaterniond(_H.block<3, 3>(0, 0));
+  m_t_ = _H.block<3, 1>(0, 3);
 }
 
-Eigen::Quaterniond&
-Transform::rotation(void)
+Eigen::Quaterniond & Transform::rotation() { return m_q_; }
+
+const Eigen::Quaterniond & Transform::rotation() const { return m_q_; }
+
+double * Transform::rotationData() { return m_q_.coeffs().data(); }
+
+const double * const Transform::rotationData() const { return m_q_.coeffs().data(); }
+
+Eigen::Vector3d & Transform::translation() { return m_t_; }
+
+const Eigen::Vector3d & Transform::translation() const { return m_t_; }
+
+double * Transform::translationData() { return m_t_.data(); }
+
+const double * const Transform::translationData() const { return m_t_.data(); }
+
+Eigen::Matrix4d Transform::toMatrix() const
 {
-    return m_q;
+  Eigen::Matrix4d H;
+  H.setIdentity();
+  H.block<3, 3>(0, 0) = m_q_.toRotationMatrix();
+  H.block<3, 1>(0, 3) = m_t_;
+
+  return H;
 }
 
-const Eigen::Quaterniond&
-Transform::rotation(void) const
-{
-    return m_q;
-}
-
-double*
-Transform::rotationData(void)
-{
-    return m_q.coeffs().data();
-}
-
-const double* const
-Transform::rotationData(void) const
-{
-    return m_q.coeffs().data();
-}
-
-Eigen::Vector3d&
-Transform::translation(void)
-{
-    return m_t;
-}
-
-const Eigen::Vector3d&
-Transform::translation(void) const
-{
-    return m_t;
-}
-
-double*
-Transform::translationData(void)
-{
-    return m_t.data();
-}
-
-const double* const
-Transform::translationData(void) const
-{
-    return m_t.data();
-}
-
-Eigen::Matrix4d
-Transform::toMatrix(void) const
-{
-    Eigen::Matrix4d H;
-    H.setIdentity();
-    H.block<3,3>(0,0) = m_q.toRotationMatrix();
-    H.block<3,1>(0,3) = m_t;
-
-    return H;
-}
-
-}
+} // namespace camodocal

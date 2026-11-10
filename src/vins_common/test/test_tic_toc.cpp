@@ -15,14 +15,14 @@
 
 TEST(TicToc, ReportsNonNegativeMilliseconds)
 {
-    TicToc timer;
-    const double first = timer.toc();
-    EXPECT_TRUE(std::isfinite(first));
-    EXPECT_GE(first, 0.0);
+  TicToc timer;
+  const double first = timer.toc();
+  EXPECT_TRUE(std::isfinite(first));
+  EXPECT_GE(first, 0.0);
 
-    // Re-arm the timer through the public API and verify repeated use.
-    timer.tic();
-    const double second = timer.toc();
-    EXPECT_TRUE(std::isfinite(second));
-    EXPECT_GE(second, 0.0);
+  // Re-arm the timer through the public API and verify repeated use.
+  timer.tic();
+  const double second = timer.toc();
+  EXPECT_TRUE(std::isfinite(second));
+  EXPECT_GE(second, 0.0);
 }

@@ -11,21 +11,22 @@
 
 #pragma once
 
+#include "ThirdParty/DVision/BRIEF.h"
 #include <memory>
 #include <string>
-#include "ThirdParty/DVision/BRIEF.h"
 
-class BriefExtractor
-{
+class BriefExtractor {
 public:
-    explicit BriefExtractor(const std::string &pattern_file);
-    void operator()(const cv::Mat &image, const std::vector<cv::KeyPoint> &keys,
-                    std::vector<DVision::BRIEF::bitset> &descriptors) const;
+  explicit BriefExtractor(const std::string & _pattern_file);
+  void operator()(
+    const cv::Mat & _image, const std::vector<cv::KeyPoint> & _keys,
+    std::vector<DVision::BRIEF::bitset> & _descriptors) const;
+
 private:
-    DVision::BRIEF brief_;
+  DVision::BRIEF brief_;
 };
 
 // The pattern is configuration, not per-frame data. A new path reloads it;
 // replacing the contents at the same path requires restarting the node.
 // Shared ownership also makes a path change safe for in-flight extraction.
-std::shared_ptr<const BriefExtractor> cachedBriefExtractor(const std::string &pattern_file);
+std::shared_ptr<const BriefExtractor> cachedBriefExtractor(const std::string & _pattern_file);

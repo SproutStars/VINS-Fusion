@@ -41,54 +41,54 @@ constexpr int K_UPDATE_ITERATIONS = 100;
 
 Eigen::Vector4d quat(const Eigen::Vector3d & _axis_angle)
 {
-  return EkfState::quaternion_from_axis_angle(_axis_angle);
+  return EkfState::quaternionFromAxisAngle(_axis_angle);
 }
 
 void buildState(
   EkfState & _state, const std::vector<Eigen::Vector4d> & _qs, const std::vector<Eigen::Vector3d> & _ps)
 {
   const int n = static_cast<int>(_qs.size());
-  EkfOptions opt;
-  opt.window_size = n + 2;
+  EkfOptions_s opt;
+  opt.window_size_ = n + 2;
   _state.reset(
     opt, 0.0, _qs[0], _ps[0], Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
-  _state.augment_clone(0.0);
+  _state.augmentClone(0.0);
   for (int i = 1; i < n; ++i) {
-    _state.imu().q = _qs[static_cast<std::size_t>(i)];
-    _state.imu().p = _ps[static_cast<std::size_t>(i)];
-    _state.refresh_imu_fej();
-    _state.augment_clone(static_cast<double>(i));
+    _state.imu().q_ = _qs[static_cast<std::size_t>(i)];
+    _state.imu().p_ = _ps[static_cast<std::size_t>(i)];
+    _state.refreshImuFej();
+    _state.augmentClone(static_cast<double>(i));
   }
 }
 
 void regularizeCovariance(EkfState & _state) { _state.covariance().diagonal().array() += 1e-8; }
 
-CameraExtrinsics makeCamera()
+CameraExtrinsics_s makeCamera()
 {
-  CameraExtrinsics cam;
-  cam.q_cb = quat(Eigen::Vector3d(0.01, -0.01, 0.005));
-  cam.p_cb = Eigen::Vector3d(0.02, 0.0, -0.01);
+  CameraExtrinsics_s cam;
+  cam.q_cb_ = quat(Eigen::Vector3d(0.01, -0.01, 0.005));
+  cam.p_cb_ = Eigen::Vector3d(0.02, 0.0, -0.01);
   return cam;
 }
 
 Eigen::Vector2d projectWorld(
-  const Eigen::Vector4d & _q, const Eigen::Vector3d & _p, const CameraExtrinsics & _cam,
+  const Eigen::Vector4d & _q, const Eigen::Vector3d & _p, const CameraExtrinsics_s & _cam,
   const Eigen::Vector3d & _world_point)
 {
   const Eigen::Matrix3d R_i = EkfState::rotation(_q);
-  const Eigen::Matrix3d R_cb = EkfState::rotation(_cam.q_cb);
+  const Eigen::Matrix3d R_cb = EkfState::rotation(_cam.q_cb_);
   const Eigen::Vector3d u = R_i.transpose() * (_world_point - _p);
-  const Eigen::Vector3d p_c = R_cb.transpose() * (u - _cam.p_cb);
+  const Eigen::Vector3d p_c = R_cb.transpose() * (u - _cam.p_cb_);
   return Eigen::Vector2d(p_c.x() / p_c.z(), p_c.y() / p_c.z());
 }
 
 struct Scene_s {
   EkfState state_;
-  std::vector<FeatureTrack> tracks_;
-  CameraExtrinsics cam_;
+  std::vector<FeatureTrack_s> tracks_;
+  CameraExtrinsics_s cam_;
 };
 
-Scene_s makeScene(const UpdateOptions & _options)
+Scene_s makeScene(const UpdateOptions_s & _options)
 {
   Scene_s scene;
   scene.cam_ = makeCamera();
@@ -109,17 +109,17 @@ Scene_s makeScene(const UpdateOptions & _options)
   for (int f = 0; f < K_TRACKS; ++f) {
     const int len = 3 + (f % 3);
     const int start = f % 3;
-    const int stop = std::min(start + len, scene.state_.num_clones());
+    const int stop = std::min(start + len, scene.state_.numClones());
     const Eigen::Vector3d point(0.55 + 0.07 * (f % 6), 0.35 + 0.09 * (f / 6), 3.8 + 0.13 * (f % 4));
-    FeatureTrack track;
-    track.id = 4000 + f;
+    FeatureTrack_s track;
+    track.id_ = 4000 + f;
     for (int ci = start; ci < stop; ++ci) {
-      FeatureObservation obs;
-      obs.clone_index = ci;
-      obs.camera_id = 0;
-      obs.uv = projectWorld(scene.state_.clone(ci).q, scene.state_.clone(ci).p, scene.cam_, point) +
-               Eigen::Vector2d(pixel_jitter(rng), pixel_jitter(rng));
-      track.observations.push_back(obs);
+      FeatureObservation_s obs;
+      obs.clone_index_ = ci;
+      obs.camera_id_ = 0;
+      obs.uv_ = projectWorld(scene.state_.clone(ci).q_, scene.state_.clone(ci).p_, scene.cam_, point) +
+                Eigen::Vector2d(pixel_jitter(rng), pixel_jitter(rng));
+      track.observations_.push_back(obs);
     }
 
     if (updater.triangulate(scene.state_, {scene.cam_}, track))
@@ -132,11 +132,11 @@ Scene_s makeScene(const UpdateOptions & _options)
 
 int main()
 {
-  UpdateOptions options;
-  options.max_features = 40;
-  options.min_features = 1;
-  options.min_update_observations = 1;
-  options.condition_limit = 0.0;
+  UpdateOptions_s options;
+  options.max_features_ = 40;
+  options.min_features_ = 1;
+  options.min_update_observations_ = 1;
+  options.condition_limit_ = 0.0;
 
   SchurUpdater updater(options);
   const Scene_s scene = makeScene(options);
@@ -149,27 +149,27 @@ int main()
   // Warm up the scratch buffers once.
   double reduce_checksum = 0.0;
   for (int it = 0; it < K_WARMUP_ITERATIONS; ++it) {
-    for (const FeatureTrack & track : scene.tracks_) {
-      const TrackReduction red = updater.reduce_track(scene.state_, {scene.cam_}, track);
-      if (red.valid)
-        reduce_checksum += red.chi2;
+    for (const FeatureTrack_s & track : scene.tracks_) {
+      const TrackReduction_s red = updater.reduceTrack(scene.state_, {scene.cam_}, track);
+      if (red.valid_)
+        reduce_checksum += red.chi2_;
     }
   }
   {
     EkfState warm_state = scene.state_;
-    std::vector<FeatureTrack> warm_tracks = scene.tracks_;
+    std::vector<FeatureTrack_s> warm_tracks = scene.tracks_;
     (void)updater.update(warm_state, warm_tracks, {scene.cam_});
   }
 
   reduce_checksum = 0.0;
   const auto reduce_t0 = std::chrono::steady_clock::now();
   for (int it = 0; it < K_REDUCE_ITERATIONS; ++it) {
-    for (const FeatureTrack & track : scene.tracks_) {
-      const TrackReduction red = updater.reduce_track(scene.state_, {scene.cam_}, track);
-      if (!red.valid)
+    for (const FeatureTrack_s & track : scene.tracks_) {
+      const TrackReduction_s red = updater.reduceTrack(scene.state_, {scene.cam_}, track);
+      if (!red.valid_)
         continue;
-      reduce_checksum += red.chi2 + red.rms_residual_px + red.A_point.sum() + red.b_point.sum() +
-                         static_cast<double>(red.gate_dof);
+      reduce_checksum += red.chi2_ + red.rms_residual_px_ + red.A_point_.sum() + red.b_point_.sum() +
+                         static_cast<double>(red.gate_dof_);
     }
   }
   const auto reduce_t1 = std::chrono::steady_clock::now();
@@ -180,15 +180,15 @@ int main()
   double update_ms = 0.0;
   for (int it = 0; it < K_UPDATE_ITERATIONS; ++it) {
     EkfState work_state = scene.state_;
-    std::vector<FeatureTrack> work_tracks = scene.tracks_;
+    std::vector<FeatureTrack_s> work_tracks = scene.tracks_;
     const auto t0 = std::chrono::steady_clock::now();
-    const UpdateSummary summary = updater.update(work_state, work_tracks, {scene.cam_});
+    const UpdateSummary_s summary = updater.update(work_state, work_tracks, {scene.cam_});
     const auto t1 = std::chrono::steady_clock::now();
     update_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
-    update_checksum += work_state.covariance().trace() + static_cast<double>(summary.rank) +
-                       static_cast<double>(summary.features_used) +
-                       static_cast<double>(summary.observations_used) +
-                       static_cast<double>(summary.applied ? 1 : 0);
+    update_checksum += work_state.covariance().trace() + static_cast<double>(summary.rank_) +
+                       static_cast<double>(summary.features_used_) +
+                       static_cast<double>(summary.observations_used_) +
+                       static_cast<double>(summary.applied_ ? 1 : 0);
   }
 
   std::printf("scene clones=%d tracks=%d seed=%u\n", K_CLONES, num_tracks, K_SEED);

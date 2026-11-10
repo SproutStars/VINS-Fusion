@@ -12,49 +12,48 @@
 #include <atomic>
 
 #pragma once
-#include <vector>
-#include <map>
-#include <iostream>
-#include <mutex>
-#include <thread>
-#include <eigen3/Eigen/Dense>
-#include <eigen3/Eigen/Geometry>
-#include <ceres/ceres.h>
-#include <nav_msgs/msg/odometry.hpp>
-#include <nav_msgs/msg/path.hpp>
 #include "LocalCartesian.hpp"
 #include "tic_toc.h"
+#include <ceres/ceres.h>
+#include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Geometry>
+#include <iostream>
+#include <map>
+#include <mutex>
+#include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <thread>
+#include <vector>
 
 using namespace std;
 
-class GlobalOptimization
-{
-    std::atomic<bool> stopping_{false};
+class GlobalOptimization {
+  std::atomic<bool> stopping_{false};
+
 public:
-	GlobalOptimization();
-	~GlobalOptimization();
-	void inputGPS(double t, double latitude, double longitude, double altitude, double posAccuracy);
-	void inputOdom(double t, Eigen::Vector3d OdomP, Eigen::Quaterniond OdomQ);
-	void getGlobalOdom(Eigen::Vector3d &odomP, Eigen::Quaterniond &odomQ);
-	nav_msgs::msg::Path global_path;
-    nav_msgs::msg::Path getGlobalPath();
+  GlobalOptimization();
+  ~GlobalOptimization();
+  void inputGPS(double _t, double _latitude, double _longitude, double _altitude, double _posAccuracy);
+  void inputOdom(double _t, Eigen::Vector3d _OdomP, Eigen::Quaterniond _OdomQ);
+  void getGlobalOdom(Eigen::Vector3d & _odomP, Eigen::Quaterniond & _odomQ);
+  nav_msgs::msg::Path global_path_;
+  nav_msgs::msg::Path getGlobalPath();
 
 private:
-	void GPS2XYZ(double latitude, double longitude, double altitude, double* xyz);
-	void optimize();
-	void updateGlobalPath();
+  void gpS2Xyz(double _latitude, double _longitude, double _altitude, double * _xyz);
+  void optimize();
+  void updateGlobalPath();
 
-	// format t, tx,ty,tz,qw,qx,qy,qz
-	map<double, vector<double>> localPoseMap;
-	map<double, vector<double>> globalPoseMap;
-	map<double, vector<double>> GPSPositionMap;
-	bool initGPS;
-	std::atomic<bool> newGPS{false};
-	GeographicLib::LocalCartesian geoConverter;
-	std::mutex mPoseMap;
-	Eigen::Matrix4d WGPS_T_WVIO;
-	Eigen::Vector3d lastP;
-	Eigen::Quaterniond lastQ;
-	std::thread threadOpt;
-
+  // format t, tx,ty,tz,qw,qx,qy,qz
+  map<double, vector<double>> localPoseMap_;
+  map<double, vector<double>> globalPoseMap_;
+  map<double, vector<double>> GPSPositionMap_;
+  bool initGPS_;
+  std::atomic<bool> newGPS_{false};
+  GeographicLib::LocalCartesian geoConverter_;
+  std::mutex mPoseMap_;
+  Eigen::Matrix4d WGPS_T_WVIO_;
+  Eigen::Vector3d lastP_;
+  Eigen::Quaterniond lastQ_;
+  std::thread threadOpt_;
 };

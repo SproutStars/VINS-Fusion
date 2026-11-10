@@ -1,6 +1,7 @@
 #pragma once
 #include <ceres/manifold.h>
-namespace camodocal {
+namespace camodocal
+{
 // Ceres stores this quaternion in Eigen's [x,y,z,w] layout.
 using EigenQuaternionParameterization = ceres::EigenQuaternionManifold;
-}
+} // namespace camodocal

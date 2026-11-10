@@ -9,43 +9,46 @@
 
 #pragma once
 
-#include <vins_common/ros_utils.hpp>
-#include <std_msgs/msg/color_rgba.hpp>
-#include <visualization_msgs/msg/marker.hpp>
-#include <visualization_msgs/msg/marker_array.hpp>
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
+#include <std_msgs/msg/color_rgba.hpp>
+#include <vins_common/ros_utils.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 class CameraPoseVisualization {
 public:
-	std::string m_marker_ns;
+  std::string m_marker_ns_;
 
-	CameraPoseVisualization(float r, float g, float b, float a);
-	
-	void setImageBoundaryColor(float r, float g, float b, float a=1.0);
-	void setOpticalCenterConnectorColor(float r, float g, float b, float a=1.0);
-	void setScale(double s);
-	void setLineWidth(double width);
+  CameraPoseVisualization(float _r, float _g, float _b, float _a);
 
-	void add_pose(const Eigen::Vector3d& p, const Eigen::Quaterniond& q);
-	void reset();
+  void setImageBoundaryColor(float _r, float _g, float _b, float _a = 1.0);
+  void setOpticalCenterConnectorColor(float _r, float _g, float _b, float _a = 1.0);
+  void setScale(double _s);
+  void setLineWidth(double _width);
 
-	void publish_by(rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr &pub, const std_msgs::msg::Header& header);
-	void add_edge(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1);
-	void add_loopedge(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1);
+  void addPose(const Eigen::Vector3d & _p, const Eigen::Quaterniond & _q);
+  void reset();
+
+  void publishBy(
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr & _pub,
+    const std_msgs::msg::Header & _header);
+  void addEdge(const Eigen::Vector3d & _p0, const Eigen::Vector3d & _p1);
+  void addLoopedge(const Eigen::Vector3d & _p0, const Eigen::Vector3d & _p1);
+
 private:
-	std::vector<visualization_msgs::msg::Marker> m_markers;
-	std_msgs::msg::ColorRGBA m_image_boundary_color;
-	std_msgs::msg::ColorRGBA m_optical_center_connector_color;
-	double m_scale;
-	double m_line_width;
+  std::vector<visualization_msgs::msg::Marker> m_markers_;
+  std_msgs::msg::ColorRGBA m_image_boundary_color_;
+  std_msgs::msg::ColorRGBA m_optical_center_connector_color_;
+  double m_scale_;
+  double m_line_width_;
 
-	static const Eigen::Vector3d imlt;
-	static const Eigen::Vector3d imlb;
-	static const Eigen::Vector3d imrt;
-	static const Eigen::Vector3d imrb;
-	static const Eigen::Vector3d oc  ;
-	static const Eigen::Vector3d lt0 ;
-	static const Eigen::Vector3d lt1 ;
-	static const Eigen::Vector3d lt2 ;
+  static const Eigen::Vector3d IMLT;
+  static const Eigen::Vector3d IMLB;
+  static const Eigen::Vector3d IMRT;
+  static const Eigen::Vector3d IMRB;
+  static const Eigen::Vector3d OC;
+  static const Eigen::Vector3d LT0;
+  static const Eigen::Vector3d LT1;
+  static const Eigen::Vector3d LT2;
 };

@@ -1,0 +1,59 @@
+---
+Checks:
+    - '-*' # 先关闭所有默认检查，再按需启用下面这些规则
+    - 'performance-*'   # 开启所有性能检查开关
+    - '-performance-unnecessary-value-param'  # 性能检查里有些“按值传参”告警在这里噪音较大，单独关掉
+    - 'llvm-namespace-comment'                # 命名空间结尾补注释，便于嵌套 namespace 的阅读
+
+    # 现代 C++ 写法
+    - 'modernize-redundant-void-arg'  # 移除参数中多余的void
+    - 'modernize-use-nullptr'         # 使用nullptr作为空指针而不是NULL/0
+    - 'modernize-use-equals-default'         # 空的构造/析构替换为 `= default`
+    - 'modernize-use-override'        # 重写的虚函数强制加override
+    - 'modernize-loop-convert'        # 手写的索引循环/迭代器循环 -> 基于范围的for循环
+    - 'modernize-make-shared'         # 使用std::make_shared替代把new出来的指针给到shared_ptr
+    - 'modernize-make-unique'         # 使用std::make_unique替代把new出来的指针给到unique_ptr
+
+    # 基础可读性和接口卫生
+    - 'misc-unused-parameters'              # 检测未使用的函数参数, 参数不使用请加 `[[maybe_unused]]` 属性
+    - 'readability-named-parameter'         # 检测函数声明/定义中未命名的参数
+    - 'readability-redundant-smartptr-get'  # 检测冗余的 .get() 调用
+    - 'readability-redundant-string-cstr'   # 检测冗余的 .c_str() 调用
+    - 'readability-simplify-boolean-expr'   # 简化冗余的布尔表达式
+    - 'readability-container-size-empty'    # 简化判断空容器写法
+    - 'readability-make-member-function-const'    # 不修改成员变量的方法加 const
+    # 命名风格统一
+    - 'readability-identifier-naming'   # 开启标识符命名风格检查
+
+# Check project headers, excluding bundled ThirdParty libraries.
+HeaderFilterRegex: '(^|/)(src/(camera_models/(include|src)|vins_common/(include|test)|vins_estimator/(src|test)|loop_fusion/(test|src/utility)|global_fusion/src)/|src/loop_fusion/src/[^/]+\.(h|hpp)$|install/(camera_models|vins_common)/include/)'
+CheckOptions:
+    llvm-namespace-comment.ShortNamespaceLines: '10'  # 少于10行的短命名空间可以不加结尾注释
+    llvm-namespace-comment.SpacesBeforeComments: '2'  # 在命名空间结尾 } 与 // namespace 之间加入2个空格
+    misc-unused-parameters.StrictMode: '1'      #! expermental
+    readability-braces-around-statements.ShortStatementLines: '2'
+    # 类型名称：均为大驼峰命名
+    readability-identifier-naming.ClassCase: CamelCase
+    readability-identifier-naming.StructCase: CamelCase
+    readability-identifier-naming.EnumCase: CamelCase
+    readability-identifier-naming.UnionCase: CamelCase
+    readability-identifier-naming.StructSuffix: '_s'
+    readability-identifier-naming.EnumSuffix: '_e'
+    readability-identifier-naming.UnionSuffix: '_u'
+    # 函数/成员方法名称：小驼峰
+    readability-identifier-naming.MethodCase: camelBack
+    readability-identifier-naming.ParameterPrefix: '_'        # 函数参数前加下划线
+    # 普通变量名称：蛇形命名
+    # readability-identifier-naming.VariableCase: lower_case # 不强制，因为会有矩阵命名需要大写字母，但是要用下划线分割
+    readability-identifier-naming.MemberSuffix: '_'          # 非静态数据成员以`_`结尾
+    readability-identifier-naming.ClassMemberSuffix: '_'     # 静态数据成员以`_`结尾
+    # readability-identifier-naming.PrivateMemberSuffix: '_'
+    # readability-identifier-naming.PublicMember: 'aNy_CasE'
+    # readability-identifier-naming.PublicMemberSuffix: '_'
+    # readability-identifier-naming.ProtectedMember: 'aNy_CasE'
+    # readability-identifier-naming.ProtectedMemberSuffix: '_'
+    # 常量名称统一使用 全大写
+    readability-identifier-naming.EnumConstantCase: UPPER_CASE
+    readability-identifier-naming.StaticConstantCase: UPPER_CASE
+    readability-identifier-naming.ClassConstantCase: UPPER_CASE
+    readability-identifier-naming.GlobalVariableCase: UPPER_CASE

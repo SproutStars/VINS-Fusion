@@ -1,0 +1,38 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+
+AccessModifierOffset: -2  # 访问修饰符缩进 - 相当于0缩进
+IndentWidth: 2  # 基础缩进宽度
+TabWidth: 2  # 制表符宽度
+ContinuationIndentWidth: 2  # 续行缩进宽度
+MaxEmptyLinesToKeep: 3  # 保留的最大空行数
+ColumnLimit: 110  # 列宽限制
+ConstructorInitializerIndentWidth: 2  # 构造函数初始化列表缩进宽度
+
+
+AlignAfterOpenBracket: AlwaysBreak  # 在打开括号后总是换行
+PointerAlignment: Middle  # 指针对齐 - 中间对齐
+ReferenceAlignment: Middle  # 引用对齐 - 中间对齐
+
+
+BreakArrays: false  # 不在数组初始化器中换行
+BreakBeforeBraces: Custom  # 自定义左大括号换行规则（没提到的规则默认不换行）
+BraceWrapping:
+    AfterFunction: true  # 函数定义后换行
+    AfterNamespace: true  # 命名空间定义后换行
+    BeforeLambdaBody: true  # lambda表达式定义前换行
+
+    BeforeElse: false  # else前换行
+    BeforeCatch: false  # catch前换行
+    AfterControlStatement: Never  # 控制语句后换行
+    IndentBraces: false  # 大括号不缩进
+BreakConstructorInitializers: BeforeColon  # 构造函数初始化列表在冒号前换行
+BreakInheritanceList: BeforeColon  # 继承列表在冒号前换行
+
+
+DerivePointerAlignment: false  # 不从上下文派生指针对齐方式
+ReflowComments: false  # 不重新格式化注释
+
+PenaltyExcessCharacter: 10  # 超过列宽限制的字符的惩罚分数

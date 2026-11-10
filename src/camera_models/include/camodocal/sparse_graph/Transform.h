@@ -8,31 +8,30 @@
 namespace camodocal
 {
 
-class Transform
-{
+class Transform {
 public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-    Transform();
-    Transform(const Eigen::Matrix4d& H);
+  Transform();
+  Transform(const Eigen::Matrix4d & _H);
 
-    Eigen::Quaterniond& rotation(void);
-    const Eigen::Quaterniond& rotation(void) const;
-    double* rotationData(void);
-    const double* const rotationData(void) const;
+  Eigen::Quaterniond & rotation();
+  const Eigen::Quaterniond & rotation() const;
+  double * rotationData();
+  const double * const rotationData() const;
 
-    Eigen::Vector3d& translation(void);
-    const Eigen::Vector3d& translation(void) const;
-    double* translationData(void);
-    const double* const translationData(void) const;
+  Eigen::Vector3d & translation();
+  const Eigen::Vector3d & translation() const;
+  double * translationData();
+  const double * const translationData() const;
 
-    Eigen::Matrix4d toMatrix(void) const;
+  Eigen::Matrix4d toMatrix() const;
 
 private:
-    Eigen::Quaterniond m_q;
-    Eigen::Vector3d m_t;
+  Eigen::Quaterniond m_q_;
+  Eigen::Vector3d m_t_;
 };
 
-}
+} // namespace camodocal
 
 #endif

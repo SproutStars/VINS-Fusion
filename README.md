@@ -210,6 +210,8 @@ GPS 数据需要搭配 `global_fusion_node`；可在另一个终端启动它。K
 
 ## 验证
 
+C++ 规范、Clang 18 检查命令及接口例外见 [C++ 代码规范](docs/CPP_STYLE.md)。
+
 ```bash
 colcon test --packages-select vins_common vins loop_fusion --event-handlers console_direct+ --return-code-on-test-failure
 colcon test-result --verbose

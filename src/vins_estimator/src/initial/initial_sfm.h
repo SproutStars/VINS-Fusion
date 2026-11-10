@@ -9,13 +9,13 @@
  * Author: Qin Tong (qintonguav@gmail.com)
  *******************************************************/
 
-#pragma once 
+#pragma once
 #include <ceres/ceres.h>
 #include <ceres/rotation.h>
-#include <eigen3/Eigen/Dense>
-#include <iostream>
 #include <cstdlib>
 #include <deque>
+#include <eigen3/Eigen/Dense>
+#include <iostream>
 #include <map>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/opencv.hpp>
@@ -24,62 +24,61 @@ using namespace std;
 
 
 
-struct SFMFeature
-{
-    bool state;
-    int id;
-    vector<pair<int,Vector2d>> observation;
-    double position[3];
-    double depth;
+struct SfmFeature_s {
+  bool state_;
+  int id_;
+  vector<pair<int, Vector2d>> observation_;
+  double position_[3];
+  double depth_;
 };
 
-struct ReprojectionError3D
-{
-	ReprojectionError3D(double observed_u, double observed_v)
-		:observed_u(observed_u), observed_v(observed_v)
-		{}
+struct ReprojectionError3D_s {
+  ReprojectionError3D_s(double _observed_u, double _observed_v)
+    : observed_u_(_observed_u), observed_v_(_observed_v)
+  {
+  }
 
-	template <typename T>
-	bool operator()(const T* const camera_R, const T* const camera_T, const T* point, T* residuals) const
-	{
-		T p[3];
-		ceres::QuaternionRotatePoint(camera_R, point, p);
-		p[0] += camera_T[0]; p[1] += camera_T[1]; p[2] += camera_T[2];
-		T xp = p[0] / p[2];
-    	T yp = p[1] / p[2];
-    	residuals[0] = xp - T(observed_u);
-    	residuals[1] = yp - T(observed_v);
-    	return true;
-	}
+  template <typename T>
+  bool operator()(const T * const _camera_R, const T * const _camera_T, const T * _point, T * _residuals) const
+  {
+    T p[3];
+    ceres::QuaternionRotatePoint(_camera_R, _point, p);
+    p[0] += _camera_T[0];
+    p[1] += _camera_T[1];
+    p[2] += _camera_T[2];
+    T xp = p[0] / p[2];
+    T yp = p[1] / p[2];
+    _residuals[0] = xp - T(observed_u_);
+    _residuals[1] = yp - T(observed_v_);
+    return true;
+  }
 
-	static ceres::CostFunction* Create(const double observed_x,
-	                                   const double observed_y) 
-	{
-	  return (new ceres::AutoDiffCostFunction<
-	          ReprojectionError3D, 2, 4, 3, 3>(
-	          	new ReprojectionError3D(observed_x,observed_y)));
-	}
+  static ceres::CostFunction * create(const double _observed_x, const double _observed_y)
+  {
+    return (new ceres::AutoDiffCostFunction<ReprojectionError3D_s, 2, 4, 3, 3>(
+      new ReprojectionError3D_s(_observed_x, _observed_y)));
+  }
 
-	double observed_u;
-	double observed_v;
+  double observed_u_;
+  double observed_v_;
 };
 
-class GlobalSFM
-{
+class GlobalSFM {
 public:
-	GlobalSFM();
-	bool construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
-			  const Matrix3d relative_R, const Vector3d relative_T,
-			  vector<SFMFeature> &sfm_f, map<int, Vector3d> &sfm_tracked_points);
+  GlobalSFM();
+  bool construct(
+    int _frame_num, Quaterniond * _q, Vector3d * _T, int _l, const Matrix3d _relative_R,
+    const Vector3d _relative_T, vector<SfmFeature_s> & _sfm_f, map<int, Vector3d> & _sfm_tracked_points);
 
 private:
-	bool solveFrameByPnP(Matrix3d &R_initial, Vector3d &P_initial, int i, vector<SFMFeature> &sfm_f);
+  bool solveFrameByPnP(Matrix3d & _R_initial, Vector3d & _P_initial, int _i, vector<SfmFeature_s> & _sfm_f) const;
 
-	void triangulatePoint(Eigen::Matrix<double, 3, 4> &Pose0, Eigen::Matrix<double, 3, 4> &Pose1,
-							Vector2d &point0, Vector2d &point1, Vector3d &point_3d);
-	void triangulateTwoFrames(int frame0, Eigen::Matrix<double, 3, 4> &Pose0, 
-							  int frame1, Eigen::Matrix<double, 3, 4> &Pose1,
-							  vector<SFMFeature> &sfm_f);
+  void triangulatePoint(
+    Eigen::Matrix<double, 3, 4> & _Pose0, Eigen::Matrix<double, 3, 4> & _Pose1, Vector2d & _point0,
+    Vector2d & _point1, Vector3d & _point_3d);
+  void triangulateTwoFrames(
+    int _frame0, Eigen::Matrix<double, 3, 4> & _Pose0, int _frame1, Eigen::Matrix<double, 3, 4> & _Pose1,
+    vector<SfmFeature_s> & _sfm_f);
 
-	int feature_num;
+  int feature_num_;
 };

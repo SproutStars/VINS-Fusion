@@ -13,17 +13,16 @@ namespace loop_fusion
 // bag image stamp by about 100 ns even though both describe the same frame.
 // Keep the tolerance far below the image period (50 ms at 20 Hz) but well
 // above that round-trip error.
-constexpr int64_t kStampMatchToleranceNs = 2'000;
+constexpr int64_t K_STAMP_MATCH_TOLERANCE_NS = 2'000;
 
-inline int64_t stampNs(const builtin_interfaces::msg::Time &stamp)
+inline int64_t stampNs(const builtin_interfaces::msg::Time & _stamp)
 {
-    return static_cast<int64_t>(stamp.sec) * 1'000'000'000LL + stamp.nanosec;
+  return static_cast<int64_t>(_stamp.sec) * 1'000'000'000LL + _stamp.nanosec;
 }
 
-inline bool stampsMatch(int64_t lhs_ns, int64_t rhs_ns,
-                        int64_t tolerance_ns = kStampMatchToleranceNs)
+inline bool stampsMatch(int64_t _lhs_ns, int64_t _rhs_ns, int64_t _tolerance_ns = K_STAMP_MATCH_TOLERANCE_NS)
 {
-    return std::llabs(lhs_ns - rhs_ns) <= tolerance_ns;
+  return std::llabs(_lhs_ns - _rhs_ns) <= _tolerance_ns;
 }
 
-}  // namespace loop_fusion
+} // namespace loop_fusion

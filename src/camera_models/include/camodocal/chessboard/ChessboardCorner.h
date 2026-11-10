@@ -10,36 +10,33 @@ namespace camodocal
 class ChessboardCorner;
 typedef boost::shared_ptr<ChessboardCorner> ChessboardCornerPtr;
 
-class ChessboardCorner
-{
+class ChessboardCorner {
 public:
-    ChessboardCorner() : row(0), column(0), needsNeighbor(true), count(0) {}
+  ChessboardCorner() : row_(0), column_(0), needsNeighbor_(true), count_(0) {}
 
-    float meanDist(int &n) const
-    {
-        float sum = 0;
-        n = 0;
-        for (int i = 0; i < 4; ++i)
-        {
-            if (neighbors[i].get())
-            {
-                float dx = neighbors[i]->pt.x - pt.x;
-                float dy = neighbors[i]->pt.y - pt.y;
-                sum += sqrt(dx*dx + dy*dy);
-                n++;
-            }
-        }
-        return sum / std::max(n, 1);
+  float meanDist(int & _n) const
+  {
+    float sum = 0;
+    _n = 0;
+    for (const auto & neighbor : neighbors_) {
+      if (neighbor.get()) {
+        float dx = neighbor->pt_.x - pt_.x;
+        float dy = neighbor->pt_.y - pt_.y;
+        sum += sqrt(static_cast<double>(dx * dx + dy * dy));
+        _n++;
+      }
     }
+    return sum / std::max(_n, 1);
+  }
 
-    cv::Point2f pt;                     // X and y coordinates
-    int row;                            // Row and column of the corner
-    int column;                         // in the found pattern
-    bool needsNeighbor;                 // Does the corner require a neighbor?
-    int count;                          // number of corner neighbors
-    ChessboardCornerPtr neighbors[4];   // pointer to all corner neighbors
+  cv::Point2f pt_;                   // X and y coordinates
+  int row_;                          // Row and column of the corner
+  int column_;                       // in the found pattern
+  bool needsNeighbor_;               // Does the corner require a neighbor?
+  int count_;                        // number of corner neighbors
+  ChessboardCornerPtr neighbors_[4]; // pointer to all corner neighbors
 };
 
-}
+} // namespace camodocal
 
 #endif

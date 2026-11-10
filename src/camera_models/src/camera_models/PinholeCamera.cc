@@ -14,416 +14,277 @@ namespace camodocal
 {
 
 PinholeCamera::Parameters::Parameters()
- : Camera::Parameters(PINHOLE)
- , m_k1(0.0)
- , m_k2(0.0)
- , m_p1(0.0)
- , m_p2(0.0)
- , m_fx(0.0)
- , m_fy(0.0)
- , m_cx(0.0)
- , m_cy(0.0)
-{
-
-}
-
-PinholeCamera::Parameters::Parameters(const std::string& cameraName,
-                                      int w, int h,
-                                      double k1, double k2,
-                                      double p1, double p2,
-                                      double fx, double fy,
-                                      double cx, double cy)
- : Camera::Parameters(PINHOLE, cameraName, w, h)
- , m_k1(k1)
- , m_k2(k2)
- , m_p1(p1)
- , m_p2(p2)
- , m_fx(fx)
- , m_fy(fy)
- , m_cx(cx)
- , m_cy(cy)
+  : Camera::Parameters(PINHOLE), m_k1_(0.0), m_k2_(0.0), m_p1_(0.0), m_p2_(0.0), m_fx_(0.0), m_fy_(0.0),
+    m_cx_(0.0), m_cy_(0.0)
 {
 }
 
-double&
-PinholeCamera::Parameters::k1(void)
+PinholeCamera::Parameters::Parameters(
+  const std::string & _cameraName, int _w, int _h, double _k1, double _k2, double _p1, double _p2, double _fx,
+  double _fy, double _cx, double _cy)
+  : Camera::Parameters(PINHOLE, _cameraName, _w, _h), m_k1_(_k1), m_k2_(_k2), m_p1_(_p1), m_p2_(_p2),
+    m_fx_(_fx), m_fy_(_fy), m_cx_(_cx), m_cy_(_cy)
 {
-    return m_k1;
 }
 
-double&
-PinholeCamera::Parameters::k2(void)
-{
-    return m_k2;
-}
+double & PinholeCamera::Parameters::k1() { return m_k1_; }
 
-double&
-PinholeCamera::Parameters::p1(void)
-{
-    return m_p1;
-}
+double & PinholeCamera::Parameters::k2() { return m_k2_; }
 
-double&
-PinholeCamera::Parameters::p2(void)
-{
-    return m_p2;
-}
+double & PinholeCamera::Parameters::p1() { return m_p1_; }
 
-double&
-PinholeCamera::Parameters::fx(void)
-{
-    return m_fx;
-}
+double & PinholeCamera::Parameters::p2() { return m_p2_; }
 
-double&
-PinholeCamera::Parameters::fy(void)
-{
-    return m_fy;
-}
+double & PinholeCamera::Parameters::fx() { return m_fx_; }
 
-double&
-PinholeCamera::Parameters::cx(void)
-{
-    return m_cx;
-}
+double & PinholeCamera::Parameters::fy() { return m_fy_; }
 
-double&
-PinholeCamera::Parameters::cy(void)
-{
-    return m_cy;
-}
+double & PinholeCamera::Parameters::cx() { return m_cx_; }
 
-double
-PinholeCamera::Parameters::k1(void) const
-{
-    return m_k1;
-}
+double & PinholeCamera::Parameters::cy() { return m_cy_; }
 
-double
-PinholeCamera::Parameters::k2(void) const
-{
-    return m_k2;
-}
+double PinholeCamera::Parameters::k1() const { return m_k1_; }
 
-double
-PinholeCamera::Parameters::p1(void) const
-{
-    return m_p1;
-}
+double PinholeCamera::Parameters::k2() const { return m_k2_; }
 
-double
-PinholeCamera::Parameters::p2(void) const
-{
-    return m_p2;
-}
+double PinholeCamera::Parameters::p1() const { return m_p1_; }
 
-double
-PinholeCamera::Parameters::fx(void) const
-{
-    return m_fx;
-}
+double PinholeCamera::Parameters::p2() const { return m_p2_; }
 
-double
-PinholeCamera::Parameters::fy(void) const
-{
-    return m_fy;
-}
+double PinholeCamera::Parameters::fx() const { return m_fx_; }
 
-double
-PinholeCamera::Parameters::cx(void) const
-{
-    return m_cx;
-}
+double PinholeCamera::Parameters::fy() const { return m_fy_; }
 
-double
-PinholeCamera::Parameters::cy(void) const
-{
-    return m_cy;
-}
+double PinholeCamera::Parameters::cx() const { return m_cx_; }
 
-bool
-PinholeCamera::Parameters::readFromYamlFile(const std::string& filename)
-{
-    cv::FileStorage fs(filename, cv::FileStorage::READ);
+double PinholeCamera::Parameters::cy() const { return m_cy_; }
 
-    if (!fs.isOpened())
-    {
-        return false;
+bool PinholeCamera::Parameters::readFromYamlFile(const std::string & _filename)
+{
+  cv::FileStorage fs(_filename, cv::FileStorage::READ);
+
+  if (!fs.isOpened()) {
+    return false;
+  }
+
+  if (!fs["model_type"].isNone()) {
+    std::string sModelType;
+    fs["model_type"] >> sModelType;
+
+    if (sModelType.compare("PINHOLE") != 0) {
+      return false;
     }
+  }
 
-    if (!fs["model_type"].isNone())
-    {
-        std::string sModelType;
-        fs["model_type"] >> sModelType;
+  m_modelType_ = PINHOLE;
+  fs["camera_name"] >> m_cameraName_;
+  m_imageWidth_ = static_cast<int>(fs["image_width"]);
+  m_imageHeight_ = static_cast<int>(fs["image_height"]);
 
-        if (sModelType.compare("PINHOLE") != 0)
-        {
-            return false;
-        }
-    }
+  cv::FileNode n = fs["distortion_parameters"];
+  m_k1_ = static_cast<double>(n["k1"]);
+  m_k2_ = static_cast<double>(n["k2"]);
+  m_p1_ = static_cast<double>(n["p1"]);
+  m_p2_ = static_cast<double>(n["p2"]);
 
-    m_modelType = PINHOLE;
-    fs["camera_name"] >> m_cameraName;
-    m_imageWidth = static_cast<int>(fs["image_width"]);
-    m_imageHeight = static_cast<int>(fs["image_height"]);
+  n = fs["projection_parameters"];
+  m_fx_ = static_cast<double>(n["fx"]);
+  m_fy_ = static_cast<double>(n["fy"]);
+  m_cx_ = static_cast<double>(n["cx"]);
+  m_cy_ = static_cast<double>(n["cy"]);
 
-    cv::FileNode n = fs["distortion_parameters"];
-    m_k1 = static_cast<double>(n["k1"]);
-    m_k2 = static_cast<double>(n["k2"]);
-    m_p1 = static_cast<double>(n["p1"]);
-    m_p2 = static_cast<double>(n["p2"]);
-
-    n = fs["projection_parameters"];
-    m_fx = static_cast<double>(n["fx"]);
-    m_fy = static_cast<double>(n["fy"]);
-    m_cx = static_cast<double>(n["cx"]);
-    m_cy = static_cast<double>(n["cy"]);
-
-    return true;
+  return true;
 }
 
-void
-PinholeCamera::Parameters::writeToYamlFile(const std::string& filename) const
+void PinholeCamera::Parameters::writeToYamlFile(const std::string & _filename) const
 {
-    cv::FileStorage fs(filename, cv::FileStorage::WRITE);
+  cv::FileStorage fs(_filename, cv::FileStorage::WRITE);
 
-    fs << "model_type" << "PINHOLE";
-    fs << "camera_name" << m_cameraName;
-    fs << "image_width" << m_imageWidth;
-    fs << "image_height" << m_imageHeight;
+  fs << "model_type" << "PINHOLE";
+  fs << "camera_name" << m_cameraName_;
+  fs << "image_width" << m_imageWidth_;
+  fs << "image_height" << m_imageHeight_;
 
-    // radial distortion: k1, k2
-    // tangential distortion: p1, p2
-    fs << "distortion_parameters";
-    fs << "{" << "k1" << m_k1
-              << "k2" << m_k2
-              << "p1" << m_p1
-              << "p2" << m_p2 << "}";
+  // radial distortion: k1, k2
+  // tangential distortion: p1, p2
+  fs << "distortion_parameters";
+  fs << "{" << "k1" << m_k1_ << "k2" << m_k2_ << "p1" << m_p1_ << "p2" << m_p2_ << "}";
 
-    // projection: fx, fy, cx, cy
-    fs << "projection_parameters";
-    fs << "{" << "fx" << m_fx
-              << "fy" << m_fy
-              << "cx" << m_cx
-              << "cy" << m_cy << "}";
+  // projection: fx, fy, cx, cy
+  fs << "projection_parameters";
+  fs << "{" << "fx" << m_fx_ << "fy" << m_fy_ << "cx" << m_cx_ << "cy" << m_cy_ << "}";
 
-    fs.release();
+  fs.release();
 }
 
-PinholeCamera::Parameters&
-PinholeCamera::Parameters::operator=(const PinholeCamera::Parameters& other)
+PinholeCamera::Parameters & PinholeCamera::Parameters::operator=(const PinholeCamera::Parameters & _other)
 {
-    if (this != &other)
-    {
-        m_modelType = other.m_modelType;
-        m_cameraName = other.m_cameraName;
-        m_imageWidth = other.m_imageWidth;
-        m_imageHeight = other.m_imageHeight;
-        m_k1 = other.m_k1;
-        m_k2 = other.m_k2;
-        m_p1 = other.m_p1;
-        m_p2 = other.m_p2;
-        m_fx = other.m_fx;
-        m_fy = other.m_fy;
-        m_cx = other.m_cx;
-        m_cy = other.m_cy;
-    }
+  if (this != &_other) {
+    m_modelType_ = _other.m_modelType_;
+    m_cameraName_ = _other.m_cameraName_;
+    m_imageWidth_ = _other.m_imageWidth_;
+    m_imageHeight_ = _other.m_imageHeight_;
+    m_k1_ = _other.m_k1_;
+    m_k2_ = _other.m_k2_;
+    m_p1_ = _other.m_p1_;
+    m_p2_ = _other.m_p2_;
+    m_fx_ = _other.m_fx_;
+    m_fy_ = _other.m_fy_;
+    m_cx_ = _other.m_cx_;
+    m_cy_ = _other.m_cy_;
+  }
 
-    return *this;
+  return *this;
 }
 
-std::ostream&
-operator<< (std::ostream& out, const PinholeCamera::Parameters& params)
+std::ostream & operator<<(std::ostream & _out, const PinholeCamera::Parameters & _params)
 {
-    out << "Camera Parameters:" << std::endl;
-    out << "    model_type " << "PINHOLE" << std::endl;
-    out << "   camera_name " << params.m_cameraName << std::endl;
-    out << "   image_width " << params.m_imageWidth << std::endl;
-    out << "  image_height " << params.m_imageHeight << std::endl;
+  _out << "Camera Parameters:" << '\n';
+  _out << "    model_type " << "PINHOLE" << '\n';
+  _out << "   camera_name " << _params.m_cameraName_ << '\n';
+  _out << "   image_width " << _params.m_imageWidth_ << '\n';
+  _out << "  image_height " << _params.m_imageHeight_ << '\n';
 
-    // radial distortion: k1, k2
-    // tangential distortion: p1, p2
-    out << "Distortion Parameters" << std::endl;
-    out << "            k1 " << params.m_k1 << std::endl
-        << "            k2 " << params.m_k2 << std::endl
-        << "            p1 " << params.m_p1 << std::endl
-        << "            p2 " << params.m_p2 << std::endl;
+  // radial distortion: k1, k2
+  // tangential distortion: p1, p2
+  _out << "Distortion Parameters" << '\n';
+  _out << "            k1 " << _params.m_k1_ << '\n'
+       << "            k2 " << _params.m_k2_ << '\n'
+       << "            p1 " << _params.m_p1_ << '\n'
+       << "            p2 " << _params.m_p2_ << '\n';
 
-    // projection: fx, fy, cx, cy
-    out << "Projection Parameters" << std::endl;
-    out << "            fx " << params.m_fx << std::endl
-        << "            fy " << params.m_fy << std::endl
-        << "            cx " << params.m_cx << std::endl
-        << "            cy " << params.m_cy << std::endl;
+  // projection: fx, fy, cx, cy
+  _out << "Projection Parameters" << '\n';
+  _out << "            fx " << _params.m_fx_ << '\n'
+       << "            fy " << _params.m_fy_ << '\n'
+       << "            cx " << _params.m_cx_ << '\n'
+       << "            cy " << _params.m_cy_ << '\n';
 
-    return out;
+  return _out;
 }
 
 PinholeCamera::PinholeCamera()
- : m_inv_K11(1.0)
- , m_inv_K13(0.0)
- , m_inv_K22(1.0)
- , m_inv_K23(0.0)
- , m_noDistortion(true)
+  : m_inv_K11_(1.0), m_inv_K13_(0.0), m_inv_K22_(1.0), m_inv_K23_(0.0), m_noDistortion_(true)
 {
-
 }
 
-PinholeCamera::PinholeCamera(const std::string& cameraName,
-                             int imageWidth, int imageHeight,
-                             double k1, double k2, double p1, double p2,
-                             double fx, double fy, double cx, double cy)
- : mParameters(cameraName, imageWidth, imageHeight,
-               k1, k2, p1, p2, fx, fy, cx, cy)
+PinholeCamera::PinholeCamera(
+  const std::string & _cameraName, int _imageWidth, int _imageHeight, double _k1, double _k2, double _p1,
+  double _p2, double _fx, double _fy, double _cx, double _cy)
+  : mParameters_(_cameraName, _imageWidth, _imageHeight, _k1, _k2, _p1, _p2, _fx, _fy, _cx, _cy)
 {
-    if ((mParameters.k1() == 0.0) &&
-        (mParameters.k2() == 0.0) &&
-        (mParameters.p1() == 0.0) &&
-        (mParameters.p2() == 0.0))
-    {
-        m_noDistortion = true;
-    }
-    else
-    {
-        m_noDistortion = false;
-    }
+  m_noDistortion_ = (mParameters_.k1() == 0.0) && (mParameters_.k2() == 0.0) && (mParameters_.p1() == 0.0) &&
+                    (mParameters_.p2() == 0.0);
 
-    // Inverse camera projection matrix parameters
-    m_inv_K11 = 1.0 / mParameters.fx();
-    m_inv_K13 = -mParameters.cx() / mParameters.fx();
-    m_inv_K22 = 1.0 / mParameters.fy();
-    m_inv_K23 = -mParameters.cy() / mParameters.fy();
+  // Inverse camera projection matrix parameters
+  m_inv_K11_ = 1.0 / mParameters_.fx();
+  m_inv_K13_ = -mParameters_.cx() / mParameters_.fx();
+  m_inv_K22_ = 1.0 / mParameters_.fy();
+  m_inv_K23_ = -mParameters_.cy() / mParameters_.fy();
 }
 
-PinholeCamera::PinholeCamera(const PinholeCamera::Parameters& params)
- : mParameters(params)
+PinholeCamera::PinholeCamera(const PinholeCamera::Parameters & _params) : mParameters_(_params)
 {
-    if ((mParameters.k1() == 0.0) &&
-        (mParameters.k2() == 0.0) &&
-        (mParameters.p1() == 0.0) &&
-        (mParameters.p2() == 0.0))
-    {
-        m_noDistortion = true;
-    }
-    else
-    {
-        m_noDistortion = false;
-    }
+  m_noDistortion_ = (mParameters_.k1() == 0.0) && (mParameters_.k2() == 0.0) && (mParameters_.p1() == 0.0) &&
+                    (mParameters_.p2() == 0.0);
 
-    // Inverse camera projection matrix parameters
-    m_inv_K11 = 1.0 / mParameters.fx();
-    m_inv_K13 = -mParameters.cx() / mParameters.fx();
-    m_inv_K22 = 1.0 / mParameters.fy();
-    m_inv_K23 = -mParameters.cy() / mParameters.fy();
+  // Inverse camera projection matrix parameters
+  m_inv_K11_ = 1.0 / mParameters_.fx();
+  m_inv_K13_ = -mParameters_.cx() / mParameters_.fx();
+  m_inv_K22_ = 1.0 / mParameters_.fy();
+  m_inv_K23_ = -mParameters_.cy() / mParameters_.fy();
 }
 
-Camera::ModelType
-PinholeCamera::modelType(void) const
+Camera::ModelType_e PinholeCamera::modelType() const { return mParameters_.modelType(); }
+
+const std::string & PinholeCamera::cameraName() const { return mParameters_.cameraName(); }
+
+int PinholeCamera::imageWidth() const { return mParameters_.imageWidth(); }
+
+int PinholeCamera::imageHeight() const { return mParameters_.imageHeight(); }
+
+void PinholeCamera::estimateIntrinsics(
+  [[maybe_unused]] const cv::Size & _boardSize, const std::vector<std::vector<cv::Point3f>> & _objectPoints,
+  const std::vector<std::vector<cv::Point2f>> & _imagePoints)
 {
-    return mParameters.modelType();
-}
+  // Z. Zhang, A Flexible New Technique for Camera Calibration, PAMI 2000
 
-const std::string&
-PinholeCamera::cameraName(void) const
-{
-    return mParameters.cameraName();
-}
+  Parameters params = getParameters();
 
-int
-PinholeCamera::imageWidth(void) const
-{
-    return mParameters.imageWidth();
-}
+  params.k1() = 0.0;
+  params.k2() = 0.0;
+  params.p1() = 0.0;
+  params.p2() = 0.0;
 
-int
-PinholeCamera::imageHeight(void) const
-{
-    return mParameters.imageHeight();
-}
+  double cx = params.imageWidth() / 2.0;
+  double cy = params.imageHeight() / 2.0;
+  params.cx() = cx;
+  params.cy() = cy;
 
-void
-PinholeCamera::estimateIntrinsics(const cv::Size& boardSize,
-                                  const std::vector< std::vector<cv::Point3f> >& objectPoints,
-                                  const std::vector< std::vector<cv::Point2f> >& imagePoints)
-{
-    // Z. Zhang, A Flexible New Technique for Camera Calibration, PAMI 2000
+  size_t nImages = _imagePoints.size();
 
-    Parameters params = getParameters();
+  cv::Mat A(nImages * 2, 2, CV_64F);
+  cv::Mat b(nImages * 2, 1, CV_64F);
 
-    params.k1() = 0.0;
-    params.k2() = 0.0;
-    params.p1() = 0.0;
-    params.p2() = 0.0;
+  for (size_t i = 0; i < nImages; ++i) {
+    const std::vector<cv::Point3f> & oPoints = _objectPoints.at(i);
 
-    double cx = params.imageWidth() / 2.0;
-    double cy = params.imageHeight() / 2.0;
-    params.cx() = cx;
-    params.cy() = cy;
-
-    size_t nImages = imagePoints.size();
-
-    cv::Mat A(nImages * 2, 2, CV_64F);
-    cv::Mat b(nImages * 2, 1, CV_64F);
-
-    for (size_t i = 0; i < nImages; ++i)
-    {
-        const std::vector<cv::Point3f>& oPoints = objectPoints.at(i);
-
-        std::vector<cv::Point2f> M(oPoints.size());
-        for (size_t j = 0; j < M.size(); ++j)
-        {
-            M.at(j) = cv::Point2f(oPoints.at(j).x, oPoints.at(j).y);
-        }
-
-        cv::Mat H = cv::findHomography(M, imagePoints.at(i));
-
-        H.at<double>(0,0) -= H.at<double>(2,0) * cx;
-        H.at<double>(0,1) -= H.at<double>(2,1) * cx;
-        H.at<double>(0,2) -= H.at<double>(2,2) * cx;
-        H.at<double>(1,0) -= H.at<double>(2,0) * cy;
-        H.at<double>(1,1) -= H.at<double>(2,1) * cy;
-        H.at<double>(1,2) -= H.at<double>(2,2) * cy;
-
-        double h[3], v[3], d1[3], d2[3];
-        double n[4] = {0,0,0,0};
-
-        for (int j = 0; j < 3; ++j)
-        {
-            double t0 = H.at<double>(j,0);
-            double t1 = H.at<double>(j,1);
-            h[j] = t0; v[j] = t1;
-            d1[j] = (t0 + t1) * 0.5;
-            d2[j] = (t0 - t1) * 0.5;
-            n[0] += t0 * t0; n[1] += t1 * t1;
-            n[2] += d1[j] * d1[j]; n[3] += d2[j] * d2[j];
-        }
-
-        for (int j = 0; j < 4; ++j)
-        {
-            n[j] = 1.0 / sqrt(n[j]);
-        }
-
-        for (int j = 0; j < 3; ++j)
-        {
-            h[j] *= n[0]; v[j] *= n[1];
-            d1[j] *= n[2]; d2[j] *= n[3];
-        }
-
-        A.at<double>(i * 2, 0) = h[0] * v[0];
-        A.at<double>(i * 2, 1) = h[1] * v[1];
-        A.at<double>(i * 2 + 1, 0) = d1[0] * d2[0];
-        A.at<double>(i * 2 + 1, 1) = d1[1] * d2[1];
-        b.at<double>(i * 2, 0) = -h[2] * v[2];
-        b.at<double>(i * 2 + 1, 0) = -d1[2] * d2[2];
+    std::vector<cv::Point2f> M(oPoints.size());
+    for (size_t j = 0; j < M.size(); ++j) {
+      M.at(j) = cv::Point2f(oPoints.at(j).x, oPoints.at(j).y);
     }
 
-    cv::Mat f(2, 1, CV_64F);
-    cv::solve(A, b, f, cv::DECOMP_NORMAL | cv::DECOMP_LU);
+    cv::Mat H = cv::findHomography(M, _imagePoints.at(i));
 
-    params.fx() = sqrt(fabs(1.0 / f.at<double>(0)));
-    params.fy() = sqrt(fabs(1.0 / f.at<double>(1)));
+    H.at<double>(0, 0) -= H.at<double>(2, 0) * cx;
+    H.at<double>(0, 1) -= H.at<double>(2, 1) * cx;
+    H.at<double>(0, 2) -= H.at<double>(2, 2) * cx;
+    H.at<double>(1, 0) -= H.at<double>(2, 0) * cy;
+    H.at<double>(1, 1) -= H.at<double>(2, 1) * cy;
+    H.at<double>(1, 2) -= H.at<double>(2, 2) * cy;
 
-    setParameters(params);
+    double h[3], v[3], d1[3], d2[3];
+    double n[4] = {0, 0, 0, 0};
+
+    for (int j = 0; j < 3; ++j) {
+      double t0 = H.at<double>(j, 0);
+      double t1 = H.at<double>(j, 1);
+      h[j] = t0;
+      v[j] = t1;
+      d1[j] = (t0 + t1) * 0.5;
+      d2[j] = (t0 - t1) * 0.5;
+      n[0] += t0 * t0;
+      n[1] += t1 * t1;
+      n[2] += d1[j] * d1[j];
+      n[3] += d2[j] * d2[j];
+    }
+
+    for (double & j : n) {
+      j = 1.0 / sqrt(j);
+    }
+
+    for (int j = 0; j < 3; ++j) {
+      h[j] *= n[0];
+      v[j] *= n[1];
+      d1[j] *= n[2];
+      d2[j] *= n[3];
+    }
+
+    A.at<double>(i * 2, 0) = h[0] * v[0];
+    A.at<double>(i * 2, 1) = h[1] * v[1];
+    A.at<double>(i * 2 + 1, 0) = d1[0] * d2[0];
+    A.at<double>(i * 2 + 1, 1) = d1[1] * d2[1];
+    b.at<double>(i * 2, 0) = -h[2] * v[2];
+    b.at<double>(i * 2 + 1, 0) = -d1[2] * d2[2];
+  }
+
+  cv::Mat f(2, 1, CV_64F);
+  cv::solve(A, b, f, cv::DECOMP_NORMAL | cv::DECOMP_LU);
+
+  params.fx() = sqrt(fabs(1.0 / f.at<double>(0)));
+  params.fy() = sqrt(fabs(1.0 / f.at<double>(1)));
+
+  setParameters(params);
 }
 
 /**
@@ -432,12 +293,11 @@ PinholeCamera::estimateIntrinsics(const cv::Size& boardSize,
  * \param p image coordinates
  * \param P coordinates of the point on the sphere
  */
-void
-PinholeCamera::liftSphere(const Eigen::Vector2d& p, Eigen::Vector3d& P) const
+void PinholeCamera::liftSphere(const Eigen::Vector2d & _p, Eigen::Vector3d & _P) const
 {
-    liftProjective(p, P);
+  liftProjective(_p, _P);
 
-    P.normalize();
+  _P.normalize();
 }
 
 /**
@@ -446,67 +306,59 @@ PinholeCamera::liftSphere(const Eigen::Vector2d& p, Eigen::Vector3d& P) const
  * \param p image coordinates
  * \param P coordinates of the projective ray
  */
-void
-PinholeCamera::liftProjective(const Eigen::Vector2d& p, Eigen::Vector3d& P) const
+void PinholeCamera::liftProjective(const Eigen::Vector2d & _p, Eigen::Vector3d & _P) const
 {
-    double mx_d, my_d,mx2_d, mxy_d, my2_d, mx_u, my_u;
-    double rho2_d, rho4_d, radDist_d, Dx_d, Dy_d, inv_denom_d;
-    //double lambda;
+  double mx_d, my_d, mx2_d, mxy_d, my2_d, mx_u, my_u;
+  double rho2_d, rho4_d, radDist_d, Dx_d, Dy_d, inv_denom_d;
+  //double lambda;
 
-    // Lift points to normalised plane
-    mx_d = m_inv_K11 * p(0) + m_inv_K13;
-    my_d = m_inv_K22 * p(1) + m_inv_K23;
+  // Lift points to normalised plane
+  mx_d = m_inv_K11_ * _p(0) + m_inv_K13_;
+  my_d = m_inv_K22_ * _p(1) + m_inv_K23_;
 
-    if (m_noDistortion)
-    {
-        mx_u = mx_d;
-        my_u = my_d;
+  if (m_noDistortion_) {
+    mx_u = mx_d;
+    my_u = my_d;
+  } else {
+    if (0) {
+      double k1 = mParameters_.k1();
+      double k2 = mParameters_.k2();
+      double p1 = mParameters_.p1();
+      double p2 = mParameters_.p2();
+
+      // Apply inverse distortion model
+      // proposed by Heikkila
+      mx2_d = mx_d * mx_d;
+      my2_d = my_d * my_d;
+      mxy_d = mx_d * my_d;
+      rho2_d = mx2_d + my2_d;
+      rho4_d = rho2_d * rho2_d;
+      radDist_d = k1 * rho2_d + k2 * rho4_d;
+      Dx_d = mx_d * radDist_d + p2 * (rho2_d + 2 * mx2_d) + 2 * p1 * mxy_d;
+      Dy_d = my_d * radDist_d + p1 * (rho2_d + 2 * my2_d) + 2 * p2 * mxy_d;
+      inv_denom_d = 1 / (1 + 4 * k1 * rho2_d + 6 * k2 * rho4_d + 8 * p1 * my_d + 8 * p2 * mx_d);
+
+      mx_u = mx_d - inv_denom_d * Dx_d;
+      my_u = my_d - inv_denom_d * Dy_d;
+    } else {
+      // Recursive distortion model
+      int n = 8;
+      Eigen::Vector2d d_u;
+      distortion(Eigen::Vector2d(mx_d, my_d), d_u);
+      // Approximate value
+      mx_u = mx_d - d_u(0);
+      my_u = my_d - d_u(1);
+
+      for (int i = 1; i < n; ++i) {
+        distortion(Eigen::Vector2d(mx_u, my_u), d_u);
+        mx_u = mx_d - d_u(0);
+        my_u = my_d - d_u(1);
+      }
     }
-    else
-    {
-        if (0)
-        {
-            double k1 = mParameters.k1();
-            double k2 = mParameters.k2();
-            double p1 = mParameters.p1();
-            double p2 = mParameters.p2();
+  }
 
-            // Apply inverse distortion model
-            // proposed by Heikkila
-            mx2_d = mx_d*mx_d;
-            my2_d = my_d*my_d;
-            mxy_d = mx_d*my_d;
-            rho2_d = mx2_d+my2_d;
-            rho4_d = rho2_d*rho2_d;
-            radDist_d = k1*rho2_d+k2*rho4_d;
-            Dx_d = mx_d*radDist_d + p2*(rho2_d+2*mx2_d) + 2*p1*mxy_d;
-            Dy_d = my_d*radDist_d + p1*(rho2_d+2*my2_d) + 2*p2*mxy_d;
-            inv_denom_d = 1/(1+4*k1*rho2_d+6*k2*rho4_d+8*p1*my_d+8*p2*mx_d);
-
-            mx_u = mx_d - inv_denom_d*Dx_d;
-            my_u = my_d - inv_denom_d*Dy_d;
-        }
-        else
-        {
-            // Recursive distortion model
-            int n = 8;
-            Eigen::Vector2d d_u;
-            distortion(Eigen::Vector2d(mx_d, my_d), d_u);
-            // Approximate value
-            mx_u = mx_d - d_u(0);
-            my_u = my_d - d_u(1);
-
-            for (int i = 1; i < n; ++i)
-            {
-                distortion(Eigen::Vector2d(mx_u, my_u), d_u);
-                mx_u = mx_d - d_u(0);
-                my_u = my_d - d_u(1);
-            }
-        }
-    }
-
-    // Obtain a projective ray
-    P << mx_u, my_u, 1.0;
+  // Obtain a projective ray
+  _P << mx_u, my_u, 1.0;
 }
 
 
@@ -516,29 +368,24 @@ PinholeCamera::liftProjective(const Eigen::Vector2d& p, Eigen::Vector3d& P) cons
  * \param P 3D point coordinates
  * \param p return value, contains the image point coordinates
  */
-void
-PinholeCamera::spaceToPlane(const Eigen::Vector3d& P, Eigen::Vector2d& p) const
+void PinholeCamera::spaceToPlane(const Eigen::Vector3d & _P, Eigen::Vector2d & _p) const
 {
-    Eigen::Vector2d p_u, p_d;
+  Eigen::Vector2d p_u, p_d;
 
-    // Project points to the normalised plane
-    p_u << P(0) / P(2), P(1) / P(2);
+  // Project points to the normalised plane
+  p_u << _P(0) / _P(2), _P(1) / _P(2);
 
-    if (m_noDistortion)
-    {
-        p_d = p_u;
-    }
-    else
-    {
-        // Apply distortion
-        Eigen::Vector2d d_u;
-        distortion(p_u, d_u);
-        p_d = p_u + d_u;
-    }
+  if (m_noDistortion_) {
+    p_d = p_u;
+  } else {
+    // Apply distortion
+    Eigen::Vector2d d_u;
+    distortion(p_u, d_u);
+    p_d = p_u + d_u;
+  }
 
-    // Apply generalised projection matrix
-    p << mParameters.fx() * p_d(0) + mParameters.cx(),
-         mParameters.fy() * p_d(1) + mParameters.cy();
+  // Apply generalised projection matrix
+  _p << mParameters_.fx() * p_d(0) + mParameters_.cx(), mParameters_.fy() * p_d(1) + mParameters_.cy();
 }
 
 #if 0
@@ -614,26 +461,21 @@ PinholeCamera::spaceToPlane(const Eigen::Vector3d& P, Eigen::Vector2d& p,
  * \param p_u 2D point coordinates
  * \return image point coordinates
  */
-void
-PinholeCamera::undistToPlane(const Eigen::Vector2d& p_u, Eigen::Vector2d& p) const
+void PinholeCamera::undistToPlane(const Eigen::Vector2d & _p_u, Eigen::Vector2d & _p) const
 {
-    Eigen::Vector2d p_d;
+  Eigen::Vector2d p_d;
 
-    if (m_noDistortion)
-    {
-        p_d = p_u;
-    }
-    else
-    {
-        // Apply distortion
-        Eigen::Vector2d d_u;
-        distortion(p_u, d_u);
-        p_d = p_u + d_u;
-    }
+  if (m_noDistortion_) {
+    p_d = _p_u;
+  } else {
+    // Apply distortion
+    Eigen::Vector2d d_u;
+    distortion(_p_u, d_u);
+    p_d = _p_u + d_u;
+  }
 
-    // Apply generalised projection matrix
-    p << mParameters.fx() * p_d(0) + mParameters.cx(),
-         mParameters.fy() * p_d(1) + mParameters.cy();
+  // Apply generalised projection matrix
+  _p << mParameters_.fx() * p_d(0) + mParameters_.cx(), mParameters_.fy() * p_d(1) + mParameters_.cy();
 }
 
 /**
@@ -642,23 +484,22 @@ PinholeCamera::undistToPlane(const Eigen::Vector2d& p_u, Eigen::Vector2d& p) con
  * \param p_u undistorted coordinates of point on the normalised plane
  * \return to obtain the distorted point: p_d = p_u + d_u
  */
-void
-PinholeCamera::distortion(const Eigen::Vector2d& p_u, Eigen::Vector2d& d_u) const
+void PinholeCamera::distortion(const Eigen::Vector2d & _p_u, Eigen::Vector2d & _d_u) const
 {
-    double k1 = mParameters.k1();
-    double k2 = mParameters.k2();
-    double p1 = mParameters.p1();
-    double p2 = mParameters.p2();
+  double k1 = mParameters_.k1();
+  double k2 = mParameters_.k2();
+  double p1 = mParameters_.p1();
+  double p2 = mParameters_.p2();
 
-    double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
+  double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
 
-    mx2_u = p_u(0) * p_u(0);
-    my2_u = p_u(1) * p_u(1);
-    mxy_u = p_u(0) * p_u(1);
-    rho2_u = mx2_u + my2_u;
-    rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
-    d_u << p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
-           p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
+  mx2_u = _p_u(0) * _p_u(0);
+  my2_u = _p_u(1) * _p_u(1);
+  mxy_u = _p_u(0) * _p_u(1);
+  rho2_u = mx2_u + my2_u;
+  rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
+  _d_u << _p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
+    _p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
 }
 
 /**
@@ -668,214 +509,174 @@ PinholeCamera::distortion(const Eigen::Vector2d& p_u, Eigen::Vector2d& d_u) cons
  * \param p_u undistorted coordinates of point on the normalised plane
  * \return to obtain the distorted point: p_d = p_u + d_u
  */
-void
-PinholeCamera::distortion(const Eigen::Vector2d& p_u, Eigen::Vector2d& d_u,
-                          Eigen::Matrix2d& J) const
+void PinholeCamera::distortion(const Eigen::Vector2d & _p_u, Eigen::Vector2d & _d_u, Eigen::Matrix2d & _J) const
 {
-    double k1 = mParameters.k1();
-    double k2 = mParameters.k2();
-    double p1 = mParameters.p1();
-    double p2 = mParameters.p2();
+  double k1 = mParameters_.k1();
+  double k2 = mParameters_.k2();
+  double p1 = mParameters_.p1();
+  double p2 = mParameters_.p2();
 
-    double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
+  double mx2_u, my2_u, mxy_u, rho2_u, rad_dist_u;
 
-    mx2_u = p_u(0) * p_u(0);
-    my2_u = p_u(1) * p_u(1);
-    mxy_u = p_u(0) * p_u(1);
-    rho2_u = mx2_u + my2_u;
-    rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
-    d_u << p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
-           p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
+  mx2_u = _p_u(0) * _p_u(0);
+  my2_u = _p_u(1) * _p_u(1);
+  mxy_u = _p_u(0) * _p_u(1);
+  rho2_u = mx2_u + my2_u;
+  rad_dist_u = k1 * rho2_u + k2 * rho2_u * rho2_u;
+  _d_u << _p_u(0) * rad_dist_u + 2.0 * p1 * mxy_u + p2 * (rho2_u + 2.0 * mx2_u),
+    _p_u(1) * rad_dist_u + 2.0 * p2 * mxy_u + p1 * (rho2_u + 2.0 * my2_u);
 
-    double dxdmx = 1.0 + rad_dist_u + k1 * 2.0 * mx2_u + k2 * rho2_u * 4.0 * mx2_u + 2.0 * p1 * p_u(1) + 6.0 * p2 * p_u(0);
-    double dydmx = k1 * 2.0 * p_u(0) * p_u(1) + k2 * 4.0 * rho2_u * p_u(0) * p_u(1) + p1 * 2.0 * p_u(0) + 2.0 * p2 * p_u(1);
-    double dxdmy = dydmx;
-    double dydmy = 1.0 + rad_dist_u + k1 * 2.0 * my2_u + k2 * rho2_u * 4.0 * my2_u + 6.0 * p1 * p_u(1) + 2.0 * p2 * p_u(0);
+  double dxdmx =
+    1.0 + rad_dist_u + k1 * 2.0 * mx2_u + k2 * rho2_u * 4.0 * mx2_u + 2.0 * p1 * _p_u(1) + 6.0 * p2 * _p_u(0);
+  double dydmx = k1 * 2.0 * _p_u(0) * _p_u(1) + k2 * 4.0 * rho2_u * _p_u(0) * _p_u(1) + p1 * 2.0 * _p_u(0) +
+                 2.0 * p2 * _p_u(1);
+  double dxdmy = dydmx;
+  double dydmy =
+    1.0 + rad_dist_u + k1 * 2.0 * my2_u + k2 * rho2_u * 4.0 * my2_u + 6.0 * p1 * _p_u(1) + 2.0 * p2 * _p_u(0);
 
-    J << dxdmx, dxdmy,
-         dydmx, dydmy;
+  _J << dxdmx, dxdmy, dydmx, dydmy;
 }
 
-void
-PinholeCamera::initUndistortMap(cv::Mat& map1, cv::Mat& map2, double fScale) const
+void PinholeCamera::initUndistortMap(cv::Mat & _map1, cv::Mat & _map2, double _fScale) const
 {
-    cv::Size imageSize(mParameters.imageWidth(), mParameters.imageHeight());
+  cv::Size imageSize(mParameters_.imageWidth(), mParameters_.imageHeight());
 
-    cv::Mat mapX = cv::Mat::zeros(imageSize, CV_32F);
-    cv::Mat mapY = cv::Mat::zeros(imageSize, CV_32F);
+  cv::Mat mapX = cv::Mat::zeros(imageSize, CV_32F);
+  cv::Mat mapY = cv::Mat::zeros(imageSize, CV_32F);
 
-    for (int v = 0; v < imageSize.height; ++v)
-    {
-        for (int u = 0; u < imageSize.width; ++u)
-        {
-            double mx_u = m_inv_K11 / fScale * u + m_inv_K13 / fScale;
-            double my_u = m_inv_K22 / fScale * v + m_inv_K23 / fScale;
+  for (int v = 0; v < imageSize.height; ++v) {
+    for (int u = 0; u < imageSize.width; ++u) {
+      double mx_u = m_inv_K11_ / _fScale * u + m_inv_K13_ / _fScale;
+      double my_u = m_inv_K22_ / _fScale * v + m_inv_K23_ / _fScale;
 
-            Eigen::Vector3d P;
-            P << mx_u, my_u, 1.0;
+      Eigen::Vector3d P;
+      P << mx_u, my_u, 1.0;
 
-            Eigen::Vector2d p;
-            spaceToPlane(P, p);
+      Eigen::Vector2d p;
+      spaceToPlane(P, p);
 
-            mapX.at<float>(v,u) = p(0);
-            mapY.at<float>(v,u) = p(1);
-        }
+      mapX.at<float>(v, u) = p(0);
+      mapY.at<float>(v, u) = p(1);
     }
+  }
 
-    cv::convertMaps(mapX, mapY, map1, map2, CV_32FC1, false);
+  cv::convertMaps(mapX, mapY, _map1, _map2, CV_32FC1, false);
 }
 
-cv::Mat
-PinholeCamera::initUndistortRectifyMap(cv::Mat& map1, cv::Mat& map2,
-                                       float fx, float fy,
-                                       cv::Size imageSize,
-                                       float cx, float cy,
-                                       cv::Mat rmat) const
+cv::Mat PinholeCamera::initUndistortRectifyMap(
+  cv::Mat & _map1, cv::Mat & _map2, float _fx, float _fy, cv::Size _imageSize, float _cx, float _cy,
+  cv::Mat _rmat) const
 {
-    if (imageSize == cv::Size(0, 0))
-    {
-        imageSize = cv::Size(mParameters.imageWidth(), mParameters.imageHeight());
+  if (_imageSize == cv::Size(0, 0)) {
+    _imageSize = cv::Size(mParameters_.imageWidth(), mParameters_.imageHeight());
+  }
+
+  cv::Mat mapX = cv::Mat::zeros(_imageSize.height, _imageSize.width, CV_32F);
+  cv::Mat mapY = cv::Mat::zeros(_imageSize.height, _imageSize.width, CV_32F);
+
+  Eigen::Matrix3f R, R_inv;
+  cv::cv2eigen(_rmat, R);
+  R_inv = R.inverse();
+
+  // assume no skew
+  Eigen::Matrix3f K_rect;
+
+  if (_cx == -1.0f || _cy == -1.0f) {
+    K_rect << _fx, 0, _imageSize.width / 2, 0, _fy, _imageSize.height / 2, 0, 0, 1;
+  } else {
+    K_rect << _fx, 0, _cx, 0, _fy, _cy, 0, 0, 1;
+  }
+
+  if (_fx == -1.0f || _fy == -1.0f) {
+    K_rect(0, 0) = mParameters_.fx();
+    K_rect(1, 1) = mParameters_.fy();
+  }
+
+  Eigen::Matrix3f K_rect_inv = K_rect.inverse();
+
+  for (int v = 0; v < _imageSize.height; ++v) {
+    for (int u = 0; u < _imageSize.width; ++u) {
+      Eigen::Vector3f xo;
+      xo << u, v, 1;
+
+      Eigen::Vector3f uo = R_inv * K_rect_inv * xo;
+
+      Eigen::Vector2d p;
+      spaceToPlane(uo.cast<double>(), p);
+
+      mapX.at<float>(v, u) = p(0);
+      mapY.at<float>(v, u) = p(1);
     }
+  }
 
-    cv::Mat mapX = cv::Mat::zeros(imageSize.height, imageSize.width, CV_32F);
-    cv::Mat mapY = cv::Mat::zeros(imageSize.height, imageSize.width, CV_32F);
+  cv::convertMaps(mapX, mapY, _map1, _map2, CV_32FC1, false);
 
-    Eigen::Matrix3f R, R_inv;
-    cv::cv2eigen(rmat, R);
-    R_inv = R.inverse();
-
-    // assume no skew
-    Eigen::Matrix3f K_rect;
-
-    if (cx == -1.0f || cy == -1.0f)
-    {
-        K_rect << fx, 0, imageSize.width / 2,
-                  0, fy, imageSize.height / 2,
-                  0, 0, 1;
-    }
-    else
-    {
-        K_rect << fx, 0, cx,
-                  0, fy, cy,
-                  0, 0, 1;
-    }
-
-    if (fx == -1.0f || fy == -1.0f)
-    {
-        K_rect(0,0) = mParameters.fx();
-        K_rect(1,1) = mParameters.fy();
-    }
-
-    Eigen::Matrix3f K_rect_inv = K_rect.inverse();
-
-    for (int v = 0; v < imageSize.height; ++v)
-    {
-        for (int u = 0; u < imageSize.width; ++u)
-        {
-            Eigen::Vector3f xo;
-            xo << u, v, 1;
-
-            Eigen::Vector3f uo = R_inv * K_rect_inv * xo;
-
-            Eigen::Vector2d p;
-            spaceToPlane(uo.cast<double>(), p);
-
-            mapX.at<float>(v,u) = p(0);
-            mapY.at<float>(v,u) = p(1);
-        }
-    }
-
-    cv::convertMaps(mapX, mapY, map1, map2, CV_32FC1, false);
-
-    cv::Mat K_rect_cv;
-    cv::eigen2cv(K_rect, K_rect_cv);
-    return K_rect_cv;
+  cv::Mat K_rect_cv;
+  cv::eigen2cv(K_rect, K_rect_cv);
+  return K_rect_cv;
 }
 
-int
-PinholeCamera::parameterCount(void) const
+int PinholeCamera::parameterCount() const { return 8; }
+
+const PinholeCamera::Parameters & PinholeCamera::getParameters() const { return mParameters_; }
+
+void PinholeCamera::setParameters(const PinholeCamera::Parameters & _parameters)
 {
-    return 8;
+  mParameters_ = _parameters;
+
+  m_noDistortion_ = (mParameters_.k1() == 0.0) && (mParameters_.k2() == 0.0) && (mParameters_.p1() == 0.0) &&
+                    (mParameters_.p2() == 0.0);
+
+  m_inv_K11_ = 1.0 / mParameters_.fx();
+  m_inv_K13_ = -mParameters_.cx() / mParameters_.fx();
+  m_inv_K22_ = 1.0 / mParameters_.fy();
+  m_inv_K23_ = -mParameters_.cy() / mParameters_.fy();
 }
 
-const PinholeCamera::Parameters&
-PinholeCamera::getParameters(void) const
+void PinholeCamera::readParameters(const std::vector<double> & _parameterVec)
 {
-    return mParameters;
+  if ((int)_parameterVec.size() != parameterCount()) {
+    return;
+  }
+
+  Parameters params = getParameters();
+
+  params.k1() = _parameterVec.at(0);
+  params.k2() = _parameterVec.at(1);
+  params.p1() = _parameterVec.at(2);
+  params.p2() = _parameterVec.at(3);
+  params.fx() = _parameterVec.at(4);
+  params.fy() = _parameterVec.at(5);
+  params.cx() = _parameterVec.at(6);
+  params.cy() = _parameterVec.at(7);
+
+  setParameters(params);
 }
 
-void
-PinholeCamera::setParameters(const PinholeCamera::Parameters& parameters)
+void PinholeCamera::writeParameters(std::vector<double> & _parameterVec) const
 {
-    mParameters = parameters;
-
-    if ((mParameters.k1() == 0.0) &&
-        (mParameters.k2() == 0.0) &&
-        (mParameters.p1() == 0.0) &&
-        (mParameters.p2() == 0.0))
-    {
-        m_noDistortion = true;
-    }
-    else
-    {
-        m_noDistortion = false;
-    }
-
-    m_inv_K11 = 1.0 / mParameters.fx();
-    m_inv_K13 = -mParameters.cx() / mParameters.fx();
-    m_inv_K22 = 1.0 / mParameters.fy();
-    m_inv_K23 = -mParameters.cy() / mParameters.fy();
+  _parameterVec.resize(parameterCount());
+  _parameterVec.at(0) = mParameters_.k1();
+  _parameterVec.at(1) = mParameters_.k2();
+  _parameterVec.at(2) = mParameters_.p1();
+  _parameterVec.at(3) = mParameters_.p2();
+  _parameterVec.at(4) = mParameters_.fx();
+  _parameterVec.at(5) = mParameters_.fy();
+  _parameterVec.at(6) = mParameters_.cx();
+  _parameterVec.at(7) = mParameters_.cy();
 }
 
-void
-PinholeCamera::readParameters(const std::vector<double>& parameterVec)
+void PinholeCamera::writeParametersToYamlFile(const std::string & _filename) const
 {
-    if ((int)parameterVec.size() != parameterCount())
-    {
-        return;
-    }
-
-    Parameters params = getParameters();
-
-    params.k1() = parameterVec.at(0);
-    params.k2() = parameterVec.at(1);
-    params.p1() = parameterVec.at(2);
-    params.p2() = parameterVec.at(3);
-    params.fx() = parameterVec.at(4);
-    params.fy() = parameterVec.at(5);
-    params.cx() = parameterVec.at(6);
-    params.cy() = parameterVec.at(7);
-
-    setParameters(params);
+  mParameters_.writeToYamlFile(_filename);
 }
 
-void
-PinholeCamera::writeParameters(std::vector<double>& parameterVec) const
+std::string PinholeCamera::parametersToString() const
 {
-    parameterVec.resize(parameterCount());
-    parameterVec.at(0) = mParameters.k1();
-    parameterVec.at(1) = mParameters.k2();
-    parameterVec.at(2) = mParameters.p1();
-    parameterVec.at(3) = mParameters.p2();
-    parameterVec.at(4) = mParameters.fx();
-    parameterVec.at(5) = mParameters.fy();
-    parameterVec.at(6) = mParameters.cx();
-    parameterVec.at(7) = mParameters.cy();
+  std::ostringstream oss;
+  oss << mParameters_;
+
+  return oss.str();
 }
 
-void
-PinholeCamera::writeParametersToYamlFile(const std::string& filename) const
-{
-    mParameters.writeToYamlFile(filename);
-}
-
-std::string
-PinholeCamera::parametersToString(void) const
-{
-    std::ostringstream oss;
-    oss << mParameters;
-
-    return oss.str();
-}
-
-}
+} // namespace camodocal

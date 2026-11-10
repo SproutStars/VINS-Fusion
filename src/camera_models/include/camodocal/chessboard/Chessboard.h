@@ -13,74 +13,67 @@ typedef boost::shared_ptr<ChessboardCorner> ChessboardCornerPtr;
 class ChessboardQuad;
 typedef boost::shared_ptr<ChessboardQuad> ChessboardQuadPtr;
 
-class Chessboard
-{
+class Chessboard {
 public:
-    Chessboard(cv::Size boardSize, cv::Mat& image);
+  Chessboard(cv::Size _boardSize, cv::Mat & _image);
 
-    void findCorners(bool useOpenCV = false);
-    const std::vector<cv::Point2f>& getCorners(void) const;
-    bool cornersFound(void) const;
+  void findCorners(bool _useOpenCV = false);
+  const std::vector<cv::Point2f> & getCorners() const;
+  bool cornersFound() const;
 
-    const cv::Mat& getImage(void) const;
-    const cv::Mat& getSketch(void) const;
+  const cv::Mat & getImage() const;
+  const cv::Mat & getSketch() const;
 
 private:
-    bool findChessboardCorners(const cv::Mat& image,
-                               const cv::Size& patternSize,
-                               std::vector<cv::Point2f>& corners,
-                               int flags, bool useOpenCV);
+  bool findChessboardCorners(
+    const cv::Mat & _image, const cv::Size & _patternSize, std::vector<cv::Point2f> & _corners, int _flags,
+    bool _useOpenCV);
 
-    bool findChessboardCornersImproved(const cv::Mat& image,
-                                       const cv::Size& patternSize,
-                                       std::vector<cv::Point2f>& corners,
-                                       int flags);
+  bool findChessboardCornersImproved(
+    const cv::Mat & _image, const cv::Size & _patternSize, std::vector<cv::Point2f> & _corners, int _flags);
 
-    void cleanFoundConnectedQuads(std::vector<ChessboardQuadPtr>& quadGroup, cv::Size patternSize);
+  void cleanFoundConnectedQuads(std::vector<ChessboardQuadPtr> & _quadGroup, cv::Size _patternSize);
 
-    void findConnectedQuads(std::vector<ChessboardQuadPtr>& quads,
-                            std::vector<ChessboardQuadPtr>& group,
-                            int group_idx, int dilation);
+  void findConnectedQuads(
+    std::vector<ChessboardQuadPtr> & _quads, std::vector<ChessboardQuadPtr> & _group, int _group_idx,
+    int _dilation);
 
-//    int checkQuadGroup(std::vector<ChessboardQuadPtr>& quadGroup,
-//                       std::vector<ChessboardCornerPtr>& outCorners,
-//                       cv::Size patternSize);
+  //    int checkQuadGroup(std::vector<ChessboardQuadPtr>& quadGroup,
+  //                       std::vector<ChessboardCornerPtr>& outCorners,
+  //                       cv::Size patternSize);
 
-    void labelQuadGroup(std::vector<ChessboardQuadPtr>& quad_group,
-                        cv::Size patternSize, bool firstRun);
+  void labelQuadGroup(std::vector<ChessboardQuadPtr> & _quad_group, cv::Size _patternSize, bool _firstRun);
 
-    void findQuadNeighbors(std::vector<ChessboardQuadPtr>& quads, int dilation);
+  void findQuadNeighbors(std::vector<ChessboardQuadPtr> & _quads, int _dilation);
 
-    int augmentBestRun(std::vector<ChessboardQuadPtr>& candidateQuads, int candidateDilation,
-                       std::vector<ChessboardQuadPtr>& existingQuads, int existingDilation);
+  int augmentBestRun(
+    std::vector<ChessboardQuadPtr> & _candidateQuads, int _candidateDilation,
+    std::vector<ChessboardQuadPtr> & _existingQuads, int _existingDilation);
 
-    void generateQuads(std::vector<ChessboardQuadPtr>& quads,
-                       cv::Mat& image, int flags,
-                       int dilation, bool firstRun);
+  void generateQuads(
+    std::vector<ChessboardQuadPtr> & _quads, cv::Mat & _image, int _flags, int _dilation, bool _firstRun);
 
-    bool checkQuadGroup(std::vector<ChessboardQuadPtr>& quads,
-                        std::vector<ChessboardCornerPtr>& corners,
-                        cv::Size patternSize);
+  bool checkQuadGroup(
+    std::vector<ChessboardQuadPtr> & _quads, std::vector<ChessboardCornerPtr> & _corners,
+    cv::Size _patternSize) const;
 
-    void getQuadrangleHypotheses(const std::vector< std::vector<cv::Point> >& contours,
-                                 std::vector< std::pair<float, int> >& quads,
-                                 int classId) const;
+  void getQuadrangleHypotheses(
+    const std::vector<std::vector<cv::Point>> & _contours, std::vector<std::pair<float, int>> & _quads,
+    int _classId) const;
 
-    bool checkChessboard(const cv::Mat& image, cv::Size patternSize) const;
+  bool checkChessboard(const cv::Mat & _image, cv::Size _patternSize) const;
 
-    bool checkBoardMonotony(std::vector<ChessboardCornerPtr>& corners,
-                            cv::Size patternSize);
+  bool checkBoardMonotony(std::vector<ChessboardCornerPtr> & _corners, cv::Size _patternSize);
 
-    bool matchCorners(ChessboardQuadPtr& quad1, int corner1,
-                      ChessboardQuadPtr& quad2, int corner2) const;
+  bool matchCorners(ChessboardQuadPtr & _quad1, int _corner1, ChessboardQuadPtr & _quad2, int _corner2) const;
 
-    cv::Mat mImage;
-    cv::Mat mSketch;
-    std::vector<cv::Point2f> mCorners;
-    cv::Size mBoardSize;
-    bool mCornersFound;
+  cv::Mat mImage_;
+  cv::Mat mSketch_;
+  std::vector<cv::Point2f> mCorners_;
+  cv::Size mBoardSize_;
+  bool mCornersFound_;
 };
 
-}
+} // namespace camodocal
 
 #endif

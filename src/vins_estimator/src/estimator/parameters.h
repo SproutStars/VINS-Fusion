@@ -9,14 +9,14 @@
 
 #pragma once
 
-#include <vins_common/ros_utils.hpp>
-#include <vector>
-#include <eigen3/Eigen/Dense>
 #include "../utility/utility.h"
-#include <opencv2/opencv.hpp>
-#include <opencv2/core/eigen.hpp>
+#include <eigen3/Eigen/Dense>
 #include <fstream>
 #include <map>
+#include <opencv2/core/eigen.hpp>
+#include <opencv2/opencv.hpp>
+#include <vector>
+#include <vins_common/ros_utils.hpp>
 
 using namespace std;
 
@@ -55,7 +55,7 @@ extern int MULTIPLE_THREAD;
 extern double BACKEND_FREQ;
 extern int MAX_FEATURE_QUEUE;
 // pts_gt for debug purpose;
-extern map<int, Eigen::Vector3d> pts_gt;
+extern map<int, Eigen::Vector3d> PTS_GT;
 
 extern std::string IMAGE0_TOPIC, IMAGE1_TOPIC;
 extern std::string FISHEYE_MASK;
@@ -211,28 +211,16 @@ extern double SCHUR_LANDING_ZUPT_EXIT_ACCEL_DEV;
 extern double SCHUR_LANDING_ZUPT_SIGMA;
 extern int SCHUR_LANDING_ZUPT_UPDATE_LOG_INTERVAL;
 
-void readParameters(std::string config_file, const std::string &output_path = "");
+void readParameters(std::string _config_file, const std::string & _output_path = "");
 
-enum SIZE_PARAMETERIZATION
-{
-    SIZE_POSE = 7,
-    SIZE_SPEEDBIAS = 9,
-    SIZE_FEATURE = 1
-};
+// Keep the existing enum representation for interface compatibility.
+// NOLINTNEXTLINE(performance-enum-size)
+enum SizeParameterization_e : unsigned int { SIZE_POSE = 7, SIZE_SPEEDBIAS = 9, SIZE_FEATURE = 1 };
 
-enum StateOrder
-{
-    O_P = 0,
-    O_R = 3,
-    O_V = 6,
-    O_BA = 9,
-    O_BG = 12
-};
+// Keep the existing enum representation for interface compatibility.
+// NOLINTNEXTLINE(performance-enum-size)
+enum StateOrder_e : unsigned int { O_P = 0, O_R = 3, O_V = 6, O_BA = 9, O_BG = 12 };
 
-enum NoiseOrder
-{
-    O_AN = 0,
-    O_GN = 3,
-    O_AW = 6,
-    O_GW = 9
-};
+// Keep the existing enum representation for interface compatibility.
+// NOLINTNEXTLINE(performance-enum-size)
+enum NoiseOrder_e : unsigned int { O_AN = 0, O_GN = 3, O_AW = 6, O_GW = 9 };
