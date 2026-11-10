@@ -80,80 +80,74 @@ float pointDistanceSquared(const cv::Point2f &a, const cv::Point2f &b)
     const float dy = a.y - b.y;
     return dx * dx + dy * dy;
 }
+
+}  // namespace
+
 // Coarse detection followed by full-resolution refinement. Like OpenVINS'
 // downsampling / refinement and SchurVINS' pyramid-level detection, this avoids
 // computing a full-resolution corner response. Tracking and calibration stay
 // in original pixel coordinates. It is opt-in because the selected points differ.
-void detectPyramidFeatures(
-    const cv::Mat &img, const cv::Mat &mask, int max_features,
-    vector<cv::Point2f> &points, const cv::Mat &half_image)
+void FeatureTracker::detectPyramidFeatures(
+  const cv::Mat & _img, const cv::Mat & _mask, int _max_features, vector<cv::Point2f> & _points,
+  const cv::Mat & _half_image)
 {
-    if (img.cols < 24 || img.rows < 24)
-    {
-        cv::goodFeaturesToTrack(img, points, max_features, 0.01, MIN_DIST, mask);
-        return;
+  if (_img.cols < 24 || _img.rows < 24) {
+    cv::goodFeaturesToTrack(_img, _points, _max_features, 0.01, MIN_DIST, _mask);
+    return;
+  }
+  cv::Mat detection_half_image;
+  cv::Mat coarse = _half_image;
+  if (coarse.empty()) {
+    cv::pyrDown(_img, detection_half_image);
+    coarse = detection_half_image;
+  }
+  CV_Assert(
+    coarse.type() == CV_8UC1 && coarse.cols == (_img.cols + 1) / 2 && coarse.rows == (_img.rows + 1) / 2);
+  // pyrDown samples (2*x, 2*y), including odd image sizes. INTER_NEAREST
+  // resize would shift this mapping on odd sizes; explicitly sample instead.
+  // The scratch buffer is reused across detections to avoid a per-frame
+  // allocation of the half-resolution mask.
+  cv::Mat coarse_mask;
+  if (!_mask.empty()) {
+    CV_Assert(_mask.type() == CV_8UC1 && _mask.size() == _img.size());
+    detection_half_mask_scratch_.create(coarse.size(), CV_8UC1);
+    for (int y = 0; y < coarse.rows; ++y) {
+      const uchar * source = _mask.ptr<uchar>(2 * y);
+      uchar * target = detection_half_mask_scratch_.ptr<uchar>(y);
+      for (int x = 0; x < coarse.cols; ++x)
+        target[x] = source[2 * x];
     }
-    cv::Mat detection_half_image;
-    cv::Mat detection_half_mask;
-    cv::Mat coarse = half_image;
-    if (coarse.empty())
-    {
-        cv::pyrDown(img, detection_half_image);
-        coarse = detection_half_image;
-    }
-    CV_Assert(coarse.type() == CV_8UC1 &&
-              coarse.cols == (img.cols + 1) / 2 &&
-              coarse.rows == (img.rows + 1) / 2);
-    // pyrDown samples (2*x, 2*y), including odd image sizes. INTER_NEAREST
-    // resize would shift this mapping on odd sizes; explicitly sample instead.
-    cv::Mat coarse_mask;
-    if (!mask.empty())
-    {
-        CV_Assert(mask.type() == CV_8UC1 && mask.size() == img.size());
-        detection_half_mask.create(coarse.size(), CV_8UC1);
-        for (int y = 0; y < coarse.rows; ++y)
-        {
-            const uchar *source = mask.ptr<uchar>(2 * y);
-            uchar *target = detection_half_mask.ptr<uchar>(y);
-            for (int x = 0; x < coarse.cols; ++x)
-                target[x] = source[2 * x];
-        }
-        coarse_mask = detection_half_mask;
-    }
-    vector<cv::Point2f> candidates;
-    cv::goodFeaturesToTrack(coarse, candidates, max_features, 0.01,
-                            std::max(1.0, MIN_DIST * 0.5), coarse_mask);
-    for (auto &point : candidates)
-        point *= 2.0f;
-    if (candidates.empty())
-        return;
-    cv::cornerSubPix(img, candidates, cv::Size(5, 5), cv::Size(-1, -1),
-                    cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS,
-                                     20, 0.01));
-    // Refinement can cross a mask boundary or reduce the spacing. Validate in
-    // full-resolution coordinates before assigning IDs or adding observations.
-    const float min_dist_sq = static_cast<float>(MIN_DIST) * MIN_DIST;
-    for (const auto &point : candidates)
-    {
-        if (!std::isfinite(point.x) || !std::isfinite(point.y) ||
-            point.x < 1 || point.y < 1 ||
-            point.x >= img.cols - 1 || point.y >= img.rows - 1)
-            continue;
-        if (!mask.empty() && mask.at<uchar>(cvRound(point.y), cvRound(point.x)) == 0)
-            continue;
-        bool separated = true;
-        for (const auto &accepted : points)
-            if (pointDistanceSquared(point, accepted) < min_dist_sq)
-            {
-                separated = false;
-                break;
-            }
-        if (separated)
-            points.push_back(point);
-    }
+    coarse_mask = detection_half_mask_scratch_;
+  }
+  vector<cv::Point2f> candidates;
+  cv::goodFeaturesToTrack(coarse, candidates, _max_features, 0.01, std::max(1.0, MIN_DIST * 0.5), coarse_mask);
+  for (auto & point : candidates)
+    point *= 2.0f;
+  if (candidates.empty())
+    return;
+  cv::cornerSubPix(
+    _img, candidates, cv::Size(5, 5), cv::Size(-1, -1),
+    cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 20, 0.01));
+  // Refinement can cross a mask boundary or reduce the spacing. Validate in
+  // full-resolution coordinates before assigning IDs or adding observations.
+  const float min_dist_sq = static_cast<float>(MIN_DIST) * MIN_DIST;
+  for (const auto & point : candidates) {
+    if (
+      !std::isfinite(point.x) || !std::isfinite(point.y) || point.x < 1 || point.y < 1 ||
+      point.x >= _img.cols - 1 || point.y >= _img.rows - 1)
+      continue;
+    if (!_mask.empty() && _mask.at<uchar>(cvRound(point.y), cvRound(point.x)) == 0)
+      continue;
+    bool separated = true;
+    for (const auto & accepted : _points)
+      if (pointDistanceSquared(point, accepted) < min_dist_sq) {
+        separated = false;
+        break;
+      }
+    if (separated)
+      _points.push_back(point);
+  }
 }
-
-}  // namespace
 
 bool FeatureTracker::inBorder(const cv::Point2f &pt)
 {
@@ -435,6 +429,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         prev_un_right_pts_map.clear();
         cur_un_right_pts_map.clear();
         prev_pyr_.clear();
+        detection_half_mask_scratch_.release();
     }
 
     // Coarse GFTT uses quarter-size response buffers; like FAST+grid it avoids
@@ -587,8 +582,8 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         timings.detect_ms += elapsedMs(detect_start);
     }
 
-    cur_un_pts = undistortedPts(cur_pts, m_camera[0]);
-    pts_velocity = ptsVelocity(ids, cur_un_pts, cur_un_pts_map, prev_un_pts_map);
+    undistortedPtsInto(cur_pts, m_camera[0], cur_un_pts);
+    ptsVelocityInto(ids, cur_un_pts, cur_un_pts_map, prev_un_pts_map, pts_velocity);
 
     if(!_img1.empty() && stereo_cam)
     {
@@ -636,8 +631,9 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             reduceVector(cur_un_pts, status);
             reduceVector(pts_velocity, status);
             */
-            cur_un_right_pts = undistortedPts(cur_right_pts, m_camera[1]);
-            right_pts_velocity = ptsVelocity(ids_right, cur_un_right_pts, cur_un_right_pts_map, prev_un_right_pts_map);
+            undistortedPtsInto(cur_right_pts, m_camera[1], cur_un_right_pts);
+            ptsVelocityInto(
+              ids_right, cur_un_right_pts, cur_un_right_pts_map, prev_un_right_pts_map, right_pts_velocity);
             timings.flow_ms += elapsedMs(right_flow_start);
         }
         prev_un_right_pts_map.swap(cur_un_right_pts_map);
@@ -820,59 +816,61 @@ void FeatureTracker::showUndistortion(const string &name)
     // cv::waitKey(0);
 }
 
-vector<cv::Point2f> FeatureTracker::undistortedPts(vector<cv::Point2f> &pts, camodocal::CameraPtr cam)
+void FeatureTracker::undistortedPtsInto(
+  const vector<cv::Point2f> & _pts, const camodocal::CameraPtr & _cam, vector<cv::Point2f> & _out) const
 {
-    vector<cv::Point2f> un_pts;
-    un_pts.reserve(pts.size());
-    for (unsigned int i = 0; i < pts.size(); i++)
-    {
-        Eigen::Vector2d a(pts[i].x, pts[i].y);
-        Eigen::Vector3d b;
-        cam->liftProjective(a, b);
-        un_pts.push_back(cv::Point2f(b.x() / b.z(), b.y() / b.z()));
-    }
-    return un_pts;
+  _out.resize(_pts.size());
+  for (size_t i = 0; i < _pts.size(); i++) {
+    Eigen::Vector2d a(_pts[i].x, _pts[i].y);
+    Eigen::Vector3d b;
+    _cam->liftProjective(a, b);
+    _out[i] = cv::Point2f(b.x() / b.z(), b.y() / b.z());
+  }
 }
 
-vector<cv::Point2f> FeatureTracker::ptsVelocity(vector<int> &ids, vector<cv::Point2f> &pts, 
-                                            map<int, cv::Point2f> &cur_id_pts, map<int, cv::Point2f> &prev_id_pts)
+vector<cv::Point2f> FeatureTracker::undistortedPts(vector<cv::Point2f> & _pts, camodocal::CameraPtr _cam)
 {
-    vector<cv::Point2f> pts_velocity;
-    pts_velocity.reserve(ids.size());
-    cur_id_pts.clear();
-    for (unsigned int i = 0; i < ids.size(); i++)
-    {
-        cur_id_pts.insert(make_pair(ids[i], pts[i]));
-    }
+  vector<cv::Point2f> un_pts;
+  undistortedPtsInto(_pts, _cam, un_pts);
+  return un_pts;
+}
 
-    // caculate points velocity
-    if (!prev_id_pts.empty())
-    {
-        double dt = cur_time - prev_time;
-        
-        for (unsigned int i = 0; i < pts.size(); i++)
-        {
-            std::map<int, cv::Point2f>::iterator it;
-            it = prev_id_pts.find(ids[i]);
-            if (it != prev_id_pts.end())
-            {
-                double v_x = (pts[i].x - it->second.x) / dt;
-                double v_y = (pts[i].y - it->second.y) / dt;
-                pts_velocity.push_back(cv::Point2f(v_x, v_y));
-            }
-            else
-                pts_velocity.push_back(cv::Point2f(0, 0));
+void FeatureTracker::ptsVelocityInto(
+  const vector<int> & _ids, const vector<cv::Point2f> & _pts, map<int, cv::Point2f> & _cur_id_pts,
+  const map<int, cv::Point2f> & _prev_id_pts, vector<cv::Point2f> & _velocity) const
+{
+  _cur_id_pts.clear();
+  for (size_t i = 0; i < _ids.size(); i++) {
+    _cur_id_pts.insert(make_pair(_ids[i], _pts[i]));
+  }
 
-        }
+  // caculate points velocity
+  if (!_prev_id_pts.empty()) {
+    const double dt = cur_time - prev_time;
+    _velocity.resize(_pts.size());
+    for (size_t i = 0; i < _pts.size(); i++) {
+      const auto it = _prev_id_pts.find(_ids[i]);
+      if (it != _prev_id_pts.end()) {
+        const double v_x = (_pts[i].x - it->second.x) / dt;
+        const double v_y = (_pts[i].y - it->second.y) / dt;
+        _velocity[i] = cv::Point2f(v_x, v_y);
+      } else
+        _velocity[i] = cv::Point2f(0, 0);
     }
-    else
-    {
-        for (unsigned int i = 0; i < cur_pts.size(); i++)
-        {
-            pts_velocity.push_back(cv::Point2f(0, 0));
-        }
-    }
-    return pts_velocity;
+  } else {
+    // Preserve the legacy buffer length, which used the left-camera point
+    // count even when computing right-camera velocities.
+    _velocity.assign(cur_pts.size(), cv::Point2f(0, 0));
+  }
+}
+
+vector<cv::Point2f> FeatureTracker::ptsVelocity(
+  vector<int> & _ids, vector<cv::Point2f> & _pts, map<int, cv::Point2f> & _cur_id_pts,
+  map<int, cv::Point2f> & _prev_id_pts)
+{
+  vector<cv::Point2f> velocity;
+  ptsVelocityInto(_ids, _pts, _cur_id_pts, _prev_id_pts, velocity);
+  return velocity;
 }
 
 void FeatureTracker::drawTrack(const cv::Mat &imLeft, const cv::Mat &imRight, 

@@ -282,6 +282,56 @@ TEST_P(TrackerBuffers, PreservesVelocityAcrossGatedFramesAndPrediction)
         if (!right.empty()) right.setTo(0);
     }
 }
+TEST_P(TrackerBuffers, ReusesUndistortedAndVelocityBuffersAcrossFrames)
+{
+  FeatureTracker tracker;
+  tracker.m_camera.emplace_back(new camodocal::PinholeCamera("left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+  const bool stereo = GetParam();
+  tracker.stereo_cam = stereo;
+  if (stereo)
+    tracker.m_camera.push_back(tracker.m_camera.front());
+
+  cv::Mat texture(240, 320, CV_8UC1);
+  cv::RNG rng(4242);
+  rng.fill(texture, cv::RNG::UNIFORM, 0, 256);
+  cv::GaussianBlur(texture, texture, cv::Size(3, 3), 0.8);
+
+  // Repeat an identical frame so the feature count settles; the next frame
+  // must reuse the existing output buffers instead of rebuilding them.
+  for (double stamp = 1.0; stamp <= 3.0; stamp += 1.0)
+    tracker.trackImage(stamp, texture, stereo ? texture : cv::Mat());
+  ASSERT_GE(tracker.cur_pts.size(), 40u);
+  ASSERT_EQ(tracker.cur_un_pts.size(), tracker.cur_pts.size());
+  ASSERT_EQ(tracker.pts_velocity.size(), tracker.cur_pts.size());
+  if (stereo) {
+    ASSERT_GE(tracker.cur_right_pts.size(), 20u);
+    ASSERT_EQ(tracker.cur_un_right_pts.size(), tracker.cur_right_pts.size());
+    ASSERT_GE(tracker.right_pts_velocity.size(), tracker.ids_right.size());
+  }
+
+  const cv::Point2f * left_un_pts = tracker.cur_un_pts.data();
+  const cv::Point2f * left_velocity = tracker.pts_velocity.data();
+  const cv::Point2f * right_un_pts = stereo ? tracker.cur_un_right_pts.data() : nullptr;
+  const cv::Point2f * right_velocity = stereo ? tracker.right_pts_velocity.data() : nullptr;
+  const size_t left_un_pts_size = tracker.cur_un_pts.size();
+  const size_t left_velocity_size = tracker.pts_velocity.size();
+  const size_t right_un_pts_size = tracker.cur_un_right_pts.size();
+  const size_t right_velocity_size = tracker.right_pts_velocity.size();
+
+  tracker.trackImage(4.0, texture, stereo ? texture : cv::Mat());
+
+  EXPECT_EQ(tracker.cur_un_pts.size(), left_un_pts_size);
+  EXPECT_EQ(tracker.cur_un_pts.data(), left_un_pts);
+  EXPECT_EQ(tracker.pts_velocity.size(), left_velocity_size);
+  EXPECT_EQ(tracker.pts_velocity.data(), left_velocity);
+  if (stereo) {
+    EXPECT_EQ(tracker.cur_un_right_pts.size(), right_un_pts_size);
+    EXPECT_EQ(tracker.cur_un_right_pts.data(), right_un_pts);
+    EXPECT_EQ(tracker.right_pts_velocity.size(), right_velocity_size);
+    EXPECT_EQ(tracker.right_pts_velocity.data(), right_velocity);
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(MonoAndStereo, TrackerBuffers, ::testing::Bool());
 
 TEST(FeatureTrackerPyramidCache, FollowsCurrentFrameAndResetsOnResize)
@@ -681,4 +731,79 @@ TEST(FeatureTrackerPyramidDetection, UsesFullResolutionCoordinatesAndOwnsCachedP
     FEATURE_DETECTOR = "gftt";
     tracker.trackImage(1.1, second);
     EXPECT_EQ(tracker.previousPyramid().size(), 4u);
+}
+
+TEST(FeatureTrackerBuffers, PublicUndistortAndVelocityMatchReusedInternalBuffers)
+{
+  TrackerParameterGuard guard;
+  MAX_CNT = 90;
+  MIN_DIST = 8;
+  FLOW_BACK = 1;
+  SHOW_TRACK = 0;
+  FEATURE_DETECTOR = "gftt";
+  DETECTION_MIN_FEATURE_RATIO = 0.0;
+  cv::setNumThreads(1);
+
+  FeatureTracker tracker;
+  tracker.m_camera.emplace_back(new camodocal::PinholeCamera("left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+
+  cv::Mat texture(240, 320, CV_8UC1);
+  cv::RNG rng(20241110);
+  rng.fill(texture, cv::RNG::UNIFORM, 0, 256);
+  cv::GaussianBlur(texture, texture, cv::Size(3, 3), 0.8);
+  tracker.trackImage(1.0, texture);
+
+  // trackImage() swaps prev/cur maps and sets prev_time = cur_time before
+  // returning, so keep the real first-frame state for the public helper.
+  std::map<int, cv::Point2f> first_map = tracker.prev_un_pts_map;
+  const double first_time = tracker.cur_time;
+  ASSERT_FALSE(first_map.empty());
+
+  cv::Mat shifted;
+  const cv::Mat transform = (cv::Mat_<double>(2, 3) << 1, 0, 0.75, 0, 1, -0.5);
+  cv::warpAffine(texture, shifted, transform, texture.size(), cv::INTER_LINEAR, cv::BORDER_REFLECT_101);
+  tracker.trackImage(2.0, shifted);
+  ASSERT_GT(tracker.cur_pts.size(), 20u);
+  ASSERT_EQ(tracker.pts_velocity.size(), tracker.ids.size());
+
+  const std::vector<cv::Point2f> expected_un_pts = tracker.cur_un_pts;
+  const std::vector<cv::Point2f> expected_velocity = tracker.pts_velocity;
+  const std::vector<cv::Point2f> un_pts = tracker.undistortedPts(tracker.cur_pts, tracker.m_camera[0]);
+  EXPECT_EQ(un_pts, expected_un_pts);
+
+  std::map<int, cv::Point2f> current_map;
+  tracker.prev_time = first_time;
+  const std::vector<cv::Point2f> velocity =
+    tracker.ptsVelocity(tracker.ids, tracker.cur_un_pts, current_map, first_map);
+  ASSERT_EQ(velocity.size(), expected_velocity.size());
+  for (size_t i = 0; i < velocity.size(); ++i) {
+    EXPECT_FLOAT_EQ(velocity[i].x, expected_velocity[i].x);
+    EXPECT_FLOAT_EQ(velocity[i].y, expected_velocity[i].y);
+  }
+}
+
+TEST(FeatureTrackerPyramidDetection, ReusedMaskScratchFollowsGeometryChanges)
+{
+  TrackerParameterGuard guard;
+  FEATURE_DETECTOR = "gftt_pyramid";
+  MIN_DIST = 12;
+  cv::setNumThreads(1);
+
+  FeatureTracker tracker;
+  const cv::Size sizes[] = {cv::Size(321, 241), cv::Size(360, 280), cv::Size(321, 241)};
+  for (const cv::Size & size : sizes) {
+    const cv::Mat image = makeCornerTexture(size.height, size.width);
+    cv::Mat mask(image.size(), CV_8UC1, cv::Scalar(255));
+    mask(cv::Rect(size.width / 3, 0, size.width / 3, size.height)).setTo(0);
+    std::vector<cv::Point2f> points;
+    tracker.detectFeatures(image, mask, 70, points);
+    ASSERT_FALSE(points.empty());
+    for (const cv::Point2f & point : points) {
+      ASSERT_GE(point.x, 1);
+      ASSERT_GE(point.y, 1);
+      ASSERT_LT(point.x, image.cols - 1);
+      ASSERT_LT(point.y, image.rows - 1);
+      EXPECT_NE(mask.at<uchar>(cvRound(point.y), cvRound(point.x)), 0);
+    }
+  }
 }

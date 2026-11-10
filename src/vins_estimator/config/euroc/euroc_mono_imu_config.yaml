@@ -4,6 +4,10 @@
 # 必须通过 launch/--ros-args 传入，不会从本文件读取。
 /**:
   ros__parameters:
+    # Launch-only CPU affinity; enable only after checking available CPU IDs.
+    # Applies to vins_node and its threads; direct ros2 run does not read these keys.
+    cpu_affinity_enabled: false
+    cpu_affinity_cores: [6, 7]
     imu: 1
     num_of_cam: 1
     imu_topic: "/imu0"

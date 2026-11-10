@@ -188,9 +188,10 @@ class SchurUpdater
                                              const FeatureObservation &observation) const;
 
     // Builds the per-track Schur reduction (A_point, b_point, W blocks, chi2 gate
-    // value). `state` is not modified.
-    TrackReduction reduce_track(const EkfState &state, const std::vector<CameraExtrinsics> &cameras,
-                                const FeatureTrack &track) const;
+    // value). `_state` is not modified.
+    TrackReduction reduce_track(
+      const EkfState & _state, const std::vector<CameraExtrinsics> & _cameras,
+      const FeatureTrack & _track) const;
 
     // Full measurement update: triangulate + gate + Schur-eliminate + EKF update.
     // `tracks` are updated in place (world_point) and `state` is corrected.
@@ -202,6 +203,16 @@ class SchurUpdater
     static double chi2_quantile_95(int dof);
 
   private:
+    // Shared implementation of reduce_track() and update(). Fills `_jacobians`
+    // with this track's weighted observation rows and `_reduction` with the
+    // point block, chi2 gate and per-clone W blocks. Returns false when the
+    // track cannot be reduced. `_reduction` is reset first; `_jacobians` is left
+    // populated for a successful reduction so update() can reuse it instead of
+    // recomputing every Jacobian a second time.
+    bool reduceTrackImpl(
+      const EkfState & _state, const std::vector<CameraExtrinsics> & _cameras, const FeatureTrack & _track,
+      std::vector<ObservationJacobian> & _jacobians, TrackReduction & _reduction) const;
+
     UpdateOptions options_;
 };
 

@@ -72,9 +72,10 @@ public:
     void showUndistortion(const string &name);
     void rejectWithF();
     void undistortedPoints();
-    vector<cv::Point2f> undistortedPts(vector<cv::Point2f> &pts, camodocal::CameraPtr cam);
-    vector<cv::Point2f> ptsVelocity(vector<int> &ids, vector<cv::Point2f> &pts, 
-                                    map<int, cv::Point2f> &cur_id_pts, map<int, cv::Point2f> &prev_id_pts);
+    vector<cv::Point2f> undistortedPts(vector<cv::Point2f> & _pts, camodocal::CameraPtr _cam);
+    vector<cv::Point2f> ptsVelocity(
+      vector<int> & _ids, vector<cv::Point2f> & _pts, map<int, cv::Point2f> & _cur_id_pts,
+      map<int, cv::Point2f> & _prev_id_pts);
     void showTwoImage(const cv::Mat &img1, const cv::Mat &img2, 
                       vector<cv::Point2f> pts1, vector<cv::Point2f> pts2);
     void drawTrack(const cv::Mat &imLeft, const cv::Mat &imRight, 
@@ -114,8 +115,17 @@ public:
 private:
     void detectFastGridFeatures(const cv::Mat &img, const cv::Mat &mask, int max_features,
                                 vector<cv::Point2f> &points);
+    void detectPyramidFeatures(
+      const cv::Mat & _img, const cv::Mat & _mask, int _max_features, vector<cv::Point2f> & _points,
+      const cv::Mat & _half_image);
+    void undistortedPtsInto(
+      const vector<cv::Point2f> & _pts, const camodocal::CameraPtr & _cam, vector<cv::Point2f> & _out) const;
+    void ptsVelocityInto(
+      const vector<int> & _ids, const vector<cv::Point2f> & _pts, map<int, cv::Point2f> & _cur_id_pts,
+      const map<int, cv::Point2f> & _prev_id_pts, vector<cv::Point2f> & _velocity) const;
 
     vector<pair<int, pair<cv::Point2f, int>>> mask_order_;
+    cv::Mat detection_half_mask_scratch_;
     vector<cv::Mat> prev_pyr_;
     // Scratch pyramids are kept between calls so buildOpticalFlowPyramid()
     // reuses its level buffers instead of allocating/freeing ~0.5 MB per frame.

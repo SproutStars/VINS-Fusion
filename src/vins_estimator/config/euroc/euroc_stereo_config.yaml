@@ -2,6 +2,10 @@
 # Passed to the nodes through the `config_file` parameter or `--params-file`.
 /**:
   ros__parameters:
+    # Launch-only CPU affinity; enable only after checking available CPU IDs.
+    # Applies to vins_node and its threads; direct ros2 run does not read these keys.
+    cpu_affinity_enabled: false
+    cpu_affinity_cores: [6, 7]
     imu: 0
     num_of_cam: 2
     imu_topic: "/imu0"

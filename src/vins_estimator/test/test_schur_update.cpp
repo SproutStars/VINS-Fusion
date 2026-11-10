@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -1964,4 +1965,242 @@ TEST(SchurUpdate, T27WeakUpdateRescuesGateCollapse)
         EXPECT_GT(dx_weak, 0.0);
         EXPECT_LT(dx_weak, dx_ctrl / 5.0);
     }
+}
+
+// ===========================================================================
+// T29 -- the thread-local reduce scratch is invisible: same-shape repeats,
+// alternating track/window shapes, interleaved SchurUpdater instances and a
+// failed reduction must all reproduce the independent joint Schur complement.
+// Uses only the public (pre-optimization) API so the same source can be linked
+// against the baseline and optimized implementations.
+// ===========================================================================
+namespace
+{
+
+void expect_joint_reduction(
+  const SchurUpdater & _updater, const EkfState & _state, const std::vector<CameraExtrinsics> & _cameras,
+  const FeatureTrack & _track, const TrackReduction & _red, const char * _label)
+{
+  EXPECT_TRUE(_red.valid) << _label;
+  if (!_red.valid)
+    return;
+
+  const JointSystem joint = build_joint(_updater, _state, _cameras, _track);
+  Eigen::MatrixXd A_xf = Eigen::MatrixXd::Zero(_state.size(), 3);
+  for (const auto & w : _red.W)
+    A_xf.block<6, 3>(_state.clone_offset(w.first), 0) = w.second;
+  const Eigen::MatrixXd A_xf_ref = joint.Hx.transpose() * joint.Hf;
+  const Eigen::Matrix3d A_ff_ref = joint.Hf.transpose() * joint.Hf;
+  const Eigen::Vector3d b_f_ref = joint.Hf.transpose() * joint.r;
+  EXPECT_LT((A_xf - A_xf_ref).norm(), 1e-9 * std::max(1.0, A_xf_ref.norm())) << _label;
+  EXPECT_LT((_red.A_point - A_ff_ref).norm(), 1e-9 * std::max(1.0, A_ff_ref.norm())) << _label;
+  EXPECT_LT((_red.b_point - b_f_ref).norm(), 1e-9 * std::max(1.0, b_f_ref.norm())) << _label;
+
+  Eigen::MatrixXd A_red, A_ref;
+  Eigen::VectorXd b_red, b_ref;
+  reduce_with_blocks(_state, joint, _red, A_red, b_red);
+  reduce_exact(joint, A_ref, b_ref);
+  // Noiseless synthetic tracks can make b_ref exactly zero, so use a scale
+  // that stays well defined instead of dividing by b_ref.norm().
+  EXPECT_LT((A_red - A_ref).norm(), 1e-9 * std::max(1.0, A_ref.norm())) << _label;
+  EXPECT_LT((b_red - b_ref).norm(), 1e-9 * std::max(1.0, b_ref.norm())) << _label;
+}
+
+}  // namespace
+
+TEST(SchurUpdate, T29ReduceScratchReuseAcrossShapesInstancesAndFailures)
+{
+  const UpdateOptions opts = default_options();
+  SchurUpdater updater(opts);
+  UpdateOptions noisy_opts = default_options();
+  noisy_opts.pixel_noise = 2.0;  // different sigma -> an independent reference
+  SchurUpdater updater_noisy(noisy_opts);
+  const CameraExtrinsics cam =
+    make_camera(Eigen::Vector3d(0.01, -0.02, 0.015), Eigen::Vector3d(0.02, 0.01, -0.01));
+
+  std::vector<Eigen::Vector4d> qs_short, qs_long;
+  std::vector<Eigen::Vector3d> ps_short, ps_long;
+  smooth_trajectory(4, qs_short, ps_short);
+  smooth_trajectory(6, qs_long, ps_long);
+  EkfState state_short, state_long;
+  build_state(state_short, qs_short, ps_short);
+  build_state(state_long, qs_long, ps_long);
+  regularize_covariance(state_short);
+  regularize_covariance(state_long);
+
+  const Eigen::Vector3d point(0.8, 0.6, 4.5);
+  FeatureTrack track_short;
+  track_short.id = 2900;
+  for (int i = 0; i < state_short.num_clones(); ++i) {
+    track_short.observations.push_back(
+      make_observation(i, 0, project_world(state_short.clone(i).q, state_short.clone(i).p, cam, point)));
+  }
+  ASSERT_TRUE(updater.triangulate(state_short, {cam}, track_short));
+
+  FeatureTrack track_long;
+  track_long.id = 2901;
+  for (int i = 0; i < state_long.num_clones(); ++i) {
+    track_long.observations.push_back(
+      make_observation(i, 0, project_world(state_long.clone(i).q, state_long.clone(i).p, cam, point)));
+  }
+  ASSERT_TRUE(updater.triangulate(state_long, {cam}, track_long));
+
+  // Observes only clones 0..2 of the six-clone window, so the remaining Hx
+  // columns must be zero-filled rather than inherit the previous track.
+  FeatureTrack track_partial;
+  track_partial.id = 2903;
+  for (int i = 0; i < 3; ++i) {
+    track_partial.observations.push_back(
+      make_observation(i, 0, project_world(state_long.clone(i).q, state_long.clone(i).p, cam, point)));
+  }
+  ASSERT_TRUE(updater.triangulate(state_long, {cam}, track_partial));
+
+  // (1) Same shape repeated: identical reduction values.
+  const TrackReduction r1 = updater.reduce_track(state_short, {cam}, track_short);
+  const TrackReduction r2 = updater.reduce_track(state_short, {cam}, track_short);
+  expect_joint_reduction(updater, state_short, {cam}, track_short, r1, "short-1");
+  expect_joint_reduction(updater, state_short, {cam}, track_short, r2, "short-2");
+  EXPECT_DOUBLE_EQ(r1.chi2, r2.chi2);
+  EXPECT_DOUBLE_EQ(r1.rms_residual_px, r2.rms_residual_px);
+  EXPECT_EQ(r1.gate_dof, r2.gate_dof);
+  EXPECT_EQ(r1.point_rank, r2.point_rank);
+  EXPECT_LT((r1.A_point - r2.A_point).norm(), 1e-15 * std::max(1.0, r1.A_point.norm()));
+  EXPECT_LT((r1.b_point - r2.b_point).norm(), 1e-15 * std::max(1.0, r1.b_point.norm()));
+
+  // (2) Alternate window/observation shapes. The partial track leaves Hx
+  //     columns for clones 3..5 untouched, which catches stale scratch data.
+  const TrackReduction long_red = updater.reduce_track(state_long, {cam}, track_long);
+  expect_joint_reduction(updater, state_long, {cam}, track_long, long_red, "long");
+  const TrackReduction partial_red = updater.reduce_track(state_long, {cam}, track_partial);
+  expect_joint_reduction(updater, state_long, {cam}, track_partial, partial_red, "partial");
+  const TrackReduction short_again = updater.reduce_track(state_short, {cam}, track_short);
+  expect_joint_reduction(updater, state_short, {cam}, track_short, short_again, "short-again");
+  const TrackReduction long_again = updater.reduce_track(state_long, {cam}, track_long);
+  expect_joint_reduction(updater, state_long, {cam}, track_long, long_again, "long-again");
+  EXPECT_DOUBLE_EQ(long_red.chi2, long_again.chi2);
+  EXPECT_LT((long_red.A_point - long_again.A_point).norm(), 1e-15 * std::max(1.0, long_red.A_point.norm()));
+
+  // (3) Two updater instances share this thread's scratch; interleave them and
+  //     compare each against its own sigma-dependent joint reference.
+  const TrackReduction noisy_red = updater_noisy.reduce_track(state_short, {cam}, track_short);
+  expect_joint_reduction(updater_noisy, state_short, {cam}, track_short, noisy_red, "noisy");
+  const TrackReduction nominal_red = updater.reduce_track(state_short, {cam}, track_short);
+  expect_joint_reduction(updater, state_short, {cam}, track_short, nominal_red, "nominal-after-noisy");
+  // The exact synthetic residuals make chi2 ~ 0 for both sigmas; A_point
+  // scales as 1/sigma^2 and therefore still distinguishes the two updaters.
+  EXPECT_GT((noisy_red.A_point - nominal_red.A_point).norm(), 1e-6 * std::max(1.0, nominal_red.A_point.norm()));
+
+  // (4) A failing reduction must not poison the next valid one.
+  FeatureTrack degenerate;
+  degenerate.id = 2902;
+  degenerate.world_point = point;
+  degenerate.has_point = true;
+  const Eigen::Vector2d uv = project_world(state_short.clone(0).q, state_short.clone(0).p, cam, point);
+  degenerate.observations.push_back(make_observation(0, 0, uv));
+  degenerate.observations.push_back(make_observation(0, 0, uv));
+  EXPECT_FALSE(updater.reduce_track(state_short, {cam}, degenerate).valid);
+  const TrackReduction after_failure = updater.reduce_track(state_short, {cam}, track_short);
+  expect_joint_reduction(updater, state_short, {cam}, track_short, after_failure, "after-failure");
+  EXPECT_DOUBLE_EQ(r1.chi2, after_failure.chi2);
+}
+
+// ===========================================================================
+// T30 -- deterministic repeated reduce/update workload. This is the replayable
+// driver for an external baseline-vs-optimized numeric/timing comparison; the
+// same source links against either implementation through the public API.
+// There is deliberately no wall-clock assertion: timing is only recorded.
+// ===========================================================================
+TEST(SchurUpdate, T30DeterministicRepeatReduceUpdateWorkload)
+{
+  UpdateOptions opts = default_options();
+  opts.max_features = 40;
+  opts.condition_limit = 0.0;  // exercise the full update on this tight scene
+  SchurUpdater updater(opts);
+  const CameraExtrinsics cam =
+    make_camera(Eigen::Vector3d(0.01, -0.01, 0.005), Eigen::Vector3d(0.02, 0.0, -0.01));
+
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(5, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);
+  regularize_covariance(state);
+
+  std::vector<FeatureTrack> tracks;
+  for (int f = 0; f < 24; ++f) {
+    const int len = 3 + (f % 3);  // 3..5 observations
+    const int start = f % 3;      // first observing clone
+    const int stop = std::min(start + len, state.num_clones());
+    const Eigen::Vector3d point(0.55 + 0.07 * (f % 6), 0.35 + 0.09 * (f / 6), 3.8 + 0.13 * (f % 4));
+    FeatureTrack track;
+    track.id = 3000 + f;
+    for (int ci = start; ci < stop; ++ci) {
+      Eigen::Vector2d uv = project_world(state.clone(ci).q, state.clone(ci).p, cam, point);
+      const double jitter = 0.0006 * std::sin(0.7 * (f + 1) * (ci + 1));
+      track.observations.push_back(make_observation(ci, 0, uv + Eigen::Vector2d(jitter, -0.5 * jitter)));
+    }
+    if (!updater.triangulate(state, {cam}, track))
+      continue;
+    tracks.push_back(track);
+  }
+  ASSERT_GE(tracks.size(), 12u);
+
+  // Warm up both paths once (scratch allocation happens here, and it also
+  // confirms the synthetic scene exercises an applied update).
+  {
+    EkfState warm_state = state;
+    std::vector<FeatureTrack> warm_tracks = tracks;
+    const UpdateSummary warm = updater.update(warm_state, warm_tracks, {cam});
+    ASSERT_TRUE(warm.applied);
+    ASSERT_GT(warm.features_used, 0);
+  }
+
+  constexpr int kReduceIterations = 200;
+  constexpr int kUpdateIterations = 40;
+  const int reduce_calls_per_iter = static_cast<int>(tracks.size());
+
+  double reduce_checksum = 0.0;
+  const auto reduce_t0 = std::chrono::steady_clock::now();
+  for (int it = 0; it < kReduceIterations; ++it) {
+    for (const FeatureTrack & track : tracks) {
+      const TrackReduction red = updater.reduce_track(state, {cam}, track);
+      if (!red.valid)
+        continue;
+      reduce_checksum += red.chi2 + red.rms_residual_px + red.A_point.sum() + red.b_point.sum() +
+                         static_cast<double>(red.gate_dof);
+    }
+  }
+  const auto reduce_t1 = std::chrono::steady_clock::now();
+  const double reduce_ms = std::chrono::duration<double, std::milli>(reduce_t1 - reduce_t0).count();
+
+  double update_checksum = 0.0;
+  const auto update_t0 = std::chrono::steady_clock::now();
+  for (int it = 0; it < kUpdateIterations; ++it) {
+    EkfState work_state = state;
+    std::vector<FeatureTrack> work_tracks = tracks;
+    const UpdateSummary summary = updater.update(work_state, work_tracks, {cam});
+    update_checksum += work_state.covariance().trace() + static_cast<double>(summary.rank) +
+                       static_cast<double>(summary.features_used) +
+                       static_cast<double>(summary.observations_used);
+  }
+  const auto update_t1 = std::chrono::steady_clock::now();
+  const double update_ms = std::chrono::duration<double, std::milli>(update_t1 - update_t0).count();
+
+  char reduce_text[32];
+  char update_text[32];
+  std::snprintf(reduce_text, sizeof(reduce_text), "%.17g", reduce_checksum);
+  std::snprintf(update_text, sizeof(update_text), "%.17g", update_checksum);
+  RecordProperty("reduce_iterations", kReduceIterations);
+  RecordProperty("reduce_calls", kReduceIterations * reduce_calls_per_iter);
+  RecordProperty("reduce_elapsed_ms", reduce_ms);
+  RecordProperty("reduce_checksum", reduce_text);
+  RecordProperty("update_iterations", kUpdateIterations);
+  RecordProperty("update_elapsed_ms", update_ms);
+  RecordProperty("update_checksum", update_text);
+  std::printf(
+    "[T30] reduce: iters=%d calls=%d elapsed_ms=%.3f checksum=%s\n", kReduceIterations,
+    kReduceIterations * reduce_calls_per_iter, reduce_ms, reduce_text);
+  std::printf("[T30] update: iters=%d elapsed_ms=%.3f checksum=%s\n", kUpdateIterations, update_ms, update_text);
+  EXPECT_TRUE(std::isfinite(reduce_checksum));
+  EXPECT_TRUE(std::isfinite(update_checksum));
 }

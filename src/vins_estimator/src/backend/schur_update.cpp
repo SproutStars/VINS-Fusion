@@ -146,6 +146,39 @@ std::vector<ObservationJacobian> &jacobian_scratch()
     return scratch;
 }
 
+// Reusable per-track work buffers for reduceTrackImpl(). Eigen keeps dynamic
+// storage across a resize(source-shape) -> resize(same-shape) round trip, so
+// repeating tracks of the same shape avoid the allocations; a shape change may
+// still reallocate. Buffers are fully overwritten (Hx is zero-filled) in the
+// same order as the previous per-track temporaries, so the arithmetic and its
+// rounding are unchanged. The SVD and LDLT objects keep their internal buffers
+// between same-shape tracks through compute().
+struct TrackScratch_s {
+  Eigen::MatrixXd Hx_;
+  Eigen::MatrixXd Hf_;
+  Eigen::VectorXd r_;
+  Eigen::MatrixXd N_;
+  Eigen::VectorXd r0_;
+  Eigen::MatrixXd H0_;
+  Eigen::MatrixXd S0_;
+  Eigen::VectorXd y_;
+  Eigen::JacobiSVD<Eigen::MatrixXd> hf_svd_;
+  Eigen::LDLT<Eigen::MatrixXd> gate_ldlt_;
+};
+
+TrackScratch_s & trackScratch()
+{
+  static thread_local TrackScratch_s scratch;
+  return scratch;
+}
+
+// Scratch for the per-track 3x3 Schur solutions in update().
+std::vector<std::pair<int, Eigen::Matrix<double, 3, 6>>> & schurBlockScratch()
+{
+  static thread_local std::vector<std::pair<int, Eigen::Matrix<double, 3, 6>>> scratch;
+  return scratch;
+}
+
 // Fills `out` with the weighted jacobian rows of one track (resized, not
 // reallocated when the track length does not grow).  Returns false when an
 // observation is degenerate: unknown clone or camera index, point behind the
@@ -362,135 +395,155 @@ bool SchurUpdater::triangulate(const EkfState &state, const std::vector<CameraEx
     return true;
 }
 
-TrackReduction SchurUpdater::reduce_track(const EkfState &state,
-                                          const std::vector<CameraExtrinsics> &cameras,
-                                          const FeatureTrack &track) const
+bool SchurUpdater::reduceTrackImpl(
+  const EkfState & _state, const std::vector<CameraExtrinsics> & _cameras, const FeatureTrack & _track,
+  std::vector<ObservationJacobian> & _jacobians, TrackReduction & _reduction) const
 {
-    TrackReduction red;
-    const int num_obs = static_cast<int>(track.observations.size());
-    if (num_obs == 0) return red;
-    const Eigen::MatrixXd &P = state.covariance();
-    if (P.rows() != state.size() || P.cols() != state.size()) return red;
+  _reduction = TrackReduction();
+  const int num_obs = static_cast<int>(_track.observations.size());
+  if (num_obs == 0)
+    return false;
+  const Eigen::MatrixXd & P = _state.covariance();
+  if (P.rows() != _state.size() || P.cols() != _state.size())
+    return false;
 
-    std::vector<ObservationJacobian> &jac = jacobian_scratch();
-    if (!fill_track_jacobians(*this, state, cameras, track, jac)) return red;
+  if (!fill_track_jacobians(*this, _state, _cameras, _track, _jacobians))
+    return false;
 
-    // ---- point block and per-clone W blocks -------------------------------
-    double sq_res = 0.0;
-    for (int j = 0; j < num_obs; ++j)
-    {
-        const ObservationJacobian &J = jac[static_cast<std::size_t>(j)];
-        red.A_point.noalias() += J.H_point.transpose() * J.H_point;
-        red.b_point.noalias() += J.H_point.transpose() * J.residual;
-        sq_res += J.residual.squaredNorm();
+  // ---- point block and per-clone W blocks -------------------------------
+  double sq_res = 0.0;
+  for (int j = 0; j < num_obs; ++j) {
+    const ObservationJacobian & J = _jacobians[static_cast<std::size_t>(j)];
+    _reduction.A_point.noalias() += J.H_point.transpose() * J.H_point;
+    _reduction.b_point.noalias() += J.H_point.transpose() * J.residual;
+    sq_res += J.residual.squaredNorm();
 
-        const int ci = track.observations[static_cast<std::size_t>(j)].clone_index;
-        auto it = red.W.find(ci);
-        if (it == red.W.end())
-        {
-            it = red.W.emplace(ci, Eigen::Matrix<double, 6, 3>::Zero()).first;
-        }
-        it->second.noalias() += J.H_pose.transpose() * J.H_point;
+    const int ci = _track.observations[static_cast<std::size_t>(j)].clone_index;
+    auto it = _reduction.W.find(ci);
+    if (it == _reduction.W.end()) {
+      it = _reduction.W.emplace(ci, Eigen::Matrix<double, 6, 3>::Zero()).first;
     }
+    it->second.noalias() += J.H_pose.transpose() * J.H_point;
+  }
 
-    // Weighted -> pixel residual: ||r|| * sigma * focal_length.
-    const double sigma = options_.pixel_noise / options_.focal_length;
-    red.rms_residual_px =
-        std::sqrt(sq_res / static_cast<double>(num_obs)) * sigma * options_.focal_length;
+  // Weighted -> pixel residual: ||r|| * sigma * focal_length.
+  const double sigma = options_.pixel_noise / options_.focal_length;
+  _reduction.rms_residual_px = std::sqrt(sq_res / static_cast<double>(num_obs)) * sigma * options_.focal_length;
 
-    // Reject near-degenerate triangulations before they are used in the Schur
-    // complement.  The relative eigenvalue test is scale free and much more
-    // informative than raw LDLT pivots.
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> point_eig(red.A_point);
-    if (point_eig.info() != Eigen::Success) return red;
-    const Eigen::Vector3d point_lambda = point_eig.eigenvalues();
-    const double point_max = point_lambda.maxCoeff();
-    const double point_min = point_lambda.minCoeff();
-    if (!red.A_point.allFinite() || !std::isfinite(point_max) ||
-        !(point_max > 0.0) || !(point_min > options_.point_block_rtol * point_max))
-        return red;
+  // Reject near-degenerate triangulations before they are used in the Schur
+  // complement.  The relative eigenvalue test is scale free and much more
+  // informative than raw LDLT pivots.
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> point_eig(_reduction.A_point);
+  if (point_eig.info() != Eigen::Success)
+    return false;
+  const Eigen::Vector3d & point_lambda = point_eig.eigenvalues();
+  const double point_max = point_lambda.maxCoeff();
+  const double point_min = point_lambda.minCoeff();
+  if (
+    !_reduction.A_point.allFinite() || !std::isfinite(point_max) || !(point_max > 0.0) ||
+    !(point_min > options_.point_block_rtol * point_max))
+    return false;
 
-    // Numerical rank of the point block from the same relative tolerance used
-    // by the conditioning check above.  Rank 3 means the window has enough
-    // parallax to estimate the point depth; rank < 3 is not observable here
-    // and is rejected by this updater.
-    red.point_rank = 0;
-    for (int i = 0; i < 3; ++i)
-        if (point_lambda(i) > options_.point_block_rtol * point_max)
-            ++red.point_rank;
-    if (red.point_rank < 3) return red;
+  // Numerical rank of the point block from the same relative tolerance used
+  // by the conditioning check above.  Rank 3 means the window has enough
+  // parallax to estimate the point depth; rank < 3 is not observable here
+  // and is rejected by this updater.
+  _reduction.point_rank = 0;
+  for (int i = 0; i < 3; ++i)
+    if (point_lambda(i) > options_.point_block_rtol * point_max)
+      ++_reduction.point_rank;
+  if (_reduction.point_rank < 3)
+    return false;
 
-    // ---- chi2 gate: explicit point-nullspace projection -------------------
-    // A feature is a free nuisance parameter, so a residual component that can
-    // be absorbed by moving the point carries no information about the state
-    // and must not enter the gate.  Let Hf be the 2N x 3 point Jacobian and N
-    // an orthonormal basis of its left null space (N^T Hf = 0).  Then
-    //
-    //     r0 = N^T r,   H0 = N^T Hx,
-    //     S0 = H0 P H0^T + I,   chi2 = r0^T S0^-1 r0,
-    //     dof = 2N - rank(Hf).
-    //
-    // S0 is positive definite by construction, so the numerical singularity of
-    // the old profiled covariance C - Hf (Hf^T Hf)^-1 Hf^T cannot turn a valid
-    // track into chi2 = inf.  The old expression also left the state covariance
-    // in the point-depth direction unprojected; projecting both r and Hx is the
-    // statistically correct marginalisation.
-    const int m = 2 * num_obs;
-    const int n = state.size();
-    Eigen::MatrixXd Hx = Eigen::MatrixXd::Zero(m, n);
-    Eigen::MatrixXd Hf = Eigen::MatrixXd::Zero(m, 3);
-    Eigen::VectorXd r(m);
-    for (int a = 0; a < num_obs; ++a)
-    {
-        const ObservationJacobian &Ja = jac[static_cast<std::size_t>(a)];
-        const int oa =
-            state.clone_offset(track.observations[static_cast<std::size_t>(a)].clone_index);
-        Hx.block<2, 6>(2 * a, oa) = Ja.H_pose;
-        Hf.block<2, 3>(2 * a, 0) = Ja.H_point;
-        r.segment<2>(2 * a) = Ja.residual;
-    }
-    if (!Hx.allFinite() || !Hf.allFinite() || !r.allFinite()) return red;
+  // ---- chi2 gate: explicit point-nullspace projection -------------------
+  // A feature is a free nuisance parameter, so a residual component that can
+  // be absorbed by moving the point carries no information about the state
+  // and must not enter the gate.  Let Hf be the 2N x 3 point Jacobian and N
+  // an orthonormal basis of its left null space (N^T Hf = 0).  Then
+  //
+  //     r0 = N^T r,   H0 = N^T Hx,
+  //     S0 = H0 P H0^T + I,   chi2 = r0^T S0^-1 r0,
+  //     dof = 2N - rank(Hf).
+  //
+  // S0 is positive definite by construction, so the numerical singularity of
+  // the old profiled covariance C - Hf (Hf^T Hf)^-1 Hf^T cannot turn a valid
+  // track into chi2 = inf.  The old expression also left the state covariance
+  // in the point-depth direction unprojected; projecting both r and Hx is the
+  // statistically correct marginalisation.
+  const int m = 2 * num_obs;
+  const int n = _state.size();
+  TrackScratch_s & scratch = trackScratch();
+  Eigen::MatrixXd & Hx = scratch.Hx_;
+  Eigen::MatrixXd & Hf = scratch.Hf_;
+  Eigen::VectorXd & r = scratch.r_;
+  Hx.setZero(m, n);
+  Hf.setZero(m, 3);
+  r.resize(m);
+  for (int a = 0; a < num_obs; ++a) {
+    const ObservationJacobian & Ja = _jacobians[static_cast<std::size_t>(a)];
+    const int oa = _state.clone_offset(_track.observations[static_cast<std::size_t>(a)].clone_index);
+    Hx.block<2, 6>(2 * a, oa) = Ja.H_pose;
+    Hf.block<2, 3>(2 * a, 0) = Ja.H_point;
+    r.segment<2>(2 * a) = Ja.residual;
+  }
+  if (!Hx.allFinite() || !Hf.allFinite() || !r.allFinite())
+    return false;
 
-    Eigen::JacobiSVD<Eigen::MatrixXd> hf_svd(Hf, Eigen::ComputeFullU);
-    const Eigen::VectorXd singular = hf_svd.singularValues();
-    if (!singular.allFinite() || singular.size() == 0) return red;
-    const double singular_max = singular.maxCoeff();
-    if (!(singular_max > 0.0)) return red;
-    // A_point = Hf^T Hf, so an eigenvalue threshold of rtol*lambda_max
-    // corresponds to a singular-value threshold of sqrt(rtol)*sigma_max.
-    const double singular_rtol = std::sqrt(std::max(0.0, options_.point_block_rtol));
-    int hf_rank = 0;
-    for (int i = 0; i < singular.size(); ++i)
-        if (singular(i) > singular_rtol * singular_max)
-            ++hf_rank;
-    // Keep the gate consistent with the point-block rank test.  A rank < 3
-    // track is a low-parallax case and is rejected by this updater.
-    if (hf_rank != red.point_rank) return red;
+  Eigen::JacobiSVD<Eigen::MatrixXd> & hf_svd = scratch.hf_svd_;
+  hf_svd.compute(Hf, Eigen::ComputeFullU);
+  const auto & singular = hf_svd.singularValues();
+  if (!singular.allFinite() || singular.size() == 0)
+    return false;
+  const double singular_max = singular.maxCoeff();
+  if (!(singular_max > 0.0))
+    return false;
+  // A_point = Hf^T Hf, so an eigenvalue threshold of rtol*lambda_max
+  // corresponds to a singular-value threshold of sqrt(rtol)*sigma_max.
+  const double singular_rtol = std::sqrt(std::max(0.0, options_.point_block_rtol));
+  int hf_rank = 0;
+  for (int i = 0; i < singular.size(); ++i)
+    if (singular(i) > singular_rtol * singular_max)
+      ++hf_rank;
+  // Keep the gate consistent with the point-block rank test.  A rank < 3
+  // track is a low-parallax case and is rejected by this updater.
+  if (hf_rank != _reduction.point_rank)
+    return false;
 
-    const Eigen::MatrixXd U = hf_svd.matrixU();
-    const Eigen::MatrixXd N = U.rightCols(m - hf_rank);
-    const Eigen::VectorXd r0 = N.transpose() * r;
-    const Eigen::MatrixXd H0 = N.transpose() * Hx;
-    Eigen::MatrixXd S0 = H0 * P * H0.transpose();
-    S0.diagonal().array() += 1.0;
-    red.gate_dof = static_cast<int>(r0.size());
+  const Eigen::MatrixXd & U = hf_svd.matrixU();
+  Eigen::MatrixXd & N = scratch.N_;
+  N = U.rightCols(m - hf_rank);
+  Eigen::VectorXd & r0 = scratch.r0_;
+  r0 = N.transpose() * r;
+  Eigen::MatrixXd & H0 = scratch.H0_;
+  H0 = N.transpose() * Hx;
+  Eigen::MatrixXd & S0 = scratch.S0_;
+  S0 = H0 * P * H0.transpose();
+  S0.diagonal().array() += 1.0;
+  _reduction.gate_dof = static_cast<int>(r0.size());
 
-    Eigen::LDLT<Eigen::MatrixXd> ldlt(S0);
-    const Eigen::VectorXd s_pivots = ldlt.vectorD();
-    if (ldlt.info() != Eigen::Success || !s_pivots.allFinite() ||
-        !(s_pivots.minCoeff() > 0.0))
-    {
-        red.chi2 = std::numeric_limits<double>::infinity();
-    }
-    else
-    {
-        const Eigen::VectorXd y = ldlt.solve(r0);
-        red.chi2 = y.allFinite() ? r0.dot(y) : std::numeric_limits<double>::infinity();
-    }
+  Eigen::LDLT<Eigen::MatrixXd> & ldlt = scratch.gate_ldlt_;
+  ldlt.compute(S0);
+  const auto s_pivots = ldlt.vectorD();
+  if (ldlt.info() != Eigen::Success || !s_pivots.allFinite() || !(s_pivots.minCoeff() > 0.0)) {
+    _reduction.chi2 = std::numeric_limits<double>::infinity();
+  } else {
+    Eigen::VectorXd & y = scratch.y_;
+    y = ldlt.solve(r0);
+    _reduction.chi2 = y.allFinite() ? r0.dot(y) : std::numeric_limits<double>::infinity();
+  }
 
-    red.valid = std::isfinite(red.chi2) && std::isfinite(red.rms_residual_px) &&
-                red.b_point.allFinite();
-    return red;
+  _reduction.valid = std::isfinite(_reduction.chi2) && std::isfinite(_reduction.rms_residual_px) &&
+                     _reduction.b_point.allFinite();
+  return _reduction.valid;
+}
+
+TrackReduction SchurUpdater::reduce_track(
+  const EkfState & _state, const std::vector<CameraExtrinsics> & _cameras, const FeatureTrack & _track) const
+{
+  TrackReduction red;
+  std::vector<ObservationJacobian> & jac = jacobian_scratch();
+  reduceTrackImpl(_state, _cameras, _track, jac, red);
+  return red;
 }
 
 UpdateSummary SchurUpdater::update(EkfState &state, std::vector<FeatureTrack> &tracks,
@@ -515,6 +568,7 @@ UpdateSummary SchurUpdater::update(EkfState &state, std::vector<FeatureTrack> &t
     // eventually reported through used_feature_ids.
     summary.consumed_feature_ids.reserve(tracks.size());
     summary.used_feature_ids.reserve(tracks.size());
+    summary.rejected_feature_ids.reserve(tracks.size());
     for (const FeatureTrack &track : tracks)
         summary.consumed_feature_ids.push_back(track.id);
 
@@ -569,11 +623,11 @@ UpdateSummary SchurUpdater::update(EkfState &state, std::vector<FeatureTrack> &t
     for (const int index : accepted)
     {
         FeatureTrack &track = tracks[static_cast<std::size_t>(index)];
-        const TrackReduction red = reduce_track(state, cameras, track);
-        if (!red.valid)
-        {
-            summary.rejected_feature_ids.push_back(track.id);
-            continue;
+        TrackReduction red;
+        std::vector<ObservationJacobian> & jac = jacobian_scratch();
+        if (!reduceTrackImpl(state, cameras, track, jac, red)) {
+          summary.rejected_feature_ids.push_back(track.id);
+          continue;
         }
 
         const int num_obs = static_cast<int>(track.observations.size());
@@ -589,12 +643,9 @@ UpdateSummary SchurUpdater::update(EkfState &state, std::vector<FeatureTrack> &t
             continue;
         }
 
-        std::vector<ObservationJacobian> &jac = jacobian_scratch();
-        if (!fill_track_jacobians(*this, state, cameras, track, jac))
-        {
-            summary.rejected_feature_ids.push_back(track.id);
-            continue;
-        }
+        // reduceTrackImpl() already filled and validated `jac` for this exact
+        // track, so the accumulation below reuses it instead of recomputing
+        // every Jacobian a second time.
 
         // H_x^T H_x is block diagonal (one 6x6 block per observing clone), so
         // it is accumulated one observation at a time.  H_x^T r likewise.
@@ -617,7 +668,8 @@ UpdateSummary SchurUpdater::update(EkfState &state, std::vector<FeatureTrack> &t
         // an explicit inverse, and reuse the solutions for every W_i block.
         Eigen::LDLT<Eigen::Matrix3d> point_ldlt(red.A_point);
         const Eigen::Vector3d point_rhs = point_ldlt.solve(red.b_point);
-        std::vector<std::pair<int, Eigen::Matrix<double, 3, 6>>> schur_blocks;
+        std::vector<std::pair<int, Eigen::Matrix<double, 3, 6>>> & schur_blocks = schurBlockScratch();
+        schur_blocks.clear();
         schur_blocks.reserve(red.W.size());
         bool schur_ok = point_ldlt.info() == Eigen::Success && point_rhs.allFinite();
         for (const auto &wi : red.W)

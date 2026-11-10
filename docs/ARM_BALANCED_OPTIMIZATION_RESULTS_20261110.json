@@ -1,0 +1,1728 @@
+{
+  "schema": "vins-arm-balanced-results/v1",
+  "date": "2026-11-10",
+  "platform": "local x86_64 workstation",
+  "backend": "schur_ekf",
+  "git_revision": "e28af31be74d9a46d32e6a028dc2f12abada784a",
+  "config_sha256": "d7924795643d792865869705792ac671645dc2b5822f18cd9598549576af01e8",
+  "hashes": {
+    "baseline_binary_sha256": "d2846b3b534b64acb31de90ef7cd6b89e044b75c043b1be446606ed246f34ef2",
+    "optimized_before_tidy_sha256": "029d15942b46ffab9ddde1687afb6030a61c5f2a2ec55c55013be7a7959ed1b1",
+    "optimized_frozen_sha256": "7a4ce0e08c0584b19386070eb2b9c124190d0d75c1c160c42f66b8aa46ecd7d3"
+  },
+  "primary_comparison": {
+    "label": "baseline vs optimized_frozen",
+    "single_run_screening": true,
+    "aggregation": "none; one run per dataset",
+    "runs": {
+      "V2_01_easy_r1": {
+        "dataset": "V2_01_easy",
+        "repeat": 1,
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 14.680000000000001,
+            "peak_rss_mib": 90.3203125,
+            "latency_p50_ms": 6.4544,
+            "latency_p95_ms": 8.109291099999995,
+            "latency_p99_ms": 10.543502480000033,
+            "output_poses": 1083,
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456
+          },
+          "tracker": {
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 4.91859649122807,
+              "detect_ms": 2.240263157894737,
+              "flow_ms": 2.505701754385965,
+              "pyramid_ms": 0.13359649122807019,
+              "input_image_ms": 4.921228070175438
+            },
+            "features": {
+              "tracked_mean": 182.56315789473683,
+              "detected_mean": 18.96842105263158
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "source": "benchmark_euroc.parse_restart_diagnostics"
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.25923665364583,
+            "late_mean_mib": 90.30335856958763,
+            "delta_mib": 0.04412191594180115
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 14.28,
+            "peak_rss_mib": 90.421875,
+            "latency_p50_ms": 6.29891,
+            "latency_p95_ms": 7.3245598,
+            "latency_p99_ms": 9.305781560000002,
+            "output_poses": 1083,
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456
+          },
+          "tracker": {
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 4.728947368421053,
+              "detect_ms": 2.1353508771929826,
+              "flow_ms": 2.4346491228070177,
+              "pyramid_ms": 0.12456140350877193,
+              "input_image_ms": 4.732017543859649
+            },
+            "features": {
+              "tracked_mean": 182.56315789473683,
+              "detected_mean": 18.96842105263158
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "source": "benchmark_euroc.parse_restart_diagnostics"
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.34872532894737,
+            "late_mean_mib": 90.40511067708333,
+            "delta_mib": 0.05638534813596152
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1083,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "baseline_ate_common": {
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456,
+            "ate_median_m": 0.1460713775387085,
+            "ate_p95_m": 0.2883685124126024,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456,
+            "ate_median_m": 0.1460713775387085,
+            "ate_p95_m": 0.2883685124126024,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 14.680000000000001,
+              "candidate": 14.28,
+              "delta": -0.40000000000000213,
+              "pct": -2.7247956403269895
+            },
+            "peak_rss_mib": {
+              "baseline": 90.3203125,
+              "candidate": 90.421875,
+              "delta": 0.1015625,
+              "pct": 0.11244702015396592
+            },
+            "latency_p50_ms": {
+              "baseline": 6.4544,
+              "candidate": 6.29891,
+              "delta": -0.15548999999999946,
+              "pct": -2.409054288547339
+            },
+            "latency_p95_ms": {
+              "baseline": 8.109291099999995,
+              "candidate": 7.3245598,
+              "delta": -0.7847312999999945,
+              "pct": -9.676940811755975
+            },
+            "latency_p99_ms": {
+              "baseline": 10.543502480000033,
+              "candidate": 9.305781560000002,
+              "delta": -1.2377209200000312,
+              "pct": -11.739181760025794
+            },
+            "output_poses": {
+              "baseline": 1083,
+              "candidate": 1083,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1080,
+              "candidate": 1080,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.17828830679949456,
+              "candidate": 0.17828830679949456,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      },
+      "V2_02_medium_r1": {
+        "dataset": "V2_02_medium",
+        "repeat": 1,
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 15.350000000000001,
+            "peak_rss_mib": 90.875,
+            "latency_p50_ms": 6.439769500000001,
+            "latency_p95_ms": 8.45297245,
+            "latency_p99_ms": 13.722435570000021,
+            "output_poses": 1130,
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411
+          },
+          "tracker": {
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 5.015400340715503,
+              "detect_ms": 2.3407836456558773,
+              "flow_ms": 2.514838160136286,
+              "pyramid_ms": 0.12638841567291312,
+              "input_image_ms": 5.019659284497444
+            },
+            "features": {
+              "tracked_mean": 158.43441226575808,
+              "detected_mean": 41.17734241908006
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "source": "benchmark_euroc.parse_restart_diagnostics"
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.81494140625,
+            "late_mean_mib": 90.85929445876289,
+            "delta_mib": 0.044353052512889235
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 14.83,
+            "peak_rss_mib": 90.96484375,
+            "latency_p50_ms": 6.2192384999999994,
+            "latency_p95_ms": 7.863440799999999,
+            "latency_p99_ms": 13.554242340000005,
+            "output_poses": 1130,
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411
+          },
+          "tracker": {
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 4.828211243611584,
+              "detect_ms": 2.2252470187393527,
+              "flow_ms": 2.4527427597955707,
+              "pyramid_ms": 0.12001703577512778,
+              "input_image_ms": 4.831618398637138
+            },
+            "features": {
+              "tracked_mean": 158.43441226575808,
+              "detected_mean": 41.17734241908006
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "source": "benchmark_euroc.parse_restart_diagnostics"
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.89650493421053,
+            "late_mean_mib": 90.94620768229167,
+            "delta_mib": 0.04970274808114539
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1130,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "baseline_ate_common": {
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411,
+            "ate_median_m": 0.24535801724241313,
+            "ate_p95_m": 0.38352276298810434,
+            "trajectory_duration_s": 112.69999980926514,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411,
+            "ate_median_m": 0.24535801724241313,
+            "ate_p95_m": 0.38352276298810434,
+            "trajectory_duration_s": 112.69999980926514,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 15.350000000000001,
+              "candidate": 14.83,
+              "delta": -0.5200000000000014,
+              "pct": -3.387622149837142
+            },
+            "peak_rss_mib": {
+              "baseline": 90.875,
+              "candidate": 90.96484375,
+              "delta": 0.08984375,
+              "pct": 0.09886519944979368
+            },
+            "latency_p50_ms": {
+              "baseline": 6.439769500000001,
+              "candidate": 6.2192384999999994,
+              "delta": -0.22053100000000114,
+              "pct": -3.42451697999441
+            },
+            "latency_p95_ms": {
+              "baseline": 8.45297245,
+              "candidate": 7.863440799999999,
+              "delta": -0.5895316500000014,
+              "pct": -6.974252589691114
+            },
+            "latency_p99_ms": {
+              "baseline": 13.722435570000021,
+              "candidate": 13.554242340000005,
+              "delta": -0.16819323000001596,
+              "pct": -1.2256805954164571
+            },
+            "output_poses": {
+              "baseline": 1130,
+              "candidate": 1130,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1128,
+              "candidate": 1128,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.2574603677433411,
+              "candidate": 0.2574603677433411,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      },
+      "V2_03_difficult_r1": {
+        "dataset": "V2_03_difficult",
+        "repeat": 1,
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 13.620000000000003,
+            "peak_rss_mib": 90.859375,
+            "latency_p50_ms": 7.048832,
+            "latency_p95_ms": 10.846848799999998,
+            "latency_p99_ms": 14.079385,
+            "output_poses": 1103,
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139
+          },
+          "tracker": {
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 5.462861602497399,
+              "detect_ms": 2.434370447450572,
+              "flow_ms": 2.8667013527575445,
+              "pyramid_ms": 0.13,
+              "input_image_ms": 5.4670239334027055
+            },
+            "features": {
+              "tracked_mean": 123.59833506763788,
+              "detected_mean": 63.83870967741935
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "source": "benchmark_euroc.parse_restart_diagnostics"
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.76953125,
+            "late_mean_mib": 90.8287353515625,
+            "delta_mib": 0.0592041015625
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 13.480000000000002,
+            "peak_rss_mib": 90.9140625,
+            "latency_p50_ms": 6.942856,
+            "latency_p95_ms": 10.707111499999998,
+            "latency_p99_ms": 13.283882080000001,
+            "output_poses": 1103,
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139
+          },
+          "tracker": {
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 5.414547346514048,
+              "detect_ms": 2.400905306971904,
+              "flow_ms": 2.855608740894901,
+              "pyramid_ms": 0.12728407908428718,
+              "input_image_ms": 5.417669094693029
+            },
+            "features": {
+              "tracked_mean": 123.59833506763788,
+              "detected_mean": 63.83870967741935
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "failure_detection_triggers": 0,
+              "starvation_restarts": 0,
+              "soft_restart_escalations": 0,
+              "legacy_failure_reboots": 0,
+              "by_reason": {
+                "solver_failure": 0,
+                "initialization": 0,
+                "failure_detection": 0,
+                "starvation": 0,
+                "backstop": 0,
+                "soft_escalation": 0,
+                "legacy": 0,
+                "other": 0
+              },
+              "source": "benchmark_euroc.parse_restart_diagnostics"
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.84424342105264,
+            "late_mean_mib": 90.89286295572917,
+            "delta_mib": 0.048619534676532794
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1103,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "baseline_ate_common": {
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139,
+            "ate_median_m": 0.2744732228300871,
+            "ate_p95_m": 0.5466436675852278,
+            "trajectory_duration_s": 110.09999990463257,
+            "max_output_gap_s": 0.14999985694885254
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139,
+            "ate_median_m": 0.2744732228300871,
+            "ate_p95_m": 0.5466436675852278,
+            "trajectory_duration_s": 110.09999990463257,
+            "max_output_gap_s": 0.14999985694885254
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 13.620000000000003,
+              "candidate": 13.480000000000002,
+              "delta": -0.14000000000000057,
+              "pct": -1.0279001468428821
+            },
+            "peak_rss_mib": {
+              "baseline": 90.859375,
+              "candidate": 90.9140625,
+              "delta": 0.0546875,
+              "pct": 0.06018916595012898
+            },
+            "latency_p50_ms": {
+              "baseline": 7.048832,
+              "candidate": 6.942856,
+              "delta": -0.10597600000000007,
+              "pct": -1.5034547567597025
+            },
+            "latency_p95_ms": {
+              "baseline": 10.846848799999998,
+              "candidate": 10.707111499999998,
+              "delta": -0.13973730000000018,
+              "pct": -1.288275540450054
+            },
+            "latency_p99_ms": {
+              "baseline": 14.079385,
+              "candidate": 13.283882080000001,
+              "delta": -0.7955029199999988,
+              "pct": -5.650125484884451
+            },
+            "output_poses": {
+              "baseline": 1103,
+              "candidate": 1103,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1102,
+              "candidate": 1102,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.3235174931101139,
+              "candidate": 0.3235174931101139,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      }
+    }
+  },
+  "repeat_evidence": {
+    "label": "optimized (pre-tidy) vs optimized_frozen",
+    "note": "pre-tidy differs only by const-ref/parameter names/format; shows run-to-run variation",
+    "runs": {
+      "V2_01_easy_r1": {
+        "dataset": "V2_01_easy",
+        "repeat": 1,
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 14.5,
+            "peak_rss_mib": 90.56640625,
+            "latency_p50_ms": 6.514945,
+            "latency_p95_ms": 7.423288999999996,
+            "latency_p99_ms": 9.35508648,
+            "output_poses": 1083,
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456
+          },
+          "tracker": {
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 4.90280701754386,
+              "detect_ms": 2.2634210526315792,
+              "flow_ms": 2.466140350877193
+            },
+            "features": {
+              "tracked_mean": 182.56315789473683,
+              "detected_mean": 18.96842105263158
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.49802631578947,
+            "late_mean_mib": 90.54964192708333,
+            "delta_mib": 0.05161561129385461
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 14.28,
+            "peak_rss_mib": 90.421875,
+            "latency_p50_ms": 6.29891,
+            "latency_p95_ms": 7.3245598,
+            "latency_p99_ms": 9.305781560000002,
+            "output_poses": 1083,
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456
+          },
+          "tracker": {
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 4.728947368421053,
+              "detect_ms": 2.1353508771929826,
+              "flow_ms": 2.4346491228070177
+            },
+            "features": {
+              "tracked_mean": 182.56315789473683,
+              "detected_mean": 18.96842105263158
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.34872532894737,
+            "late_mean_mib": 90.40511067708333,
+            "delta_mib": 0.05638534813596152
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1083,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "baseline_ate_common": {
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456,
+            "ate_median_m": 0.1460713775387085,
+            "ate_p95_m": 0.2883685124126024,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.17828830679949456,
+            "ate_median_m": 0.1460713775387085,
+            "ate_p95_m": 0.2883685124126024,
+            "trajectory_duration_s": 107.90000009536743,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 14.5,
+              "candidate": 14.28,
+              "delta": -0.22000000000000064,
+              "pct": -1.5172413793103492
+            },
+            "peak_rss_mib": {
+              "baseline": 90.56640625,
+              "candidate": 90.421875,
+              "delta": -0.14453125,
+              "pct": -0.15958593918481778
+            },
+            "latency_p50_ms": {
+              "baseline": 6.514945,
+              "candidate": 6.29891,
+              "delta": -0.21603499999999976,
+              "pct": -3.315991155719653
+            },
+            "latency_p95_ms": {
+              "baseline": 7.423288999999996,
+              "candidate": 7.3245598,
+              "delta": -0.09872919999999574,
+              "pct": -1.329992675753238
+            },
+            "latency_p99_ms": {
+              "baseline": 9.35508648,
+              "candidate": 9.305781560000002,
+              "delta": -0.049304919999999086,
+              "pct": -0.5270386340672191
+            },
+            "output_poses": {
+              "baseline": 1083,
+              "candidate": 1083,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1080,
+              "candidate": 1080,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.17828830679949456,
+              "candidate": 0.17828830679949456,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      },
+      "V2_02_medium_r1": {
+        "dataset": "V2_02_medium",
+        "repeat": 1,
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 15.200000000000001,
+            "peak_rss_mib": 90.94140625,
+            "latency_p50_ms": 6.3273465,
+            "latency_p95_ms": 8.247633299999999,
+            "latency_p99_ms": 13.441853770000025,
+            "output_poses": 1130,
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411
+          },
+          "tracker": {
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 4.908296422487223,
+              "detect_ms": 2.2496592844974446,
+              "flow_ms": 2.4928960817717205
+            },
+            "features": {
+              "tracked_mean": 158.43441226575808,
+              "detected_mean": 41.17734241908006
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.87308756510417,
+            "late_mean_mib": 90.92296230670104,
+            "delta_mib": 0.049874741596866556
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 14.83,
+            "peak_rss_mib": 90.96484375,
+            "latency_p50_ms": 6.2192384999999994,
+            "latency_p95_ms": 7.863440799999999,
+            "latency_p99_ms": 13.554242340000005,
+            "output_poses": 1130,
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411
+          },
+          "tracker": {
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 4.828211243611584,
+              "detect_ms": 2.2252470187393527,
+              "flow_ms": 2.4527427597955707
+            },
+            "features": {
+              "tracked_mean": 158.43441226575808,
+              "detected_mean": 41.17734241908006
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.89650493421053,
+            "late_mean_mib": 90.94620768229167,
+            "delta_mib": 0.04970274808114539
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1130,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "baseline_ate_common": {
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411,
+            "ate_median_m": 0.24535801724241313,
+            "ate_p95_m": 0.38352276298810434,
+            "trajectory_duration_s": 112.69999980926514,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1128,
+            "ate_rmse_m": 0.2574603677433411,
+            "ate_median_m": 0.24535801724241313,
+            "ate_p95_m": 0.38352276298810434,
+            "trajectory_duration_s": 112.69999980926514,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 15.200000000000001,
+              "candidate": 14.83,
+              "delta": -0.370000000000001,
+              "pct": -2.434210526315796
+            },
+            "peak_rss_mib": {
+              "baseline": 90.94140625,
+              "candidate": 90.96484375,
+              "delta": 0.0234375,
+              "pct": 0.025772088827799494
+            },
+            "latency_p50_ms": {
+              "baseline": 6.3273465,
+              "candidate": 6.2192384999999994,
+              "delta": -0.10810800000000054,
+              "pct": -1.708583527075695
+            },
+            "latency_p95_ms": {
+              "baseline": 8.247633299999999,
+              "candidate": 7.863440799999999,
+              "delta": -0.38419249999999927,
+              "pct": -4.658215102749528
+            },
+            "latency_p99_ms": {
+              "baseline": 13.441853770000025,
+              "candidate": 13.554242340000005,
+              "delta": 0.1123885699999807,
+              "pct": 0.836109155203081
+            },
+            "output_poses": {
+              "baseline": 1130,
+              "candidate": 1130,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1128,
+              "candidate": 1128,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.2574603677433411,
+              "candidate": 0.2574603677433411,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      },
+      "V2_03_difficult_r1": {
+        "dataset": "V2_03_difficult",
+        "repeat": 1,
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 13.99,
+            "peak_rss_mib": 90.9375,
+            "latency_p50_ms": 7.174277,
+            "latency_p95_ms": 10.944450599999996,
+            "latency_p99_ms": 13.362839940000002,
+            "output_poses": 1103,
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139
+          },
+          "tracker": {
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 5.619677419354839,
+              "detect_ms": 2.529864724245577,
+              "flow_ms": 2.915015608740895
+            },
+            "features": {
+              "tracked_mean": 123.59833506763788,
+              "detected_mean": 63.83870967741935
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.87134046052631,
+            "late_mean_mib": 90.91861979166667,
+            "delta_mib": 0.047279331140359204
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 13.480000000000002,
+            "peak_rss_mib": 90.9140625,
+            "latency_p50_ms": 6.942856,
+            "latency_p95_ms": 10.707111499999998,
+            "latency_p99_ms": 13.283882080000001,
+            "output_poses": 1103,
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139
+          },
+          "tracker": {
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "overflow_events_cumulative": 0,
+            "overflow_dropped_pairs_cumulative": 0,
+            "weighted_mean_ms": {
+              "track_ms": 5.414547346514048,
+              "detect_ms": 2.400905306971904,
+              "flow_ms": 2.855608740894901
+            },
+            "features": {
+              "tracked_mean": 123.59833506763788,
+              "detected_mean": 63.83870967741935
+            }
+          },
+          "rss_stable_window": {
+            "early_mean_mib": 90.84424342105264,
+            "late_mean_mib": 90.89286295572917,
+            "delta_mib": 0.048619534676532794
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1103,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "baseline_ate_common": {
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139,
+            "ate_median_m": 0.2744732228300871,
+            "ate_p95_m": 0.5466436675852278,
+            "trajectory_duration_s": 110.09999990463257,
+            "max_output_gap_s": 0.14999985694885254
+          },
+          "candidate_ate_common": {
+            "matched_poses": 1102,
+            "ate_rmse_m": 0.3235174931101139,
+            "ate_median_m": 0.2744732228300871,
+            "ate_p95_m": 0.5466436675852278,
+            "trajectory_duration_s": 110.09999990463257,
+            "max_output_gap_s": 0.14999985694885254
+          },
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 13.99,
+              "candidate": 13.480000000000002,
+              "delta": -0.509999999999998,
+              "pct": -3.645461043602559
+            },
+            "peak_rss_mib": {
+              "baseline": 90.9375,
+              "candidate": 90.9140625,
+              "delta": -0.0234375,
+              "pct": -0.02577319587628866
+            },
+            "latency_p50_ms": {
+              "baseline": 7.174277,
+              "candidate": 6.942856,
+              "delta": -0.2314210000000001,
+              "pct": -3.2257048340899033
+            },
+            "latency_p95_ms": {
+              "baseline": 10.944450599999996,
+              "candidate": 10.707111499999998,
+              "delta": -0.23733909999999803,
+              "pct": -2.168579389448732
+            },
+            "latency_p99_ms": {
+              "baseline": 13.362839940000002,
+              "candidate": 13.283882080000001,
+              "delta": -0.07895786000000093,
+              "pct": -0.5908763433112028
+            },
+            "output_poses": {
+              "baseline": 1103,
+              "candidate": 1103,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1102,
+              "candidate": 1102,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.3235174931101139,
+              "candidate": 0.3235174931101139,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      }
+    }
+  },
+  "microbench": {
+    "scene": {
+      "clones": 5,
+      "tracks": 24,
+      "seed": 12345
+    },
+    "reduce_us_per_call_3rounds": {
+      "baseline": [
+        4.451236,
+        4.584933,
+        4.695573
+      ],
+      "candidate": [
+        4.679987,
+        4.436624,
+        4.34391
+      ],
+      "baseline_mean": 4.577247333333333,
+      "candidate_mean": 4.486840333333333
+    },
+    "update_us_per_call_3rounds": {
+      "baseline": [
+        265.41391,
+        263.47452,
+        268.24256
+      ],
+      "candidate": [
+        274.28974,
+        267.89127,
+        265.27756
+      ],
+      "baseline_mean": 265.71033,
+      "candidate_mean": 269.15285666666665
+    },
+    "checksums_equal": true
+  },
+  "allocations": {
+    "probe": "LD_PRELOAD malloc/calloc/realloc counter",
+    "baseline_calls": 477079,
+    "candidate_calls": 314192,
+    "calls_change_pct": -34.14256339096879,
+    "baseline_requested_bytes": 141576788,
+    "candidate_requested_bytes": 123944316,
+    "requested_bytes_change_pct": -12.454352333519532,
+    "caveat": "process total requested allocation, not peak/live RSS; LD_PRELOAD probe has overhead"
+  },
+  "validation": {
+    "ctest": {
+      "programs": 12,
+      "tests": 136,
+      "failures": 0,
+      "disabled": 0,
+      "source": "gtest XML count"
+    },
+    "python": {
+      "passed": 45,
+      "log": "output/balance_20261110/python_tests_verified.log"
+    },
+    "summary_tests": {
+      "passed": 5
+    },
+    "format": {
+      "BreakConstructorInitializers": "BeforeColon (plural key)",
+      "SpacesBeforeTrailingComments": 2,
+      "format_diff": 0,
+      "tidy_verify_config": true
+    },
+    "clang_tidy": {
+      "verify_config": "No config errors detected",
+      "changed_lines_4tu": "no warnings or errors"
+    },
+    "benchmark_cpp": "local quick compile + format + tidy passed; checksum matches old harness",
+    "local_product_code": "frozen; no further local product changes planned",
+    "restart_parser": {
+      "function": "benchmark_euroc.parse_restart_diagnostics",
+      "fields": [
+        "restart_requests",
+        "reset_entry_events",
+        "actual_resets_completed",
+        "failure_detection_triggers",
+        "starvation_restarts",
+        "soft_restart_escalations",
+        "legacy_failure_reboots",
+        "by_reason",
+        "events"
+      ],
+      "actual_resets_completed": null,
+      "restart_executions_alias": "removed"
+    }
+  },
+  "conclusions": [
+    "Local frozen and ARM default comparisons preserve identical 8-column trajectories and identical ATE.",
+    "ARM default candidate reduces CPU/P95 slightly but does not solve difficult accuracy or the 8.2 s gap.",
+    "pin67 + threads1 + schur_ekf is a repeatable performance opt-in: easy CPU ~31-32% lower and P95 ~50-52% lower, with ATE unchanged.",
+    "pin67 + threads1 medium improves CPU/P95 (~-32.1%/-50.2%) with unchanged ATE; repeated data remains single-run except easy.",
+    "difficult Schur remains unreliable: ATE ~19.5772 m, 8.2 s gap, and 3 restart requests/reset entries.",
+    "Ceres difficult full-coverage ATE is 11.3486 m (1103 poses); on the common 994 timestamps, Schur is 19.6152 m and Ceres is 10.5793 m, so full-coverage ATE is not directly rankable. Ceres still fails the extra <1 m screening criterion (not user acceptance); no easy/medium follow-up and no Ceres default recommendation.",
+    "No all-scenario optimal satisfying difficult accuracy was found. Product defaults and calibration remain unchanged; initialization/Schur root cause remains unresolved.",
+    "ARM microbench 3-round alternation shows ~5% lower reduce/update (small sample); local x86 update has no stable improvement. Allocation probe supports fewer calls/bytes, not lower RSS."
+  ],
+  "arm_default": {
+    "platform": "Orange Pi 4 Pro / sun60iw2, 2x Cortex-A76 + 6x Cortex-A55",
+    "backend": "schur_ekf",
+    "single_run_screening": true,
+    "source_head": "e28af31be74d9a46d32e6a028dc2f12abada784a",
+    "config_sha256": "d7924795643d792865869705792ac671645dc2b5822f18cd9598549576af01e8",
+    "hashes": {
+      "baseline_binary_sha256": "00772c541ef3f26065696c4826d6317f4a2dfa4c8b5ff7173e611158b8c3a735",
+      "optimized_binary_sha256": "f500174b03aee6ed4f7bcdf84eae81862ae1a077321f657f46458641c9742925"
+    },
+    "trace_8col_bitwise_identical": true,
+    "runs": {
+      "V2_01_easy_r1": {
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 125.00000000000001,
+            "peak_rss_mib": 98.63671875,
+            "latency_p50_ms": 68.943986,
+            "latency_p95_ms": 82.00311789999999,
+            "latency_p99_ms": 88.13981278000004,
+            "output_poses": 1083,
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.15989519534310065,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "tracker": {
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "weighted_mean_ms": {
+              "track_ms": 31.145526315789475,
+              "detect_ms": 14.302280701754386,
+              "flow_ms": 15.669298245614035,
+              "pyramid_ms": 1.0286842105263159,
+              "input_image_ms": 31.1628947368421
+            },
+            "features": {
+              "tracked_mean": 182.1877192982456,
+              "detected_mean": 18.82894736842105
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "starvation_restarts": 0
+            }
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 120.35,
+            "peak_rss_mib": 98.5859375,
+            "latency_p50_ms": 64.151094,
+            "latency_p95_ms": 80.72607289999999,
+            "latency_p99_ms": 87.83008914000003,
+            "output_poses": 1083,
+            "matched_poses": 1080,
+            "ate_rmse_m": 0.15989519534310065,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "tracker": {
+            "sum_frames": 2280,
+            "total_frames": 2280,
+            "frames_consistent": true,
+            "weighted_mean_ms": {
+              "track_ms": 31.33078947368421,
+              "detect_ms": 14.166842105263159,
+              "flow_ms": 15.928771929824562,
+              "pyramid_ms": 1.0971929824561404,
+              "input_image_ms": 31.347280701754386
+            },
+            "features": {
+              "tracked_mean": 182.1877192982456,
+              "detected_mean": 18.82894736842105
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "starvation_restarts": 0
+            }
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1083,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 125.00000000000001,
+              "candidate": 120.35,
+              "delta": -4.65000000000002,
+              "pct": -3.7200000000000153
+            },
+            "peak_rss_mib": {
+              "baseline": 98.63671875,
+              "candidate": 98.5859375,
+              "delta": -0.05078125,
+              "pct": -0.05148310957981862
+            },
+            "latency_p50_ms": {
+              "baseline": 68.943986,
+              "candidate": 64.151094,
+              "delta": -4.792891999999995,
+              "pct": -6.951863792731675
+            },
+            "latency_p95_ms": {
+              "baseline": 82.00311789999999,
+              "candidate": 80.72607289999999,
+              "delta": -1.277045000000001,
+              "pct": -1.5573127372514226
+            },
+            "latency_p99_ms": {
+              "baseline": 88.13981278000004,
+              "candidate": 87.83008914000003,
+              "delta": -0.3097236400000156,
+              "pct": -0.35140038335808166
+            },
+            "output_poses": {
+              "baseline": 1083,
+              "candidate": 1083,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1080,
+              "candidate": 1080,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.15989519534310065,
+              "candidate": 0.15989519534310065,
+              "delta": 0.0,
+              "pct": 0.0
+            },
+            "max_output_gap_s": {
+              "baseline": 0.10000014305114746,
+              "candidate": 0.10000014305114746,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      },
+      "V2_02_medium_r1": {
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 125.43999999999998,
+            "peak_rss_mib": 102.10546875,
+            "latency_p50_ms": 65.369832,
+            "latency_p95_ms": 81.50813079999999,
+            "latency_p99_ms": 92.2624876,
+            "output_poses": 1133,
+            "matched_poses": 1131,
+            "ate_rmse_m": 0.27509612294365676,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "tracker": {
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "weighted_mean_ms": {
+              "track_ms": 30.138500851788756,
+              "detect_ms": 12.82304940374787,
+              "flow_ms": 16.065689948892675,
+              "pyramid_ms": 1.1117206132879047,
+              "input_image_ms": 30.154241908006817
+            },
+            "features": {
+              "tracked_mean": 158.66439522998297,
+              "detected_mean": 41.23492333901193
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "starvation_restarts": 0
+            }
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 122.25,
+            "peak_rss_mib": 101.84375,
+            "latency_p50_ms": 61.933972,
+            "latency_p95_ms": 79.67311799999999,
+            "latency_p99_ms": 88.39758300000005,
+            "output_poses": 1133,
+            "matched_poses": 1131,
+            "ate_rmse_m": 0.27509612294365676,
+            "max_output_gap_s": 0.10000014305114746
+          },
+          "tracker": {
+            "sum_frames": 2348,
+            "total_frames": 2348,
+            "frames_consistent": true,
+            "weighted_mean_ms": {
+              "track_ms": 30.26764906303237,
+              "detect_ms": 12.878994889267462,
+              "flow_ms": 16.1333730834753,
+              "pyramid_ms": 1.1176660988074956,
+              "input_image_ms": 30.28403747870528
+            },
+            "features": {
+              "tracked_mean": 158.66439522998297,
+              "detected_mean": 41.23492333901193
+            },
+            "restart_diagnostics": {
+              "restart_requests": 0,
+              "reset_entry_events": 0,
+              "actual_resets_completed": null,
+              "starvation_restarts": 0
+            }
+          }
+        },
+        "comparison": {
+          "common_timestamps": 1133,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 125.43999999999998,
+              "candidate": 122.25,
+              "delta": -3.1899999999999835,
+              "pct": -2.543048469387742
+            },
+            "peak_rss_mib": {
+              "baseline": 102.10546875,
+              "candidate": 101.84375,
+              "delta": -0.26171875,
+              "pct": -0.256321971001186
+            },
+            "latency_p50_ms": {
+              "baseline": 65.369832,
+              "candidate": 61.933972,
+              "delta": -3.4358600000000052,
+              "pct": -5.256033088780166
+            },
+            "latency_p95_ms": {
+              "baseline": 81.50813079999999,
+              "candidate": 79.67311799999999,
+              "delta": -1.8350128000000012,
+              "pct": -2.251324845741649
+            },
+            "latency_p99_ms": {
+              "baseline": 92.2624876,
+              "candidate": 88.39758300000005,
+              "delta": -3.864904599999946,
+              "pct": -4.189031426028823
+            },
+            "output_poses": {
+              "baseline": 1133,
+              "candidate": 1133,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 1131,
+              "candidate": 1131,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 0.27509612294365676,
+              "candidate": 0.27509612294365676,
+              "delta": 0.0,
+              "pct": 0.0
+            },
+            "max_output_gap_s": {
+              "baseline": 0.10000014305114746,
+              "candidate": 0.10000014305114746,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      },
+      "V2_03_difficult_r1": {
+        "baseline": {
+          "metrics": {
+            "cpu_seconds": 113.63,
+            "peak_rss_mib": 99.2109375,
+            "latency_p50_ms": 66.941383,
+            "latency_p95_ms": 90.5978808,
+            "latency_p99_ms": 106.70164984999997,
+            "output_poses": 994,
+            "matched_poses": 993,
+            "ate_rmse_m": 19.615152829871,
+            "max_output_gap_s": 8.200000047683716
+          },
+          "tracker": {
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "weighted_mean_ms": {
+              "track_ms": 32.095306971904265,
+              "detect_ms": 12.417845993756503,
+              "flow_ms": 18.288928199791883,
+              "pyramid_ms": 1.256576482830385,
+              "input_image_ms": 32.11322580645162
+            },
+            "features": {
+              "tracked_mean": 123.59719042663892,
+              "detected_mean": 63.84453694068678
+            },
+            "restart_diagnostics": {
+              "restart_requests": 3,
+              "reset_entry_events": 3,
+              "actual_resets_completed": null,
+              "starvation_restarts": 3
+            }
+          }
+        },
+        "candidate": {
+          "metrics": {
+            "cpu_seconds": 109.89999999999999,
+            "peak_rss_mib": 99.625,
+            "latency_p50_ms": 62.486846,
+            "latency_p95_ms": 88.70306049999999,
+            "latency_p99_ms": 109.05825009999941,
+            "output_poses": 994,
+            "matched_poses": 993,
+            "ate_rmse_m": 19.615152829871,
+            "max_output_gap_s": 8.200000047683716
+          },
+          "tracker": {
+            "sum_frames": 1922,
+            "total_frames": 1922,
+            "frames_consistent": true,
+            "weighted_mean_ms": {
+              "track_ms": 32.27091571279917,
+              "detect_ms": 12.82837669094693,
+              "flow_ms": 18.06716961498439,
+              "pyramid_ms": 1.2492507804370447,
+              "input_image_ms": 32.28946930280957
+            },
+            "features": {
+              "tracked_mean": 123.59719042663892,
+              "detected_mean": 63.84453694068678
+            },
+            "restart_diagnostics": {
+              "restart_requests": 3,
+              "reset_entry_events": 3,
+              "actual_resets_completed": null,
+              "starvation_restarts": 3
+            }
+          }
+        },
+        "comparison": {
+          "common_timestamps": 994,
+          "trajectory_8col_bitwise_identical": true,
+          "max_abs_position_delta_m": 0.0,
+          "changes": {
+            "cpu_seconds": {
+              "baseline": 113.63,
+              "candidate": 109.89999999999999,
+              "delta": -3.730000000000004,
+              "pct": -3.2825838246941865
+            },
+            "peak_rss_mib": {
+              "baseline": 99.2109375,
+              "candidate": 99.625,
+              "delta": 0.4140625,
+              "pct": 0.4173556972989999
+            },
+            "latency_p50_ms": {
+              "baseline": 66.941383,
+              "candidate": 62.486846,
+              "delta": -4.454537000000002,
+              "pct": -6.654384478432425
+            },
+            "latency_p95_ms": {
+              "baseline": 90.5978808,
+              "candidate": 88.70306049999999,
+              "delta": -1.8948203000000063,
+              "pct": -2.0914620554789027
+            },
+            "latency_p99_ms": {
+              "baseline": 106.70164984999997,
+              "candidate": 109.05825009999941,
+              "delta": 2.3566002499994454,
+              "pct": 2.208588389506937
+            },
+            "output_poses": {
+              "baseline": 994,
+              "candidate": 994,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "matched_poses": {
+              "baseline": 993,
+              "candidate": 993,
+              "delta": 0,
+              "pct": 0.0
+            },
+            "ate_rmse_m": {
+              "baseline": 19.615152829871,
+              "candidate": 19.615152829871,
+              "delta": 0.0,
+              "pct": 0.0
+            },
+            "max_output_gap_s": {
+              "baseline": 8.200000047683716,
+              "candidate": 8.200000047683716,
+              "delta": 0.0,
+              "pct": 0.0
+            }
+          }
+        }
+      }
+    }
+  },
+  "arm_microbench": {
+    "scene": {
+      "clones": 5,
+      "tracks": 24,
+      "seed": 12345
+    },
+    "reduce_us_per_call_3rounds": {
+      "baseline": [
+        13.608227,
+        13.82438,
+        14.340489
+      ],
+      "candidate": [
+        13.106028,
+        13.114601,
+        13.356483
+      ],
+      "baseline_mean": 13.924365333333332,
+      "candidate_mean": 13.192370666666667,
+      "change_pct": -5.25693379298483
+    },
+    "update_us_per_call_3rounds": {
+      "baseline": [
+        729.03542,
+        732.61338,
+        731.29549
+      ],
+      "candidate": [
+        693.51918,
+        691.23998,
+        693.95502
+      ],
+      "baseline_mean": 730.98143,
+      "candidate_mean": 692.9047266666666,
+      "change_pct": -5.208983671901679
+    },
+    "checksums_equal": true
+  },
+  "arm_tests": {
+    "test_feature_tracker": {
+      "passed": 21
+    },
+    "test_schur_update": {
+      "passed": 27
+    }
+  },
+  "arm_profile_initial": {
+    "status": "completed",
+    "easy": {
+      "opt_default": {
+        "cpu_seconds": 120.35,
+        "latency_p95_ms": 80.7260729,
+        "ate_rmse_m": 0.15989519534310065
+      },
+      "threads2": {
+        "cpu_seconds": 170.11,
+        "latency_p95_ms": 85.36,
+        "note": "worse than opt_default"
+      },
+      "pin67_threads1": {
+        "cpu_seconds": 82.98,
+        "latency_p95_ms": 40.24,
+        "ate_rmse_m": 0.15989519534310065,
+        "trace_equals_opt_default": true
+      },
+      "default_repeat": {
+        "cpu_seconds": 122.74,
+        "latency_p95_ms": 80.6999,
+        "ate_rmse_m": 0.15989519534310065,
+        "note": "stable P95 vs first run; CPU +1.99%"
+      },
+      "pin67_threads1_repeat": {
+        "cpu_seconds": 82.87,
+        "latency_p95_ms": 38.8965,
+        "ate_rmse_m": 0.15989519534310065,
+        "note": "repeat stable vs first pin run"
+      },
+      "aggregate": {
+        "cpu_change_pct_vs_default_r1": -31.051100955546318,
+        "cpu_change_pct_vs_default_repeat": -32.48329802835261,
+        "p95_change_pct_vs_default_r1": -50.152040655008754,
+        "p95_change_pct_vs_default_repeat": -51.80105551555826,
+        "rss_delta_mib_approx": 0.7,
+        "repeatable": true
+      }
+    },
+    "difficult": {
+      "opt_default": {
+        "cpu_seconds": 109.9,
+        "latency_p95_ms": 88.703,
+        "ate_rmse_m": 19.6152,
+        "max_output_gap_s": 8.2
+      },
+      "pin67_threads1": {
+        "cpu_seconds": 75.98,
+        "latency_p50_ms": 36.419,
+        "latency_p95_ms": 55.656,
+        "latency_p99_ms": 68.088,
+        "rss_mib": 100.047,
+        "ate_rmse_m": 19.5772,
+        "max_output_gap_s": 8.2,
+        "output_poses": 994
+      },
+      "cpu_change_pct": -30.86442220200182,
+      "p95_change_pct": -37.25578616281299,
+      "ate_change_pct": -0.1937273135119716,
+      "accuracy_status": "fail; ATE still ~19.58 m and 8.2 s gap remains",
+      "ceres_experiment": {
+        "cpu_seconds": 96.88,
+        "latency_p95_ms": 86.0108,
+        "rss_mib": 105.852,
+        "ate_rmse_m": 11.3486,
+        "max_output_gap_s": 0.15,
+        "output_poses": 1103,
+        "passes_ate_lt_1m": false,
+        "recommended_default": false,
+        "common_timestamps": 994,
+        "common_ate_schur_m": 19.615152829871,
+        "common_ate_ceres_m": 10.579321795015545,
+        "coverage_note": "full-coverage ATE 11.3486 m (1103 poses) is not directly rankable vs Schur 994 poses"
+      }
+    },
+    "recommendation": "pin67 + threads1 + schur_ekf is the repeatable performance opt-in; it is not an all-scenario accuracy solution, and difficult Schur remains unreliable",
+    "medium": {
+      "opt_default": {
+        "cpu_seconds": 122.25,
+        "latency_p95_ms": 79.6731,
+        "ate_rmse_m": 0.275096
+      },
+      "pin67_threads1": {
+        "cpu_seconds": 83.06,
+        "latency_p95_ms": 39.689,
+        "ate_rmse_m": 0.275096,
+        "output_poses": 1133,
+        "max_output_gap_s": 0.1
+      },
+      "cpu_change_pct": -32.05725971370143,
+      "p95_change_pct": -50.18519425000408,
+      "ate_change_pct": 0.0
+    }
+  },
+  "arm_ceres_boundary": {
+    "status": "completed",
+    "binary": "same optimized live binary",
+    "profile": "pin67 + cv1",
+    "difficulty_sequence": "V2_03_difficult",
+    "only_change": "ROS parameter backend_type:=ceres",
+    "metrics": {
+      "cpu_seconds": 96.88,
+      "latency_p95_ms": 86.0108,
+      "rss_mib": 105.852,
+      "ate_rmse_m": 11.3486,
+      "max_output_gap_s": 0.15,
+      "output_poses": 1103
+    },
+    "gate": "ATE < 1 m on common intersection (extra screening criterion, not user acceptance)",
+    "gate_passed": false,
+    "decision": "no easy/medium follow-up; do not recommend Ceres as default",
+    "product_default_changed": false,
+    "other_threshold_or_detector_search": false,
+    "common_timestamps": 994,
+    "common_ate_schur_m": 19.615152829871,
+    "common_ate_ceres_m": 10.579321795015545,
+    "coverage_note": "full-coverage Ceres ATE 11.3486 m uses 1103 poses; Schur common intersection spans 994 poses, so 11.3486 is not directly rankable against the 994-pose Schur ATE",
+    "timeout_warn_log_lines": 10,
+    "timeout_warn_line_count_is_exact_timeout_count": false
+  },
+  "opt_in_run": {
+    "scope": "this .62 board only; re-probe cpu_capacity on other hardware",
+    "affinity_cpus": "6,7",
+    "opencv_threads": 1,
+    "command": "taskset -c 6,7 \"$VINS_NODE\" --ros-args -p config_file:=\"$CONFIG\" -p opencv_threads:=1 -p backend_type:=schur_ekf",
+    "config_file_unchanged": true,
+    "deployment_dir_overwritten": false,
+    "git_committed": false,
+    "default_launch_modified": false,
+    "note": "verified performance opt-in; difficult Schur is not accuracy-approved; existing taskset is sufficient, no generic launcher",
+    "backend": "schur_ekf",
+    "ceres_experimental_only": true
+  },
+  "arm_status": {
+    "status": "completed",
+    "default_compare": "output/balance_20261110/arm/default_compare.json",
+    "profile_and_original_evidence_archive": "output/balance_20261110/arm",
+    "ceres_experiment": "completed; ATE 11.3486 m, not recommended",
+    "note": "final conclusions are fixed; raw evidence sync is archival only"
+  },
+  "final_status": {
+    "status": "completed",
+    "performance_opt_in": "pin67 + threads1 + schur_ekf",
+    "performance_opt_in_repeatable": true,
+    "all_scenario_optimal_found": false,
+    "difficult_accuracy_passed": false,
+    "ceres_difficult_ate_m": 11.3486,
+    "ceres_default_recommended": false,
+    "product_default_changed": false,
+    "calibration_changed": false,
+    "unresolved_limitations": [
+      "difficult Schur accuracy failure (~19.5772 m) and 8.2 s output gap",
+      "three controlled restart requests/reset entries on difficult",
+      "initialization/starved-reinitialization root cause not proven"
+    ],
+    "ceres_full_coverage_ate_m": 11.3486,
+    "ceres_full_coverage_poses": 1103,
+    "ceres_common_ate_m": 10.579321795015545,
+    "schur_common_ate_m": 19.615152829871,
+    "common_timestamps": 994,
+    "recommended_difficult_accuracy_config": false,
+    "extra_ate_screening_m": 1.0,
+    "extra_ate_screening_is_user_acceptance": false
+  }
+}

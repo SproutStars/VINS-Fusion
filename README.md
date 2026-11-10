@@ -93,6 +93,31 @@ ros2 launch vins vins.launch.py mode:=stereo_imu \
 | `output_path` | `FindPackageShare(vins)/../../output`（通常为 `install/vins/output`） | 轨迹及位姿图输出目录，自动创建 |
 | `opencv_threads` | `1` | OpenCV 工作线程数；单目 EuRoC 默认限制为 1 |
 
+CPU 绑核由 `config_file` 指定的算法参数文件配置。三个 EuRoC 模式默认关闭，
+三个兼容 launch 入口也共用此功能。在 YAML 的 `/**` → `ros__parameters` 中设置：
+
+```yaml
+/**:
+  ros__parameters:
+    cpu_affinity_enabled: true
+    cpu_affinity_cores: [6, 7]
+```
+
+修改所选配置文件中的这两个字段后正常启动即可，例如：
+
+```bash
+ros2 launch vins vins.launch.py config_file:=/absolute/path/to/config.yaml
+```
+
+启用后 launch 使用 `taskset --cpu-list 6,7` 启动 `vins_node`，其工作线程继承该核心集合；
+回环、GPS 融合和 RViz 节点仍由系统调度。编号是 Linux 逻辑 CPU ID，`[6, 7]` 对应本次
+ARM 设备的两个 A76 大核，其他设备需先检查 `lscpu -e` 和当前进程允许的核心。
+列表必须包含至少一个非负整数，重复编号会去重；启用时若核心不可用或缺少 `taskset`，
+启动会明确报错。旧版 OpenCV YAML 可在顶层设置同名字段，开关使用 `0/1`。
+缺少开关或设为 `false` 时不绑定。修改后需重新启动 launch；直接 `ros2 run` 不应用这些
+launch 专用字段。若修改源码目录中的示例参数文件，需重新安装配置，或通过 `config_file`
+直接指定该源码文件。
+
 也可直接运行节点；仍支持旧版的配置文件位置参数：
 
 ```bash

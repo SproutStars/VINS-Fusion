@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import struct
 import subprocess
@@ -84,6 +85,128 @@ def trajectory_metrics(estimated, truth):
         "trajectory_duration_s": float(t[-1] - t[0]),
         "max_output_gap_s": float(np.max(np.diff(t))),
     }
+
+
+_RESTART_REQUEST_PHRASES = (
+    "scheduling a controlled estimator reset",
+    "scheduling a controlled estimator restart",
+    "controlled estimator reset is scheduled",
+    "escalating to a full controlled estimator restart",
+)
+
+_RESTART_REASONS = (
+    "solver_failure",
+    "initialization",
+    "failure_detection",
+    "starvation",
+    "backstop",
+    "soft_escalation",
+    "legacy",
+    "other",
+)
+
+
+def _classify_restart_request(line):
+    if "Schur EKF visually starved" in line:
+        return "starvation"
+    if "consecutive frames without a visual update" in line:
+        return "backstop"
+    if "escalating to a full controlled estimator restart" in line:
+        return "soft_escalation"
+    if "Failure detection triggered" in line:
+        return "failure_detection"
+    if "Solver failed during" in line:
+        return "solver_failure"
+    if "initialization" in line.lower():
+        return "initialization"
+    return "other"
+
+
+def _event_timestamp(line):
+    match = re.search(r"\[(\d+(?:\.\d+)?)\]", line)
+    return float(match.group(1)) if match else None
+
+
+def parse_restart_diagnostics(log_text):
+    """Summarize explicit controlled-restart requests and reset entries.
+
+    Request lines only say the estimator *scheduled* a reset/restart; several
+    can be logged before one reset starts. The "Resetting estimator state
+    after solver failure" line is emitted before clearState(), so it proves a
+    reset was entered, not that it completed. No completion marker exists here,
+    hence actual_resets_completed is None.
+    """
+    by_reason = {reason: 0 for reason in _RESTART_REASONS}
+    events = []
+    restart_requests = 0
+    reset_entry_events = 0
+    failure_detection_triggers = 0
+    starvation_restarts = 0
+    soft_restart_escalations = 0
+    legacy_failure_reboots = 0
+
+    for line_no, line in enumerate(log_text.splitlines(), start=1):
+        legacy_hits = line.count("failure detection!") + line.count("system reboot!")
+        if legacy_hits:
+            legacy_failure_reboots += legacy_hits
+            by_reason["legacy"] += legacy_hits
+            events.append({
+                "line_no": line_no,
+                "kind": "legacy",
+                "reason": "legacy",
+                "message": line.strip(),
+                "timestamp": _event_timestamp(line),
+            })
+
+        if "Failure detection triggered" in line:
+            failure_detection_triggers += 1
+        if ("Schur EKF visually starved" in line or
+                "consecutive frames without a visual update" in line):
+            starvation_restarts += 1
+        if "escalating to a full controlled estimator restart" in line:
+            soft_restart_escalations += 1
+
+        if any(phrase in line for phrase in _RESTART_REQUEST_PHRASES):
+            reason = _classify_restart_request(line)
+            restart_requests += 1
+            by_reason[reason] += 1
+            events.append({
+                "line_no": line_no,
+                "kind": "request",
+                "reason": reason,
+                "message": line.strip(),
+                "timestamp": _event_timestamp(line),
+            })
+        elif "Resetting estimator state after solver failure" in line:
+            # Emitted before clearState(), so this is a reset-entry marker,
+            # not proof of completion. The message does not name the request
+            # that caused the reset, so keep it out of by_reason.
+            reset_entry_events += 1
+            events.append({
+                "line_no": line_no,
+                "kind": "reset_entry",
+                # The entry message does not reveal which request won (Schur
+                # starvation also reaches this path), so do not guess a reason.
+                "reason": "unknown",
+                "message": line.strip(),
+                "timestamp": _event_timestamp(line),
+            })
+
+    return {
+        "restart_requests": restart_requests,
+        "reset_entry_events": reset_entry_events,
+        "actual_resets_completed": None,
+        "failure_detection_triggers": failure_detection_triggers,
+        "starvation_restarts": starvation_restarts,
+        "soft_restart_escalations": soft_restart_escalations,
+        "legacy_failure_reboots": legacy_failure_reboots,
+        "by_reason": by_reason,
+        "events": events,
+    }
+
+
+def parse_restart_diagnostics_file(path):
+    return parse_restart_diagnostics(Path(path).read_text(errors="replace"))
 
 
 def stop_process(process):
@@ -228,6 +351,7 @@ def run_bag(args, bag, output, truth):
     np.savetxt(output / "latencies_ms.csv", latencies, delimiter=",")
     cpu_seconds = final_cpu.user + final_cpu.system - initial_cpu.user - initial_cpu.system
     log = (output / "estimator.log").read_text(errors="replace")
+    restart_diagnostics = parse_restart_diagnostics(log)
     result = {
         "dataset": bag.name, "label": args.label, "rate": args.rate,
         "wall_s": elapsed, "cpu_seconds": cpu_seconds,
@@ -238,7 +362,8 @@ def run_bag(args, bag, output, truth):
         "latency_p50_ms": float(np.percentile(latencies, 50)) if latencies else None,
         "latency_p95_ms": float(np.percentile(latencies, 95)) if latencies else None,
         "latency_p99_ms": float(np.percentile(latencies, 99)) if latencies else None,
-        "failure_reboots": log.count("failure detection!") + log.count("system reboot!"),
+        "failure_reboots": restart_diagnostics["legacy_failure_reboots"],
+        **restart_diagnostics,
         **trajectory_metrics(trajectory, truth),
     }
     (output / "metrics.json").write_text(json.dumps(result, indent=2) + "\n")
