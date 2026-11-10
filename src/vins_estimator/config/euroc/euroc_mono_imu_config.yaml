@@ -14,7 +14,7 @@
     image0_topic: "/cam0/image_raw"
     image1_topic: "/cam1/image_raw"
     output_path: "./output/"
-    cam0_calib: "cam0_v01.yaml"
+    cam0_calib: "cam0_pinhole.yaml"
     cam1_calib: "camera1_info.yaml"
     image_width: 752
     image_height: 480
@@ -31,7 +31,7 @@
     # 在半分辨率金字塔检测后回原图细化，并缓存 LK 导数；会改变特征分布。
     # 光流和相机标定始终使用原分辨率，默认保留 gftt。
     # ARM medium 的 Schur EKF 对照出现精度回退，仅供实验；见 docs/ARM_TRACKER_ACCELERATION.md。
-    feature_detector: "gftt"
+    feature_detector: "gftt_pyramid"
     fast_threshold: 20
     grid_x: 5
     grid_y: 5
@@ -48,7 +48,7 @@
     schur_window_size: 5
     # 初始化后先用 Ceres 求解若干图像帧，然后
     # 再由 EKF 接管。这样可让初始化阶段的零偏/速度收敛。
-    schur_warmup_frames: 30
+    schur_warmup_frames: 10
     schur_max_features: 120
     schur_min_observations: 2
     # 跳过视觉观测不足的帧，而不是执行低秩更新。
