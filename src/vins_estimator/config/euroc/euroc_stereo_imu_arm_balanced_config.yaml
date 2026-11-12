@@ -1,0 +1,145 @@
+# EuRoC V2 stereo+IMU / ARM .62 设备 (192.168.5.62) 候选配置。
+# balanced 候选：max_cnt=120，作为较低前端预算的性能对照。
+# 当前设备的资源平衡选项：较 n200 降低 CPU/P95/RSS，difficult 精度有代价。
+# medium 三次轨迹逐位相同；easy/difficult 各单次筛选，不保证其他相机/场景。
+# 2026-11-12：ARM .62 完整三序列筛选已完成；不覆盖用户原配置。
+# 基于用户原参数：固定 td=0，launch CPU affinity 使用核心 6/7。
+# CPU affinity 由 vins.launch.py 读取；直接 ros2 run 需自行通过 taskset 绑定。
+# 使用前确认设备可用 CPU IDs 包含 6、7；不适用于未经核对的其它设备。
+# launch 示例（config_file 指向本文件的绝对路径）：
+# ros2 launch vins vins.launch.py mode:=stereo_imu config_file:=/absolute/path/euroc_stereo_imu_arm_balanced_config.yaml opencv_threads:=1
+# opencv_threads 为 launch/节点参数，不是此算法配置的参数。
+# image_queue_size、tracking_queue_size、tracking_queue_policy 等节点参数只能
+# 通过 CLI 或 launch 参数传入；不得伪放入此 YAML 并假定 config_file 会使其生效。
+# show_track=1、save_image=1 保持用户原值，与实际 benchmark 配置一致。
+# 跟踪图像绘制/发布由订阅门控：无 image_track 订阅者时不绘制，无需关闭 show_track。
+# 相机标定文件相对本配置目录；其它算法参数保持用户原值。
+# VINS-Fusion algorithm configuration (ROS 2 parameter YAML).
+# Loaded by the algorithm through `config_file`; node-only parameters use CLI/launch.
+/**:
+  ros__parameters:
+    # Launch-only CPU affinity; enable only after checking available CPU IDs.
+    # Applies to vins_node and its threads; direct ros2 run does not read these keys.
+    cpu_affinity_enabled: true
+    cpu_affinity_cores: [6, 7]
+    imu: 1
+    num_of_cam: 2
+    imu_topic: "/imu0"
+    image0_topic: "/cam0/image_raw"
+    image1_topic: "/cam1/image_raw"
+    output_path: "./output/"
+    cam0_calib: "cam0_pinhole.yaml"
+    cam1_calib: "cam1_pinhole.yaml"
+    image_width: 752
+    image_height: 480
+    estimate_extrinsic: 0
+    body_T_cam0: [
+      0.0148655429818, -0.999880929698, 0.00414029679422, -0.0216401454975,
+      0.999557249008, 0.0149672133247, 0.025715529948, -0.064676986768,
+      -0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949,
+      0.0, 0.0, 0.0, 1.0]
+    body_T_cam1: [
+      0.0125552670891, -0.999755099723, 0.0182237714554, -0.0198435579556,
+      0.999598781151, 0.0130119051815, 0.0251588363115, 0.0453689425024,
+      -0.0253898008918, 0.0179005838253, 0.999517347078, 0.00786212447038,
+      0.0, 0.0, 0.0, 1.0]
+    multiple_thread: 1
+    max_cnt: 120
+    min_dist: 20
+    feature_detector: "gftt_pyramid"
+    fast_threshold: 20
+    grid_x: 5
+    grid_y: 5
+    detection_min_feature_ratio: 0.0
+    marginalization_threads: 4
+    solver_timeout_policy: "warn"
+    solver_timeout_retry_multiplier: 2.0
+    stage_timing: 0
+    stage_timing_interval: 100
+    ransac_outlier_rejection: 1
+    backend_type: "schur_ekf"
+    schur_window_size: 5
+    schur_warmup_frames: 10
+    schur_max_features: 120
+    schur_min_observations: 2
+    schur_min_features: 12
+    schur_min_update_observations: 12
+    schur_pixel_noise: 1.5
+    schur_chi2_multiplier: 5.0
+    schur_triangulation_iterations: 5.0
+    schur_info_rank_rtol: 1.0e-10
+    schur_info_indefinite_tol: 1.0e-6
+    schur_point_block_rtol: 1.0e-8
+    schur_condition_limit: 1.0e6
+    schur_max_consecutive_failures: 60
+    schur_max_no_update_seconds: 3.0
+    schur_starvation_seconds: 0.25
+    schur_starvation_noise_scale: 3.0
+    schur_starvation_deep_seconds: 1.0
+    schur_starvation_deep_noise_scale: 10.0
+    schur_restart_cooldown_seconds: 8.0
+    schur_starvation_soft_restart: false
+    schur_soft_restart_max_seconds: 10.0
+    schur_starvation_hold: false
+    schur_hold_recovery_frames: 2
+    schur_starvation_weak_update: false
+    schur_weak_update_max_scale: 10.0
+    schur_init_pos_sigma: 0.5
+    schur_init_vel_sigma: 0.5
+    schur_init_rot_sigma: 0.05
+    schur_init_ba_sigma: 0.5
+    schur_init_bg_sigma: 0.05
+    schur_acc_noise: 2.0e-3
+    schur_gyr_noise: 1.6968e-4
+    schur_acc_bias_noise: 3.0e-3
+    schur_gyr_bias_noise: 1.9393e-5
+    schur_landing_zupt_enable: 1
+    # 连续视觉静止时间；需同时通过低光流、特征覆盖、IMU 与速度门控。
+    schur_landing_zupt_min_still_seconds: 0.3
+    # 光流按固定参考时间归一化，使阈值不随图像帧率变化。
+    schur_landing_zupt_flow_reference_seconds: 0.05
+    schur_landing_zupt_max_flow_px: 0.25
+    # 静态特征占匹配特征的比例下限，以及参与判定的最少特征数。
+    schur_landing_zupt_min_static_fraction: 0.7
+    schur_landing_zupt_min_features: 30
+    # 静止特征需覆盖的图像象限数。
+    schur_landing_zupt_min_quadrants: 3
+    # 冲击检测窗口与比力阈值；用于 arm 静止约束 episode，不按时刻硬编码。
+    schur_landing_zupt_impact_window_seconds: 6.0
+    schur_landing_zupt_impact_accel: 20.0
+    # 图像/IMU 连续性；超时或时间回退时清空静止证据。
+    schur_landing_zupt_max_image_gap_seconds: 0.25
+    # 去偏 IMU 统计窗口、最大采样间隙与最少样本数。
+    schur_landing_zupt_imu_window_seconds: 0.3
+    schur_landing_zupt_max_imu_gap_seconds: 0.05
+    schur_landing_zupt_min_imu_samples: 10
+    # 去偏后的低动态与低速门槛；退出阈值更宽，形成滞回但仍即时退出。
+    schur_landing_zupt_max_gyro: 0.08
+    schur_landing_zupt_max_accel_dev: 0.60
+    schur_landing_zupt_max_accel_std: 0.35
+    schur_landing_zupt_max_gyro_std: 0.05
+    schur_landing_zupt_max_speed: 0.25
+    schur_landing_zupt_exit_flow_px: 0.50
+    schur_landing_zupt_exit_speed: 0.35
+    schur_landing_zupt_exit_gyro: 0.15
+    schur_landing_zupt_exit_accel_dev: 1.0
+    # v=0 伪观测的 1-sigma；日志间隔用于更新计数诊断。
+    schur_landing_zupt_sigma: 0.005
+    schur_landing_zupt_update_log_interval: 20
+    freq: 10
+    F_threshold: 1.0
+    show_track: 1
+    flow_back: 1
+    max_solver_time: 0.04
+    max_num_iterations: 8
+    keyframe_parallax: 10.0
+    acc_n: 0.1
+    gyr_n: 0.01
+    acc_w: 0.001
+    gyr_w: 0.0001
+    g_norm: 9.81007
+    estimate_td: 0
+    td: 0.0
+    load_previous_pose_graph: 0
+    pose_graph_save_path: "./output/pose_graph/"
+    save_image: 1

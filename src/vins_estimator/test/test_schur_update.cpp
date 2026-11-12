@@ -816,6 +816,163 @@ TEST(SchurUpdate, T22WindowFullControlsMarginalizedSelection)
   EXPECT_EQ(full.marginalized_count_, 1);
 }
 
+// ===========================================================================
+// T31 -- FeatureHistory keeps both same-frame camera views, drops only an
+// exact (frame, camera) duplicate, and restores (frame, camera) order even
+// when the right view is registered first.
+// ===========================================================================
+TEST(SchurUpdate, T31FeatureHistoryKeepsStereoPairAndOrdersByFrameCamera)
+{
+  FeatureHistory history;
+  const Eigen::Vector2d uv(0.1, -0.2);
+  const Eigen::Vector2d right_shift(0.03, 0.0);
+
+  history.addFrameWithPixels(
+    10, 1, {{310, uv + right_shift, Eigen::Vector2d(345.0, 240.0), true}});
+  history.addFrameWithPixels(
+    10, 0, {{310, uv, Eigen::Vector2d(320.0, 240.0), true}});
+  // Same frame and camera: must be ignored without disturbing the order.
+  history.addFrameWithPixels(
+    10, 0, {{310, uv + Eigen::Vector2d(0.2, 0.0), Eigen::Vector2d(400.0, 240.0), true}});
+  // Right view first again, now for the next frame (out-of-order fallback).
+  history.addFrameWithPixels(
+    11, 1, {{310, uv + Eigen::Vector2d(0.01, 0.0), Eigen::Vector2d(350.0, 240.0), true}});
+  history.addFrameWithPixels(
+    11, 0, {{310, uv + Eigen::Vector2d(0.0, 0.01), Eigen::Vector2d(322.0, 241.0), true}});
+
+  const std::vector<FeatureTrack_s> tracks = history.allTracks(10);
+  ASSERT_EQ(tracks.size(), 1u);
+  ASSERT_EQ(tracks[0].observations_.size(), 4u);
+  const int expected_clone[4] = {0, 0, 1, 1};
+  const int expected_camera[4] = {0, 1, 0, 1};
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_EQ(tracks[0].observations_[static_cast<std::size_t>(i)].clone_index_, expected_clone[i]);
+    EXPECT_EQ(tracks[0].observations_[static_cast<std::size_t>(i)].camera_id_, expected_camera[i]);
+  }
+  EXPECT_NEAR(tracks[0].observations_[0].pixel_uv_.x(), 320.0, 1e-12);
+  EXPECT_NEAR(tracks[0].observations_[1].pixel_uv_.x(), 345.0, 1e-12);
+  EXPECT_EQ(history.newestFrameIndex(), 11);
+}
+
+// ===========================================================================
+// T32 -- min_observations counts raw measurements, so a one-frame stereo pair
+// is two observations (and can qualify for a later lost-track update).
+// ===========================================================================
+TEST(SchurUpdate, T32FeatureHistoryStereoPairCountsAsTwoObservations)
+{
+  FeatureHistory history;
+  const Eigen::Vector2d uv(0.12, -0.08);
+  history.addFrame(10, 0, {{321, uv}});
+  history.addFrame(10, 1, {{321, uv + Eigen::Vector2d(0.03, 0.0)}});
+  history.addFrame(11, 0, {});
+  history.addFrame(11, 1, {});
+
+  const FeatureHistory::TrackSelection two = history.selectTracks(10, 11, 2, 10, false);
+  ASSERT_EQ(two.tracks_.size(), 1u);
+  EXPECT_EQ(two.tracks_.front().id_, 321);
+  ASSERT_EQ(two.tracks_.front().observations_.size(), 2u);
+  EXPECT_EQ(two.tracks_.front().observations_[0].clone_index_, 0);
+  EXPECT_EQ(two.tracks_.front().observations_[0].camera_id_, 0);
+  EXPECT_EQ(two.tracks_.front().observations_[1].clone_index_, 0);
+  EXPECT_EQ(two.tracks_.front().observations_[1].camera_id_, 1);
+  EXPECT_EQ(two.lost_count_, 1);
+  EXPECT_EQ(two.marginalized_count_, 0);
+
+  const FeatureHistory::TrackSelection three = history.selectTracks(10, 11, 3, 10, false);
+  EXPECT_TRUE(three.tracks_.empty());
+}
+
+// ===========================================================================
+// T33 -- a same-timestamp stereo pair has one clone but two cameras. The
+// extrinsic baseline must be accepted, while an identical (clone, camera)
+// pair still has no baseline. View selection must not depend on vector order.
+// ===========================================================================
+TEST(SchurUpdate, T33TriangulationSupportsSameCloneStereoBaseline)
+{
+  const SchurUpdater updater(default_options());
+  const CameraExtrinsics_s cam0 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  const CameraExtrinsics_s cam1 =
+    make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.11, 0.0, 0.0));
+  const std::vector<Eigen::Vector4d> qs{quat(Eigen::Vector3d::Zero())};
+  const std::vector<Eigen::Vector3d> ps{Eigen::Vector3d::Zero()};
+  EkfState state;
+  build_state(state, qs, ps);
+
+  const Eigen::Vector3d world_point(0.4, -0.2, 4.0);
+  const Eigen::Vector2d uv0 = project_world(qs[0], ps[0], cam0, world_point);
+  const Eigen::Vector2d uv1 = project_world(qs[0], ps[0], cam1, world_point);
+
+  FeatureTrack_s track;
+  track.id_ = 330;
+  track.observations_.push_back(make_observation(0, 0, uv0));
+  track.observations_.push_back(make_observation(0, 1, uv1));
+  ASSERT_TRUE(updater.triangulate(state, {cam0, cam1}, track));
+  EXPECT_LT((track.world_point_ - world_point).norm(), 1e-6);
+  EXPECT_TRUE(track.has_point_);
+
+  FeatureTrack_s reversed;
+  reversed.id_ = 331;
+  reversed.observations_.push_back(make_observation(0, 1, uv1));
+  reversed.observations_.push_back(make_observation(0, 0, uv0));
+  ASSERT_TRUE(updater.triangulate(state, {cam0, cam1}, reversed));
+  EXPECT_LT((reversed.world_point_ - world_point).norm(), 1e-6);
+
+  FeatureTrack_s mono_duplicate;
+  mono_duplicate.id_ = 332;
+  mono_duplicate.observations_.push_back(make_observation(0, 0, uv0));
+  mono_duplicate.observations_.push_back(
+    make_observation(0, 0, uv0 + Eigen::Vector2d(0.05, 0.01)));
+  EXPECT_FALSE(updater.triangulate(state, {cam0, cam1}, mono_duplicate));
+  EXPECT_FALSE(mono_duplicate.has_point_);
+}
+
+// ===========================================================================
+// T34 -- the Schur update consumes both cameras at every clone and reports
+// the true raw-observation count.
+// ===========================================================================
+TEST(SchurUpdate, T34UpdateConsumesStereoObservationsPerClone)
+{
+  UpdateOptions_s opts = default_options();
+  opts.condition_limit_ = 0.0;
+  SchurUpdater updater(opts);
+  const CameraExtrinsics_s cam0 =
+    make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(0.02, 0.0, 0.0));
+  const CameraExtrinsics_s cam1 =
+    make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.09, 0.0, 0.0));
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(4, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);
+  regularize_covariance(state);
+
+  const int num_tracks = 6;
+  std::vector<FeatureTrack_s> tracks;
+  for (int f = 0; f < num_tracks; ++f) {
+    FeatureTrack_s track;
+    track.id_ = 3400 + f;
+    const Eigen::Vector3d world_point(-0.6 + 0.25 * f, 0.15 * ((f % 3) - 1), 4.0 + 0.1 * f);
+    for (int i = 0; i < 4; ++i) {
+      track.observations_.push_back(make_observation(
+        i, 0, project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0,
+                            world_point)));
+      track.observations_.push_back(make_observation(
+        i, 1, project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam1,
+                            world_point)));
+    }
+    tracks.push_back(track);
+  }
+
+  const UpdateSummary_s summary = updater.update(state, tracks, {cam0, cam1});
+  EXPECT_TRUE(summary.applied_);
+  EXPECT_EQ(summary.features_used_, num_tracks);
+  EXPECT_EQ(summary.observations_used_, 2 * 4 * num_tracks);
+  EXPECT_EQ(summary.used_feature_ids_.size(), static_cast<std::size_t>(num_tracks));
+  EXPECT_TRUE(state_is_finite(state));
+  for (const FeatureTrack_s & track : tracks)
+    EXPECT_TRUE(track.has_point_);
+}
+
 }  // namespace
 
 // ===========================================================================

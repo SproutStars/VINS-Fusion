@@ -106,19 +106,47 @@ SchurVisualizationSnapshot_s makeSchurVisualizationSnapshot(
     if (!_updater.triangulate(_state, _cameras, track) || !track.world_point_.allFinite())
       continue;
 
+    // Loop-fusion keyframes have no per-point camera id, so their 2D fields
+    // must come from the primary camera only. A right-camera observation must
+    // never leak into keyframe_points_ even though the same feature id is
+    // shared by both views.
+    constexpr int kPublicationCameraId = 0;
     const FeatureObservation_s * keyframe_observation = nullptr;
     if (_keyframe_clone_index >= 0) {
       for (const FeatureObservation_s & observation : source.observations_) {
-        if (observation.clone_index_ == _keyframe_clone_index) {
+        if (
+          observation.clone_index_ == _keyframe_clone_index &&
+          observation.camera_id_ == kPublicationCameraId) {
           keyframe_observation = &observation;
           break;
         }
       }
     }
 
-    const FeatureObservation_s * display_observation =
-      keyframe_observation != nullptr ? keyframe_observation : &source.observations_.back();
-    if (!display_observation->uv_.allFinite())
+    // The cloud topics consume only the world point, but keep their metadata
+    // on the primary camera whenever one exists. If the keyframe clone has
+    // only a right-camera view, this still publishes the cloud point from the
+    // last camera-0 observation while omitting the keyframe point below.
+    const FeatureObservation_s * display_observation = nullptr;
+    if (keyframe_observation != nullptr && keyframe_observation->uv_.allFinite()) {
+      display_observation = keyframe_observation;
+    } else {
+      for (auto it = source.observations_.rbegin(); it != source.observations_.rend(); ++it) {
+        if (it->camera_id_ == kPublicationCameraId && it->uv_.allFinite()) {
+          display_observation = &*it;
+          break;
+        }
+      }
+    }
+    if (display_observation == nullptr) {
+      for (auto it = source.observations_.rbegin(); it != source.observations_.rend(); ++it) {
+        if (it->uv_.allFinite()) {
+          display_observation = &*it;
+          break;
+        }
+      }
+    }
+    if (display_observation == nullptr)
       continue;
 
     SchurVisualizationPoint_s point;
@@ -137,9 +165,12 @@ SchurVisualizationSnapshot_s makeSchurVisualizationSnapshot(
       snapshot.margin_points_.push_back(point);
 
     if (
-      keyframe_observation != nullptr && keyframe_observation->has_pixel_uv_ &&
-      keyframe_observation->pixel_uv_.allFinite()) {
-      snapshot.keyframe_points_.push_back(point);
+      keyframe_observation != nullptr && keyframe_observation->uv_.allFinite() &&
+      keyframe_observation->has_pixel_uv_ && keyframe_observation->pixel_uv_.allFinite()) {
+      SchurVisualizationPoint_s keyframe_point = point;
+      keyframe_point.normalized_uv_ = keyframe_observation->uv_;
+      keyframe_point.pixel_uv_ = keyframe_observation->pixel_uv_;
+      snapshot.keyframe_points_.push_back(keyframe_point);
     }
   }
 

@@ -10,6 +10,53 @@
 #include "featureTracker/fast_grid_quality.h"
 #include "featureTracker/feature_tracker.h"
 
+struct FeatureTrackerTestAccess {
+  static void setPreviousLiftedPoints(FeatureTracker & _tracker, std::vector<cv::Point3d> _points)
+  {
+    _tracker.prev_lifted_pts_ = std::move(_points);
+  }
+
+  static const std::vector<cv::Point3d> & previousLiftedPoints(const FeatureTracker & _tracker)
+  {
+    return _tracker.prev_lifted_pts_;
+  }
+
+  static const std::vector<uchar> & flowStatus(const FeatureTracker & _tracker)
+  {
+    return _tracker.flow_status_scratch_;
+  }
+
+  static const std::vector<float> & flowError(const FeatureTracker & _tracker)
+  {
+    return _tracker.flow_err_scratch_;
+  }
+
+  static const std::vector<uchar> & reverseStatus(const FeatureTracker & _tracker)
+  {
+    return _tracker.reverse_status_scratch_;
+  }
+
+  static const std::vector<cv::Point2f> & reversePoints(const FeatureTracker & _tracker)
+  {
+    return _tracker.reverse_pts_scratch_;
+  }
+
+  static const std::vector<cv::Point2f> & ransacCurrentPoints(const FeatureTracker & _tracker)
+  {
+    return _tracker.ransac_cur_pts_scratch_;
+  }
+
+  static const std::vector<cv::Point2f> & ransacPreviousPoints(const FeatureTracker & _tracker)
+  {
+    return _tracker.ransac_prev_pts_scratch_;
+  }
+
+  static const std::vector<uchar> & ransacStatus(const FeatureTracker & _tracker)
+  {
+    return _tracker.ransac_status_scratch_;
+  }
+};
+
 namespace
 {
 // buildOpticalFlowPyramid(withDerivatives=true) interleaves an image and a
@@ -80,6 +127,37 @@ void makeTwoViewCorrespondences(std::vector<cv::Point2f> & _previous, std::vecto
   const cv::Mat second_tvec = (cv::Mat_<double>(3, 1) << 0.35, 0.05, 0.10);
   cv::projectPoints(object_points, first_rvec, first_tvec, camera_matrix, distortion, _previous);
   cv::projectPoints(object_points, second_rvec, second_tvec, camera_matrix, distortion, _current);
+}
+
+void configureRansacState(FeatureTracker & _tracker, bool _cache_previous_lift)
+{
+  _tracker.row_ = 480;
+  _tracker.col_ = 640;
+  _tracker.m_camera_.emplace_back(
+    new camodocal::PinholeCamera("left", 640, 480, 0, 0, 0, 0, 460, 460, 320, 240));
+
+  makeTwoViewCorrespondences(_tracker.prev_pts_, _tracker.cur_pts_);
+  constexpr size_t outlier_index = 9;
+  _tracker.cur_pts_[outlier_index].x += 80.0f;
+  _tracker.cur_pts_[outlier_index].y -= 55.0f;
+
+  const int base_id = 1000;
+  for (size_t i = 0; i < _tracker.cur_pts_.size(); ++i) {
+    _tracker.ids_.push_back(base_id + static_cast<int>(i));
+    // Non-monotonic lifetimes force setMask() to reorder correspondences.
+    _tracker.track_cnt_.push_back(static_cast<int>((i * 7) % 13) + 1);
+  }
+
+  std::vector<cv::Point3d> lifted;
+  if (_cache_previous_lift) {
+    lifted.reserve(_tracker.prev_pts_.size());
+    for (const cv::Point2f & point : _tracker.prev_pts_) {
+      Eigen::Vector3d lifted_point;
+      _tracker.m_camera_[0]->liftProjective(Eigen::Vector2d(point.x, point.y), lifted_point);
+      lifted.emplace_back(lifted_point.x(), lifted_point.y(), lifted_point.z());
+    }
+  }
+  FeatureTrackerTestAccess::setPreviousLiftedPoints(_tracker, std::move(lifted));
 }
 
 class TrackerBuffers : public ::testing::TestWithParam<bool> {
@@ -351,6 +429,108 @@ TEST_P(TrackerBuffers, ReusesUndistortedAndVelocityBuffersAcrossFrames)
 }
 
 INSTANTIATE_TEST_SUITE_P(MonoAndStereo, TrackerBuffers, ::testing::Bool());
+
+TEST(FeatureTrackerBuffers, ReusesFlowAndRansacScratchAcrossFrames)
+{
+  TrackerParameterGuard_s guard;
+  MAX_CNT = 120;
+  MIN_DIST = 10;
+  FLOW_BACK = 1;
+  SHOW_TRACK = 0;
+  FEATURE_DETECTOR = "gftt";
+  DETECTION_MIN_FEATURE_RATIO = 0.0;
+  RANSAC_OUTLIER_REJECTION = 1;
+  cv::setNumThreads(1);
+
+  FeatureTracker tracker;
+  tracker.m_camera_.emplace_back(new camodocal::PinholeCamera("left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+  cv::Mat texture(240, 320, CV_8UC1);
+  cv::RNG rng(5150);
+  rng.fill(texture, cv::RNG::UNIFORM, 0, 256);
+  cv::GaussianBlur(texture, texture, cv::Size(3, 3), 0.8);
+
+  for (double stamp = 1.0; stamp <= 3.0; stamp += 1.0)
+    tracker.trackImage(stamp, texture);
+
+  const uchar * status_data = FeatureTrackerTestAccess::flowStatus(tracker).data();
+  const float * error_data = FeatureTrackerTestAccess::flowError(tracker).data();
+  const uchar * reverse_status_data = FeatureTrackerTestAccess::reverseStatus(tracker).data();
+  const cv::Point2f * reverse_pts_data = FeatureTrackerTestAccess::reversePoints(tracker).data();
+  const cv::Point2f * ransac_cur_data = FeatureTrackerTestAccess::ransacCurrentPoints(tracker).data();
+  const cv::Point2f * ransac_prev_data = FeatureTrackerTestAccess::ransacPreviousPoints(tracker).data();
+  ASSERT_NE(status_data, nullptr);
+  ASSERT_NE(error_data, nullptr);
+  ASSERT_NE(reverse_status_data, nullptr);
+  ASSERT_NE(reverse_pts_data, nullptr);
+  ASSERT_NE(ransac_cur_data, nullptr);
+  ASSERT_NE(ransac_prev_data, nullptr);
+
+  tracker.trackImage(4.0, texture);
+
+  EXPECT_EQ(FeatureTrackerTestAccess::flowStatus(tracker).data(), status_data);
+  EXPECT_EQ(FeatureTrackerTestAccess::flowError(tracker).data(), error_data);
+  EXPECT_EQ(FeatureTrackerTestAccess::reverseStatus(tracker).data(), reverse_status_data);
+  EXPECT_EQ(FeatureTrackerTestAccess::reversePoints(tracker).data(), reverse_pts_data);
+  EXPECT_EQ(FeatureTrackerTestAccess::ransacCurrentPoints(tracker).data(), ransac_cur_data);
+  EXPECT_EQ(FeatureTrackerTestAccess::ransacPreviousPoints(tracker).data(), ransac_prev_data);
+}
+
+TEST(FeatureTrackerBuffers, RemoveOutliersKeepsLiftedCacheAlignedForPrediction)
+{
+  TrackerParameterGuard_s guard;
+  MAX_CNT = 100;
+  MIN_DIST = 10;
+  FLOW_BACK = 1;
+  SHOW_TRACK = 0;
+  FEATURE_DETECTOR = "gftt";
+  DETECTION_MIN_FEATURE_RATIO = 0.0;
+  RANSAC_OUTLIER_REJECTION = 1;
+  cv::setNumThreads(1);
+
+  FeatureTracker tracker;
+  tracker.m_camera_.emplace_back(new camodocal::PinholeCamera("left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+  cv::Mat texture(240, 320, CV_8UC1);
+  cv::RNG rng(8080);
+  rng.fill(texture, cv::RNG::UNIFORM, 0, 256);
+  cv::GaussianBlur(texture, texture, cv::Size(3, 3), 0.8);
+  tracker.trackImage(1.0, texture);
+  ASSERT_GT(tracker.prev_pts_.size(), 30u);
+  ASSERT_EQ(FeatureTrackerTestAccess::previousLiftedPoints(tracker).size(), tracker.prev_pts_.size());
+
+  std::set<int> removed_ids;
+  for (size_t i = 0; i < tracker.ids_.size(); i += 3)
+    removed_ids.insert(tracker.ids_[i]);
+  const size_t expected_count = tracker.prev_pts_.size() - removed_ids.size();
+  tracker.removeOutliers(removed_ids);
+
+  ASSERT_EQ(tracker.prev_pts_.size(), expected_count);
+  EXPECT_EQ(tracker.ids_.size(), expected_count);
+  EXPECT_EQ(tracker.track_cnt_.size(), expected_count);
+  EXPECT_EQ(FeatureTrackerTestAccess::previousLiftedPoints(tracker).size(), expected_count);
+  const std::vector<cv::Point3d> & compacted_lift = FeatureTrackerTestAccess::previousLiftedPoints(tracker);
+  for (size_t i = 0; i < tracker.prev_pts_.size(); ++i) {
+    Eigen::Vector3d expected_lift;
+    tracker.m_camera_[0]->liftProjective(
+      Eigen::Vector2d(tracker.prev_pts_[i].x, tracker.prev_pts_[i].y), expected_lift);
+    EXPECT_EQ(compacted_lift[i], cv::Point3d(expected_lift.x(), expected_lift.y(), expected_lift.z()));
+  }
+
+  std::map<int, Eigen::Vector3d> predictions;
+  for (size_t i = 0; i < tracker.ids_.size(); ++i) {
+    Eigen::Vector3d lifted;
+    tracker.m_camera_[0]->liftProjective(
+      Eigen::Vector2d(tracker.prev_pts_[i].x, tracker.prev_pts_[i].y), lifted);
+    predictions.emplace(tracker.ids_[i], lifted);
+  }
+  tracker.setPrediction(predictions);
+  ASSERT_EQ(tracker.predict_pts_.size(), tracker.ids_.size());
+
+  cv::Mat shifted;
+  const cv::Mat shift = (cv::Mat_<double>(2, 3) << 1, 0, 0.75, 0, 1, -0.5);
+  cv::warpAffine(texture, shifted, shift, texture.size(), cv::INTER_LINEAR, cv::BORDER_REFLECT_101);
+  EXPECT_GT(tracker.trackImage(1.05, shifted).size(), 20u);
+  EXPECT_EQ(FeatureTrackerTestAccess::previousLiftedPoints(tracker).size(), tracker.prev_pts_.size());
+}
 
 TEST(FeatureTrackerPyramidCache, FollowsCurrentFrameAndResetsOnResize)
 {
@@ -762,6 +942,51 @@ TEST(FeatureTrackerRansac, RemovesOutlierWithoutTouchingCachedUndistortedPoints)
     EXPECT_EQ(tracker.prev_pts_[i], prev_before[original_index]);
     EXPECT_EQ(tracker.cur_pts_[i], cur_before[original_index]);
   }
+}
+
+TEST(FeatureTrackerRansac, CachedDoubleLiftMatchesLegacyRecomputationThroughSetMask)
+{
+  TrackerParameterGuard_s guard;
+  F_THRESHOLD = 1.0;
+  MIN_DIST = 12;
+  RANSAC_OUTLIER_REJECTION = 1;
+  cv::setNumThreads(1);
+
+  FeatureTracker cached;
+  FeatureTracker recomputed;
+  configureRansacState(cached, true);
+  configureRansacState(recomputed, false);
+
+  // Both trackers receive identical double-precision RANSAC inputs. The first
+  // reuses the exact lifted points cached by undistortedPtsInto(), while the
+  // second exercises the legacy per-frame liftProjective() fallback.
+  cv::setRNGSeed(20261112);
+  cached.rejectWithF();
+  cv::setRNGSeed(20261112);
+  recomputed.rejectWithF();
+
+  ASSERT_LT(cached.cur_pts_.size(), 32u);
+  EXPECT_EQ(
+    FeatureTrackerTestAccess::ransacCurrentPoints(cached),
+    FeatureTrackerTestAccess::ransacCurrentPoints(recomputed));
+  EXPECT_EQ(
+    FeatureTrackerTestAccess::ransacPreviousPoints(cached),
+    FeatureTrackerTestAccess::ransacPreviousPoints(recomputed));
+  EXPECT_EQ(FeatureTrackerTestAccess::ransacStatus(cached), FeatureTrackerTestAccess::ransacStatus(recomputed));
+  EXPECT_EQ(cached.prev_pts_, recomputed.prev_pts_);
+  EXPECT_EQ(cached.cur_pts_, recomputed.cur_pts_);
+  EXPECT_EQ(cached.ids_, recomputed.ids_);
+  EXPECT_EQ(cached.track_cnt_, recomputed.track_cnt_);
+
+  // setMask() compacts by track lifetime and redraws the exclusion mask. This
+  // covers the reorder that happens between RANSAC and the next frame's cache.
+  cached.setMask();
+  recomputed.setMask();
+  EXPECT_EQ(cached.cur_pts_, recomputed.cur_pts_);
+  EXPECT_EQ(cached.ids_, recomputed.ids_);
+  EXPECT_EQ(cached.track_cnt_, recomputed.track_cnt_);
+  ASSERT_EQ(cached.mask_.size(), recomputed.mask_.size());
+  EXPECT_EQ(cv::norm(cached.mask_, recomputed.mask_, cv::NORM_INF), 0.0);
 }
 
 TEST(FeatureTrackerRansac, DegenerateFundamentalMatrixLeavesBuffersUntouched)

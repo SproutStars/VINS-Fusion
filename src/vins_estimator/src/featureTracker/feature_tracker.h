@@ -109,13 +109,15 @@ public:
   bool hasPrediction_;
 
 private:
+  friend struct FeatureTrackerTestAccess;
   void detectFastGridFeatures(
     const cv::Mat & _img, const cv::Mat & _mask, int _max_features, vector<cv::Point2f> & _points);
   void detectPyramidFeatures(
     const cv::Mat & _img, const cv::Mat & _mask, int _max_features, vector<cv::Point2f> & _points,
     const cv::Mat & _half_image);
   void undistortedPtsInto(
-    const vector<cv::Point2f> & _pts, const camodocal::CameraPtr & _cam, vector<cv::Point2f> & _out) const;
+    const vector<cv::Point2f> & _pts, const camodocal::CameraPtr & _cam, vector<cv::Point2f> & _out,
+    vector<cv::Point3d> * _lifted = nullptr) const;
   void ptsVelocityInto(
     const vector<int> & _ids, const vector<cv::Point2f> & _pts, map<int, cv::Point2f> & _cur_id_pts,
     const map<int, cv::Point2f> & _prev_id_pts, vector<cv::Point2f> & _velocity) const;
@@ -127,6 +129,21 @@ private:
   // reuses its level buffers instead of allocating/freeing ~0.5 MB per frame.
   vector<cv::Mat> scratch_pyr_;
   vector<cv::Mat> scratch_right_pyr_;
+  // KLT and RANSAC outputs are reused between frames. OpenCV and
+  // findFundamentalMat overwrite the contents, so only capacity is retained.
+  vector<uchar> flow_status_scratch_;
+  vector<uchar> reverse_status_scratch_;
+  vector<float> flow_err_scratch_;
+  vector<cv::Point2f> reverse_pts_scratch_;
+  vector<cv::Point2f> ransac_cur_pts_scratch_;
+  vector<cv::Point2f> ransac_prev_pts_scratch_;
+  vector<uchar> ransac_status_scratch_;
+  vector<cv::Point2f> detection_candidates_scratch_;
+  // Keep the exact double-precision lifted points behind prev_un_pts_. RANSAC
+  // can then reuse the previous frame's liftProjective() results without the
+  // float round-trip through prev_un_pts_ changing its input coordinates.
+  vector<cv::Point3d> cur_lifted_pts_;
+  vector<cv::Point3d> prev_lifted_pts_;
   FeatureTrackerTimings_s last_timings_;
   std::atomic<int> detection_interval_{1};
   int frame_counter_ = 0;

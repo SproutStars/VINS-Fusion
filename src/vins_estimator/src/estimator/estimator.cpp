@@ -1444,23 +1444,35 @@ bool Estimator::schurProcessFrame(
     schur_starvation_monitor_.starvationDuration(frame_time), SCHUR_STARVATION_WEAK_UPDATE,
     SCHUR_STARVATION_SECONDS, SCHUR_STARVATION_DEEP_SECONDS, SCHUR_WEAK_UPDATE_MAX_SCALE);
 
-  // Collect this frame's camera-0 observations once. Column layout is
-  // [x, y, 1, u, v, vx, vy] where (x, y) are normalised coordinates. The hold
-  // policy needs the count before it touches any visual structure.
-  std::vector<vins::backend::FeatureHistory::FrameObservation_s> observations;
-  observations.reserve(_image.size());
+  // Collect this frame's observations for every configured camera. Column
+  // layout is [x, y, 1, u, v, vx, vy] where (x, y) are normalised
+  // coordinates. Left/right views share a feature id and a clone index; both
+  // are real measurements and must be registered. `feature_count` stays the
+  // number of distinct tracks for the hold policy, while FeatureHistory's
+  // min_observations keeps counting raw observations (a stereo pair is two).
+  const std::size_t num_cameras = std::max<std::size_t>(1, schur_cameras_.size());
+  std::vector<std::vector<vins::backend::FeatureHistory::FrameObservation_s>> frame_observations(
+    num_cameras);
+  for (auto & camera_observations : frame_observations)
+    camera_observations.reserve(_image.size());
+  int feature_count = 0;
   for (const auto & feature : _image) {
+    bool feature_observed = false;
     for (const auto & observation : feature.second) {
-      if (observation.first != 0)
-        continue;  // the Schur backend consumes camera 0 only
+      const int camera_id = observation.first;
+      if (camera_id < 0 || static_cast<std::size_t>(camera_id) >= num_cameras)
+        continue;  // camera not configured in this estimator
       const Eigen::Matrix<double, 7, 1> & value = observation.second;
       vins::backend::FeatureHistory::FrameObservation_s observation_record;
       observation_record.feature_id_ = feature.first;
       observation_record.uv_ = Eigen::Vector2d(value(0), value(1));
       observation_record.pixel_uv_ = Eigen::Vector2d(value(3), value(4));
       observation_record.has_pixel_uv_ = observation_record.pixel_uv_.allFinite();
-      observations.push_back(observation_record);
+      frame_observations[static_cast<std::size_t>(camera_id)].push_back(observation_record);
+      feature_observed = true;
     }
+    if (feature_observed)
+      ++feature_count;
   }
 
   // Landing static detector. It consumes the same image-time timeline as the
@@ -1468,9 +1480,14 @@ bool Estimator::schurProcessFrame(
   // update is rejected. The detector only *recommends* a zero-velocity
   // pseudo-measurement; the actual EKF update happens below after the visual
   // update.
+  // The landing detector matches feature ids across images in one image
+  // plane, so it deliberately keeps consuming camera 0 only. Mixing the right
+  // camera's pixels into the same id map would corrupt the flow estimate.
+  const std::vector<vins::backend::FeatureHistory::FrameObservation_s> & camera0_observations =
+    frame_observations.front();
   std::vector<vins::backend::LandingPixelObservation_s> landing_pixels;
-  landing_pixels.reserve(observations.size());
-  for (const auto & observation : observations) {
+  landing_pixels.reserve(camera0_observations.size());
+  for (const auto & observation : camera0_observations) {
     if (observation.has_pixel_uv_)
       landing_pixels.push_back(
         vins::backend::LandingPixelObservation_s{observation.feature_id_, observation.pixel_uv_});
@@ -1502,8 +1519,9 @@ bool Estimator::schurProcessFrame(
   // remain only while retained observations could still publish a point.
   if (schur_margin_history_.size() != 0) {
     std::unordered_set<int> margin_live_ids;
-    for (const auto & observation : observations)
-      margin_live_ids.insert(observation.feature_id_);
+    for (const auto & camera_observations : frame_observations)
+      for (const auto & observation : camera_observations)
+        margin_live_ids.insert(observation.feature_id_);
     for (const auto & track : schur_history_.allTracks(schur_oldest_frame_))
       margin_live_ids.insert(track.id_);
     schur_margin_history_.retain(margin_live_ids);
@@ -1513,14 +1531,15 @@ bool Estimator::schurProcessFrame(
   // history entry, no clone augmentation, no visual update and no
   // marginalisation. The live state keeps propagating (schurPropagate()) and
   // is written back/published every frame, so odometry stays continuous. Once
-  // the tracker reports enough observations for enough consecutive frames,
-  // the stale clone blocks/history are dropped (live P untouched) and this
-  // same frame starts rebuilding the window by falling through to the normal
-  // path. That frame carries a single history entry, so no track can be
-  // eligible and the stale observations are never absorbed.
+  // the tracker reports enough distinct features for enough consecutive
+  // frames, the stale clone blocks/history are dropped (live P untouched) and
+  // this same frame starts rebuilding the window by falling through to the
+  // normal path. That frame starts with an empty history, and the first
+  // rebuilt entry is neither lost nor marginalisable while the window fills,
+  // so stale observations are never absorbed.
   if (schur_hold_.active()) {
     const vins::backend::StarvationHold::Action_e hold_action =
-      schur_hold_.observeFrame(frame_time, static_cast<int>(observations.size()));
+      schur_hold_.observeFrame(frame_time, feature_count);
     if (hold_action == vins::backend::StarvationHold::Action_e::K_HOLD) {
       // Hold has no visual structure; never expose the previous frame's
       // snapshot as if it belonged to this image.
@@ -1542,7 +1561,7 @@ bool Estimator::schurProcessFrame(
       schurReportStageTiming(t_update.toc());
       return true;
     }
-    schurHoldRecover(frame_time, static_cast<int>(observations.size()));
+    schurHoldRecover(frame_time, feature_count);
     // The monitor was re-anchored, so the weak-update ramp starts at zero.
     weak_scale = vins::backend::weakUpdateScale(
       schur_starvation_monitor_.starvationDuration(frame_time), SCHUR_STARVATION_WEAK_UPDATE,
@@ -1568,11 +1587,13 @@ bool Estimator::schurProcessFrame(
     covariance_bounds(schur_state_.covariance(), p_trace_before, p_min_before, p_max_before);
   const vins::backend::ImuNominal_s imu_before_update = schur_state_.imu();
 
-  // 1. Record this frame's normalised, undistorted observations (collected
-  //    above). A frame that just left hold only carries this single entry, so
-  //    no track can pass the min-observation gate and the clone window is
-  //    rebuilt frame by frame without absorbing stale tracks.
-  schur_history_.addFrameWithPixels(schur_frame_index_, 0, observations);
+  // 1. Record this frame's normalised, undistorted observations for every
+  //    configured camera under the same clone/frame index. FeatureHistory
+  //    keeps one row per (frame, camera), so a stereo pair contributes two
+  //    real measurements while still sharing a single clone.
+  for (std::size_t camera_id = 0; camera_id < frame_observations.size(); ++camera_id)
+    schur_history_.addFrameWithPixels(
+      schur_frame_index_, static_cast<int>(camera_id), frame_observations[camera_id]);
 
   // 2. Append the current pose as the newest clone. Pruning is deferred until
   //    after the visual update so the oldest clone can still be observed by
@@ -1962,7 +1983,7 @@ void Estimator::schurHoldEnter(double _frame_time, double _gap_seconds)
     schur_hold_.episodes());
 }
 
-void Estimator::schurHoldRecover(double _frame_time, int _observations)
+void Estimator::schurHoldRecover(double _frame_time, int _features)
 {
   const int episode = schur_hold_.episodes();
   const double duration = schur_hold_.leave(_frame_time);
@@ -1985,9 +2006,9 @@ void Estimator::schurHoldRecover(double _frame_time, int _observations)
   RCLCPP_WARN(
     vins::logger(),
     "Schur EKF hold exit after %.3f s (episode=%d, t=%.3f): tracker recovered "
-    "with %d observations (>= %d for %d consecutive frames). Rebuilding the "
+    "with %d distinct features (>= %d for %d consecutive frames). Rebuilding the "
     "clone window from this frame, live state and P kept",
-    duration, episode, _frame_time, _observations, SCHUR_MIN_FEATURES, SCHUR_HOLD_RECOVERY_FRAMES);
+    duration, episode, _frame_time, _features, SCHUR_MIN_FEATURES, SCHUR_HOLD_RECOVERY_FRAMES);
 }
 
 void Estimator::schurSoftRestart(double _frame_time, double _gap_seconds)

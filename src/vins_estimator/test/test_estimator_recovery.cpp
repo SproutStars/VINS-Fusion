@@ -445,3 +445,52 @@ TEST(EstimatorLandingDetector, ClearStateDropsActiveStaticEvidence)
   estimator.clearState();
   EXPECT_FALSE(estimator.schur_landing_static_.active());
 }
+
+TEST(EstimatorSchurStereo, SchurProcessFrameCollectsBothConfiguredCameras)
+{
+  EstimatorParameterGuard_s guard;
+  ESTIMATE_EXTRINSIC = 0;
+  ESTIMATE_TD = 0;
+  NUM_OF_CAM = 2;
+  STEREO = 1;
+  USE_IMU = 1;
+  MULTIPLE_THREAD = 0;
+  TD = 0.0;
+  G = Eigen::Vector3d(0.0, 0.0, -9.81);
+  RIC.assign(2, Eigen::Matrix3d::Identity());
+  TIC.assign(2, Eigen::Vector3d::Zero());
+  TIC[1] = Eigen::Vector3d(-0.11, 0.0, 0.0);
+  CAM_NAMES.clear();
+
+  Estimator estimator;
+  estimator.setParameter();
+  estimator.frame_count_ = 0;
+  estimator.Headers_[0] = 0.0;
+  estimator.Rs_[0].setIdentity();
+  estimator.Ps_[0].setZero();
+  estimator.initSchurBackend();
+  ASSERT_TRUE(estimator.schurBackendActive());
+  ASSERT_EQ(estimator.schur_cameras_.size(), 2u);
+  EXPECT_NEAR(estimator.schur_cameras_[1].p_cb_.x(), -0.11, 1e-12);
+
+  Estimator::FeatureFrame image;
+  Eigen::Matrix<double, 7, 1> left;
+  left << 0.10, -0.05, 1.0, 320.0, 240.0, 0.0, 0.0;
+  Eigen::Matrix<double, 7, 1> right;
+  right << 0.05, -0.05, 1.0, 280.0, 240.0, 0.0, 0.0;
+  // Right first: the estimator must still add both views and restore the
+  // deterministic (frame, camera) order in FeatureHistory.
+  image[7].emplace_back(1, right);
+  image[7].emplace_back(0, left);
+
+  ASSERT_TRUE(estimator.schurProcessFrame(image, 0.0));
+  const std::vector<vins::backend::FeatureTrack_s> tracks = estimator.schur_history_.allTracks(0);
+  ASSERT_EQ(tracks.size(), 1u);
+  ASSERT_EQ(tracks[0].observations_.size(), 2u);
+  EXPECT_EQ(tracks[0].observations_[0].clone_index_, 0);
+  EXPECT_EQ(tracks[0].observations_[0].camera_id_, 0);
+  EXPECT_EQ(tracks[0].observations_[1].clone_index_, 0);
+  EXPECT_EQ(tracks[0].observations_[1].camera_id_, 1);
+  EXPECT_NEAR(tracks[0].observations_[0].pixel_uv_.x(), 320.0, 1e-12);
+  EXPECT_NEAR(tracks[0].observations_[1].pixel_uv_.x(), 280.0, 1e-12);
+}

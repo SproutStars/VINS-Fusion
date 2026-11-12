@@ -78,6 +78,22 @@ float pointDistanceSquared(const cv::Point2f & _a, const cv::Point2f & _b)
   return dx * dx + dy * dy;
 }
 
+template <typename First, typename... Rest>
+void reduceVectors(const vector<uchar> & _status, First & _first, Rest &... _rest)
+{
+  const size_t count = _first.size();
+  size_t write = 0;
+  for (size_t read = 0; read < count; ++read) {
+    if (!_status[read])
+      continue;
+    _first[write] = _first[read];
+    ((_rest[write] = _rest[read]), ...);
+    ++write;
+  }
+  _first.resize(write);
+  ((_rest.resize(write)), ...);
+}
+
 }  // namespace
 
 // Coarse detection followed by full-resolution refinement. Like OpenVINS'
@@ -116,7 +132,8 @@ void FeatureTracker::detectPyramidFeatures(
     }
     coarse_mask = detection_half_mask_scratch_;
   }
-  vector<cv::Point2f> candidates;
+  vector<cv::Point2f> & candidates = detection_candidates_scratch_;
+  candidates.clear();
   cv::goodFeaturesToTrack(coarse, candidates, _max_features, 0.01, std::max(1.0, MIN_DIST * 0.5), coarse_mask);
   for (auto & point : candidates)
     point *= 2.0f;
@@ -430,6 +447,8 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     cur_un_right_pts_map_.clear();
     prev_pyr_.clear();
     detection_half_mask_scratch_.release();
+    prev_lifted_pts_.clear();
+    cur_lifted_pts_.clear();
   }
 
   // Coarse GFTT uses quarter-size response buffers; like FAST+grid it avoids
@@ -443,6 +462,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     ids_.clear();
     track_cnt_.clear();
     prev_pyr_.clear();
+    prev_lifted_pts_.clear();
   }
 
   const auto pyramid_start = std::chrono::steady_clock::now();
@@ -460,14 +480,18 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     prev_pts_.clear();
     ids_.clear();
     track_cnt_.clear();
+    prev_lifted_pts_.clear();
   }
   cur_pts_.clear();
 
   const auto flow_start = std::chrono::steady_clock::now();
   if (!prev_pts_.empty()) {
     TicToc t_o;
-    vector<uchar> status;
-    vector<float> err;
+    vector<uchar> & status = flow_status_scratch_;
+    vector<float> & err = flow_err_scratch_;
+    status.clear();
+    err.clear();
+    const bool lifted_points_aligned = prev_lifted_pts_.size() == prev_pts_.size();
     if (hasPrediction_) {
       cur_pts_ = predict_pts_;
       calcFlow(prev_pyr_, cur_pyr, prev_pts_, cur_pts_, status, err, 1, cv::OPTFLOW_USE_INITIAL_FLOW);
@@ -483,8 +507,10 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
       calcFlow(prev_pyr_, cur_pyr, prev_pts_, cur_pts_, status, err, 3);
     // reverse check
     if (FLOW_BACK) {
-      vector<uchar> reverse_status;
-      vector<cv::Point2f> reverse_pts = prev_pts_;
+      vector<uchar> & reverse_status = reverse_status_scratch_;
+      vector<cv::Point2f> & reverse_pts = reverse_pts_scratch_;
+      reverse_status.clear();
+      reverse_pts = prev_pts_;
       calcFlow(cur_pyr, prev_pyr_, cur_pts_, reverse_pts, reverse_status, err, 1, cv::OPTFLOW_USE_INITIAL_FLOW);
       for (size_t i = 0; i < status.size(); i++) {
         if (status[i] && reverse_status[i] && distance(prev_pts_[i], reverse_pts[i]) <= 0.5) {
@@ -497,10 +523,12 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     for (int i = 0; i < int(cur_pts_.size()); i++)
       if (status[i] && !inBorder(cur_pts_[i]))
         status[i] = 0;
-    reduceVector(prev_pts_, status);
-    reduceVector(cur_pts_, status);
-    reduceVector(ids_, status);
-    reduceVector(track_cnt_, status);
+    if (lifted_points_aligned)
+      reduceVectors(status, prev_pts_, cur_pts_, ids_, track_cnt_, prev_lifted_pts_);
+    else {
+      reduceVectors(status, prev_pts_, cur_pts_, ids_, track_cnt_);
+      prev_lifted_pts_.clear();
+    }
     RCLCPP_DEBUG(vins::logger(), "temporal optical flow costs: %fms", t_o.toc());
     //printf("track cnt %d\n", (int)ids.size());
   }
@@ -560,7 +588,9 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     timings.detect_ms_ += elapsedMs(detect_start);
   }
 
-  undistortedPtsInto(cur_pts_, m_camera_[0], cur_un_pts_);
+  const bool cache_lifted_points = RANSAC_OUTLIER_REJECTION != 0;
+  undistortedPtsInto(
+    cur_pts_, m_camera_[0], cur_un_pts_, cache_lifted_points ? &cur_lifted_pts_ : nullptr);
   ptsVelocityInto(ids_, cur_un_pts_, cur_un_pts_map_, prev_un_pts_map_, pts_velocity_);
 
   if (!_img1.empty() && stereo_cam_) {
@@ -578,9 +608,14 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
       vector<cv::Mat> & right_pyr = scratch_right_pyr_;
       //printf("stereo image; track feature on right image\n");
       const auto right_flow_start = std::chrono::steady_clock::now();
-      vector<cv::Point2f> reverseLeftPts;
-      vector<uchar> status, statusRightLeft;
-      vector<float> err;
+      vector<cv::Point2f> & reverseLeftPts = reverse_pts_scratch_;
+      vector<uchar> & status = flow_status_scratch_;
+      vector<uchar> & statusRightLeft = reverse_status_scratch_;
+      vector<float> & err = flow_err_scratch_;
+      reverseLeftPts.clear();
+      status.clear();
+      statusRightLeft.clear();
+      err.clear();
       // cur left ---- cur right
       calcFlow(cur_pyr, right_pyr, cur_pts_, cur_right_pts_, status, err, 3);
       // reverse check cur right ---- cur left
@@ -595,8 +630,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
       }
 
       ids_right_ = ids_;
-      reduceVector(cur_right_pts_, status);
-      reduceVector(ids_right_, status);
+      reduceVectors(status, cur_right_pts_, ids_right_);
       // only keep left-right pts
       /*
             reduceVector(cur_pts, status);
@@ -623,6 +657,10 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
   // holds the old previous-frame buffers ready for reuse by the next build.
   prev_pts_ = cur_pts_;
   prev_un_pts_ = cur_un_pts_;
+  if (cache_lifted_points)
+    prev_lifted_pts_.swap(cur_lifted_pts_);
+  else
+    prev_lifted_pts_.clear();
   prev_un_pts_map_.swap(cur_un_pts_map_);
   prev_time_ = cur_time_;
   hasPrediction_ = false;
@@ -698,7 +736,11 @@ void FeatureTracker::rejectWithF()
 
     RCLCPP_DEBUG(vins::logger(), "FM ransac begins");
     TicToc t_f;
-    vector<cv::Point2f> un_cur_pts(correspondence_count), un_prev_pts(correspondence_count);
+    vector<cv::Point2f> & un_cur_pts = ransac_cur_pts_scratch_;
+    vector<cv::Point2f> & un_prev_pts = ransac_prev_pts_scratch_;
+    un_cur_pts.resize(correspondence_count);
+    un_prev_pts.resize(correspondence_count);
+    const bool use_cached_prev_lift = prev_lifted_pts_.size() == correspondence_count;
     for (size_t i = 0; i < correspondence_count; i++) {
       Eigen::Vector3d tmp_p;
       m_camera_[0]->liftProjective(Eigen::Vector2d(cur_pts_[i].x, cur_pts_[i].y), tmp_p);
@@ -706,13 +748,20 @@ void FeatureTracker::rejectWithF()
       tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + row_ / 2.0;
       un_cur_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
 
-      m_camera_[0]->liftProjective(Eigen::Vector2d(prev_pts_[i].x, prev_pts_[i].y), tmp_p);
-      tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + col_ / 2.0;
-      tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + row_ / 2.0;
-      un_prev_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
+      if (use_cached_prev_lift) {
+        const cv::Point3d & lifted = prev_lifted_pts_[i];
+        un_prev_pts[i] = cv::Point2f(
+          FOCAL_LENGTH * lifted.x / lifted.z + col_ / 2.0, FOCAL_LENGTH * lifted.y / lifted.z + row_ / 2.0);
+      } else {
+        m_camera_[0]->liftProjective(Eigen::Vector2d(prev_pts_[i].x, prev_pts_[i].y), tmp_p);
+        tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + col_ / 2.0;
+        tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + row_ / 2.0;
+        un_prev_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
+      }
     }
 
-    vector<uchar> status;
+    vector<uchar> & status = ransac_status_scratch_;
+    status.clear();
     const cv::Mat fundamental =
       cv::findFundamentalMat(un_cur_pts, un_prev_pts, cv::FM_RANSAC, F_THRESHOLD, 0.99, status);
     if (fundamental.empty() || status.size() != correspondence_count) {
@@ -725,10 +774,12 @@ void FeatureTracker::rejectWithF()
     }
 
     const int size_a = static_cast<int>(correspondence_count);
-    reduceVector(prev_pts_, status);
-    reduceVector(cur_pts_, status);
-    reduceVector(ids_, status);
-    reduceVector(track_cnt_, status);
+    if (use_cached_prev_lift)
+      reduceVectors(status, prev_pts_, cur_pts_, ids_, track_cnt_, prev_lifted_pts_);
+    else {
+      reduceVectors(status, prev_pts_, cur_pts_, ids_, track_cnt_);
+      prev_lifted_pts_.clear();
+    }
     RCLCPP_DEBUG(
       vins::logger(), "FM ransac: %d -> %lu: %f", size_a, cur_pts_.size(), 1.0 * cur_pts_.size() / size_a);
     RCLCPP_DEBUG(vins::logger(), "FM ransac costs: %fms", t_f.toc());
@@ -782,14 +833,19 @@ void FeatureTracker::showUndistortion([[maybe_unused]] const string & _name)
 }
 
 void FeatureTracker::undistortedPtsInto(
-  const vector<cv::Point2f> & _pts, const camodocal::CameraPtr & _cam, vector<cv::Point2f> & _out) const
+  const vector<cv::Point2f> & _pts, const camodocal::CameraPtr & _cam, vector<cv::Point2f> & _out,
+  vector<cv::Point3d> * _lifted) const
 {
   _out.resize(_pts.size());
+  if (_lifted != nullptr)
+    _lifted->resize(_pts.size());
   for (size_t i = 0; i < _pts.size(); i++) {
     Eigen::Vector2d a(_pts[i].x, _pts[i].y);
     Eigen::Vector3d b;
     _cam->liftProjective(a, b);
     _out[i] = cv::Point2f(b.x() / b.z(), b.y() / b.z());
+    if (_lifted != nullptr)
+      (*_lifted)[i] = cv::Point3d(b.x(), b.y(), b.z());
   }
 }
 
@@ -920,9 +976,13 @@ void FeatureTracker::removeOutliers(set<int> & _removePtsIds)
       status.push_back(1);
   }
 
-  reduceVector(prev_pts_, status);
-  reduceVector(ids_, status);
-  reduceVector(track_cnt_, status);
+  const bool lifted_points_aligned = prev_lifted_pts_.size() == prev_pts_.size();
+  if (lifted_points_aligned)
+    reduceVectors(status, prev_pts_, ids_, track_cnt_, prev_lifted_pts_);
+  else {
+    reduceVectors(status, prev_pts_, ids_, track_cnt_);
+    prev_lifted_pts_.clear();
+  }
 }
 
 

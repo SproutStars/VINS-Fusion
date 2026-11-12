@@ -31,6 +31,27 @@ observation(int _clone_index, const Eigen::Vector2d & _uv, const Eigen::Vector2d
   return result;
 }
 
+FeatureObservation_s observation(
+  int _clone_index, int _camera_id, const Eigen::Vector2d & _uv, const Eigen::Vector2d & _pixel_uv,
+  bool _has_pixel)
+{
+  FeatureObservation_s result = observation(_clone_index, _uv, _pixel_uv, _has_pixel);
+  result.camera_id_ = _camera_id;
+  return result;
+}
+
+Eigen::Vector2d project_world(
+  const EkfState & _state, int _clone_index, const CameraExtrinsics_s & _camera,
+  const Eigen::Vector3d & _world_point)
+{
+  const auto & clone = _state.clone(_clone_index);
+  const Eigen::Matrix3d R_i = EkfState::rotation(clone.q_);
+  const Eigen::Matrix3d R_cb = EkfState::rotation(_camera.q_cb_);
+  const Eigen::Vector3d p_c =
+    R_cb.transpose() * (R_i.transpose() * (_world_point - clone.p_) - _camera.p_cb_);
+  return Eigen::Vector2d(p_c.x() / p_c.z(), p_c.y() / p_c.z());
+}
+
 EkfState two_clone_state()
 {
   EkfOptions_s options;
@@ -78,6 +99,57 @@ TEST(SchurVisualization, TriangulatesCopiesAndKeepsKeyframePixelObservations)
   EXPECT_FALSE(track.has_point_);
   EXPECT_TRUE(track.world_point_.isZero());
   EXPECT_EQ(track.observations_.size(), original.observations_.size());
+}
+
+TEST(SchurVisualization, StereoKeyframePointsUseCameraZeroOrAreOmitted)
+{
+  const EkfState state = two_clone_state();
+  const CameraExtrinsics_s cam0;
+  CameraExtrinsics_s cam1;
+  cam1.p_cb_ = Eigen::Vector3d(-0.11, 0.0, 0.0);
+  const std::vector<CameraExtrinsics_s> cameras{cam0, cam1};
+  const SchurUpdater updater(visualization_options());
+
+  const Eigen::Vector3d world_point(0.0, 0.0, 5.0);
+  const Eigen::Vector2d uv00 = project_world(state, 0, cam0, world_point);
+  const Eigen::Vector2d uv10 = project_world(state, 1, cam0, world_point);
+  const Eigen::Vector2d uv11 = project_world(state, 1, cam1, world_point);
+
+  FeatureTrack_s both_cameras;
+  both_cameras.id_ = 21;
+  both_cameras.observations_.push_back(
+    observation(0, 0, uv00, Eigen::Vector2d(320.0, 240.0), true));
+  both_cameras.observations_.push_back(
+    observation(1, 0, uv10, Eigen::Vector2d(228.0, 240.0), true));
+  both_cameras.observations_.push_back(
+    observation(1, 1, uv11, Eigen::Vector2d(999.0, 777.0), true));
+
+  FeatureTrack_s right_only_at_keyframe;
+  right_only_at_keyframe.id_ = 22;
+  right_only_at_keyframe.observations_.push_back(
+    observation(0, 0, uv00, Eigen::Vector2d(320.0, 240.0), true));
+  right_only_at_keyframe.observations_.push_back(
+    observation(1, 1, uv11, Eigen::Vector2d(238.0, 240.0), true));
+
+  const SchurVisualizationSnapshot_s snapshot =
+    makeSchurVisualizationSnapshot(state, cameras, updater, {both_cameras, right_only_at_keyframe}, 1, 15.0);
+
+  ASSERT_TRUE(snapshot.valid_);
+  ASSERT_EQ(snapshot.cloud_points_.size(), 2u);
+  ASSERT_EQ(snapshot.keyframe_points_.size(), 1u);
+
+  // The loop-fusion point must be camera 0 even when a right-camera view also
+  // exists at the keyframe clone.
+  EXPECT_EQ(snapshot.keyframe_points_[0].feature_id_, 21);
+  EXPECT_NEAR(snapshot.keyframe_points_[0].pixel_uv_.x(), 228.0, 1e-12);
+  EXPECT_NEAR(snapshot.keyframe_points_[0].pixel_uv_.y(), 240.0, 1e-12);
+
+  // A right-only keyframe view still contributes a world point, but no
+  // keyframe point. Its cloud metadata falls back to the last camera-0 view,
+  // never the right-camera pixel.
+  EXPECT_EQ(snapshot.cloud_points_[1].feature_id_, 22);
+  EXPECT_NEAR(snapshot.cloud_points_[1].pixel_uv_.x(), 320.0, 1e-12);
+  EXPECT_NEAR(snapshot.cloud_points_[1].pixel_uv_.y(), 240.0, 1e-12);
 }
 
 TEST(SchurVisualization, RequiresCurrentFramePixelsAndRejectsUnacceptedMargin)

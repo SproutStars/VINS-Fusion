@@ -145,7 +145,7 @@ public:
   // The image-time window is propagated in processMeasurements(); inputIMU()
   // independently propagates the live marginal used by imu_propagate.
   void schurHoldEnter(double _frame_time, double _gap_seconds);
-  void schurHoldRecover(double _frame_time, int _observations);
+  void schurHoldRecover(double _frame_time, int _features);
   // Copies the filter state back into the Ceres/visualisation window arrays.
   void schurWriteBackWindow();
   bool schurStateFinite() const;

@@ -5,6 +5,11 @@ Source /opt/ros/jazzy/setup.bash and install/setup.bash before running.
 ATE uses sensor header timestamps, interpolated Vicon positions, and rigid SE(3)
 position alignment (no fitted scale or time offset). Arrival latency is observed
 at ROS subscriptions, not inferred from bag /clock (record/header times differ).
+
+Image counters are message diagnostics: received_images counts primary/left
+camera image messages and does not prove synchronization or processing, while
+received_image_messages counts all enabled camera messages and
+received_images_by_topic reports each stream separately.
 """
 import argparse
 from collections import OrderedDict
@@ -13,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import struct
 import subprocess
@@ -20,6 +26,209 @@ import time
 
 import numpy as np
 import psutil
+import yaml
+
+
+_REPLAY_CONFIG_KEYS = ("imu", "num_of_cam", "imu_topic", "image0_topic", "image1_topic")
+_UNSUPPORTED_MODE_OVERRIDES = frozenset(("imu", "num_of_cam"))
+_IMAGE_COUNT_SEMANTICS = {
+    "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+    "received_image_messages": "total image messages across enabled camera topics",
+    "received_images_by_topic": "image messages for each enabled camera topic",
+}
+
+
+def load_ros2_parameters(config_path):
+    """Return the ros__parameters mapping from a ROS 2 YAML config file."""
+    config_path = Path(config_path)
+    try:
+        document = yaml.safe_load(config_path.read_text())
+    except OSError as error:
+        raise ValueError(f"Cannot read ROS 2 configuration {config_path}: {error}") from error
+    except yaml.YAMLError as error:
+        raise ValueError(f"Invalid YAML in ROS 2 configuration {config_path}: {error}") from error
+    if not isinstance(document, dict):
+        raise ValueError(f"ROS 2 configuration {config_path} must contain a mapping")
+
+    sections = []
+    for node_name, node_config in document.items():
+        if not isinstance(node_config, dict) or "ros__parameters" not in node_config:
+            continue
+        parameters = node_config["ros__parameters"]
+        if not isinstance(parameters, dict):
+            raise ValueError(
+                f"ros__parameters for {node_name!r} in {config_path} must be a mapping")
+        sections.append((node_name, parameters))
+    if not sections:
+        raise ValueError(f"ROS 2 configuration {config_path} has no ros__parameters mapping")
+    if len(sections) != 1:
+        names = ", ".join(repr(name) for name, _ in sections)
+        raise ValueError(
+            f"Expected exactly one ros__parameters mapping in {config_path}, found {names}")
+    return dict(sections[0][1])
+
+
+def parse_parameter_overrides(overrides):
+    """Parse repeated ROS 2 NAME:=VALUE overrides into typed values."""
+    parsed = {}
+    for override in overrides or ():
+        if not isinstance(override, str):
+            raise ValueError("ROS parameter overrides must be strings")
+        name, separator, raw_value = override.partition(":=")
+        if not separator or not name or name != name.strip():
+            raise ValueError(f"Invalid ROS parameter override {override!r}; expected NAME:=VALUE")
+        try:
+            parsed[name] = yaml.safe_load(raw_value)
+        except yaml.YAMLError as error:
+            raise ValueError(f"Invalid YAML value in ROS parameter override {override!r}") from error
+    return parsed
+
+
+def _integer_parameter(parameters, name):
+    value = parameters.get(name)
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer, not a boolean")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value.strip()):
+        return int(value)
+    raise ValueError(f"{name} must be an integer, got {value!r}")
+
+
+def _topic_parameter(parameters, name, required):
+    value = parameters.get(name)
+    if value is None:
+        if required:
+            raise ValueError(f"{name} is required for the selected replay mode")
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{name} must be a non-empty string, got {value!r}")
+    if value != value.strip() or re.search(r"\s", value):
+        raise ValueError(f"{name} must not contain whitespace: {value!r}")
+    if not value.startswith("/"):
+        raise ValueError(f"{name} must be an absolute ROS topic starting with '/': {value!r}")
+    return value
+
+
+def resolve_replay_config(parameters, overrides=None):
+    """Resolve the streams that must be played for the effective VINS mode.
+
+    ``imu`` and ``num_of_cam`` select the mode from ``config_file``. The ROS 2
+    node only accepts topic overrides through ``--parameter``; mode overrides
+    are rejected because they would not change the running estimator.
+    """
+    if not isinstance(parameters, dict):
+        raise ValueError("ROS parameters must be a mapping")
+    override_values = parse_parameter_overrides(overrides)
+    unsupported = sorted(_UNSUPPORTED_MODE_OVERRIDES.intersection(override_values))
+    if unsupported:
+        names = ", ".join(unsupported)
+        raise ValueError(
+            f"--parameter {names} is not supported by vins_node; set {names} in the YAML config")
+    effective = dict(parameters)
+    effective.update(override_values)
+
+    use_imu = _integer_parameter(effective, "imu")
+    num_of_cam = _integer_parameter(effective, "num_of_cam")
+    if use_imu not in (0, 1):
+        raise ValueError(f"imu must be 0 or 1, got {use_imu}")
+    if num_of_cam not in (1, 2):
+        raise ValueError(f"num_of_cam must be 1 or 2, got {num_of_cam}")
+
+    topics = {}
+    if use_imu:
+        topics["imu"] = _topic_parameter(effective, "imu_topic", required=True)
+    topics["image0"] = _topic_parameter(effective, "image0_topic", required=True)
+    if num_of_cam == 2:
+        topics["image1"] = _topic_parameter(effective, "image1_topic", required=True)
+
+    topic_values = list(topics.values())
+    if len(topic_values) != len(set(topic_values)):
+        raise ValueError(f"Replay topics must be distinct, got {topics}")
+
+    mode = ("mono" if num_of_cam == 1 else "stereo")
+    if use_imu:
+        mode += "_imu"
+    playback_topics = list(topics.values())
+    return {
+        "mode": mode,
+        "use_imu": bool(use_imu),
+        "imu": use_imu,
+        "num_of_cam": num_of_cam,
+        "topics": topics,
+        "image_topics": [topics["image0"], topics["image1"]] if num_of_cam == 2 else [topics["image0"]],
+        "playback_topics": playback_topics,
+        "effective_parameters": {name: effective[name] for name in _REPLAY_CONFIG_KEYS if name in effective},
+    }
+
+
+def load_replay_config(config_path, overrides=None):
+    return resolve_replay_config(load_ros2_parameters(config_path), overrides)
+
+
+def parse_cpu_affinity(value, available_cpus=None):
+    """Parse comma-separated CPU IDs and require them in the current mask."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("CPU affinity must be a comma-separated string")
+    tokens = value.split(",")
+    if not tokens or any(not token.strip() for token in tokens):
+        raise ValueError("CPU affinity must contain comma-separated CPU IDs")
+    try:
+        cpu_ids = [int(token) for token in tokens]
+    except ValueError as error:
+        raise ValueError("CPU affinity must contain only integer CPU IDs") from error
+    if any(cpu_id < 0 for cpu_id in cpu_ids):
+        raise ValueError("CPU affinity CPU IDs must be nonnegative")
+    if len(cpu_ids) != len(set(cpu_ids)):
+        raise ValueError(f"CPU affinity contains duplicate IDs: {cpu_ids}")
+    available = set(os.sched_getaffinity(0) if available_cpus is None else available_cpus)
+    unavailable = sorted(set(cpu_ids) - available)
+    if unavailable:
+        raise ValueError(
+            f"CPU affinity contains IDs unavailable to this process: {unavailable}; "
+            f"available IDs are {sorted(available)}")
+    return cpu_ids
+
+
+def build_estimator_command(binary, config, output, parameters=None, cpu_affinity=None,
+                            taskset="taskset"):
+    """Build the estimator argv; affinity is applied before exec by taskset."""
+    command = [str(binary), "--ros-args", "-r", "__node:=vins_estimator",
+               "-p", f"config_file:={config}", "-p", f"output_path:={output}",
+               "-p", "use_sim_time:=true"]
+    for parameter in parameters or ():
+        command += ["-p", parameter]
+    if cpu_affinity:
+        command = [str(taskset), "-c", ",".join(str(cpu_id) for cpu_id in cpu_affinity), *command]
+    return command
+
+
+class ImageMessageCounter:
+    """Count image messages without changing frame-pair metrics."""
+    def __init__(self, image_topics):
+        if not image_topics:
+            raise ValueError("At least one image topic is required")
+        self.primary_topic = image_topics[0]
+        self.counts = {topic: 0 for topic in image_topics}
+        self.received_images = 0
+        self.received_image_messages = 0
+
+    def record(self, topic):
+        if topic not in self.counts:
+            raise ValueError(f"Image message from unexpected topic {topic!r}")
+        self.counts[topic] += 1
+        self.received_image_messages += 1
+        if topic == self.primary_topic:
+            self.received_images += 1
+
+    def metrics(self):
+        return {
+            "received_images": self.received_images,
+            "received_image_messages": self.received_image_messages,
+            "received_images_by_topic": dict(self.counts),
+        }
 
 
 class ArrivalTimes:
@@ -244,7 +453,7 @@ def extract_truth(bag, destination):
     return rows
 
 
-def run_bag(args, bag, output, truth):
+def run_bag(args, replay, bag, output, truth):
     import rclpy
     from nav_msgs.msg import Odometry
     from sensor_msgs.msg import Image
@@ -254,15 +463,18 @@ def run_bag(args, bag, output, truth):
     observer = rclpy.create_node("vins_benchmark_observer")
     arrivals = ArrivalTimes()
     trajectory, latencies = [], []
-    counters = {"received_images": 0, "latency_misses": 0}
+    image_topics = replay["image_topics"]
+    image_counter = ImageMessageCounter(image_topics)
+    counters = {"latency_misses": 0}
     last_output_wall = [time.monotonic()]
 
-    def image(data):
+    def image(topic, data):
         # CDR encapsulation followed by Header.stamp. No image-array decoding.
         endian = "<" if data[1] & 1 else ">"
         sec, nsec = struct.unpack_from(endian + "iI", data, 4)
-        arrivals.record(sec * 10**9 + nsec, time.monotonic_ns())
-        counters["received_images"] += 1
+        if topic == image_topics[0]:
+            arrivals.record(sec * 10**9 + nsec, time.monotonic_ns())
+        image_counter.record(topic)
 
     def odometry(msg):
         now = time.monotonic_ns()
@@ -279,19 +491,20 @@ def run_bag(args, bag, output, truth):
 
     qos = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=100,
                      reliability=ReliabilityPolicy.BEST_EFFORT)
-    subscriptions = [observer.create_subscription(Image, "/cam0/image_raw", image, qos, raw=True),
-                     observer.create_subscription(Odometry, "/vins_estimator/odometry", odometry, 100)]
+    subscriptions = [
+        observer.create_subscription(
+            Image, topic, lambda data, topic=topic: image(topic, data), qos, raw=True)
+        for topic in image_topics
+    ]
+    subscriptions.append(
+        observer.create_subscription(Odometry, "/vins_estimator/odometry", odometry, 100))
     estimator = player = None
     resource_rows = []
     env = os.environ.copy()
     with open(output / "estimator.log", "w") as estimator_log, open(output / "player.log", "w") as player_log:
         try:
-            command = [str(args.binary), "--ros-args", "-r", "__node:=vins_estimator",
-                       "-p", f"config_file:={args.config}", "-p", f"output_path:={output}",
-                       "-p", "use_sim_time:=true"]
-            if args.parameter:
-                for parameter in args.parameter:
-                    command += ["-p", parameter]
+            command = build_estimator_command(
+                args.binary, args.config, output, args.parameter, args.cpu_affinity, args.taskset)
             estimator = subprocess.Popen(command, stdout=estimator_log, stderr=subprocess.STDOUT,
                                          env=env, start_new_session=True)
             process = psutil.Process(estimator.pid)
@@ -307,7 +520,7 @@ def run_bag(args, bag, output, truth):
             start = time.monotonic()
             command = ["ros2", "bag", "play", str(bag), "--rate", str(args.rate),
                        "--clock", "100", "--disable-keyboard-controls", "--delay", "1",
-                       "--topics", "/imu0", "/cam0/image_raw"]
+                       "--topics", *replay["playback_topics"]]
             if args.duration:
                 command += ["--playback-duration", str(args.duration)]
             player = subprocess.Popen(command, stdout=player_log, stderr=subprocess.STDOUT,
@@ -358,7 +571,8 @@ def run_bag(args, bag, output, truth):
         "average_cpu_percent_one_core": 100 * cpu_seconds / elapsed,
         "peak_rss_mib": max(row[3] for row in resource_rows),
         "peak_threads": max(row[4] for row in resource_rows),
-        "output_poses": len(trajectory), **counters,
+        "output_poses": len(trajectory), **image_counter.metrics(), **counters,
+        "image_count_semantics": _IMAGE_COUNT_SEMANTICS,
         "latency_p50_ms": float(np.percentile(latencies, 50)) if latencies else None,
         "latency_p95_ms": float(np.percentile(latencies, 95)) if latencies else None,
         "latency_p99_ms": float(np.percentile(latencies, 99)) if latencies else None,
@@ -387,10 +601,21 @@ def main():
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--drain-timeout", type=float, default=30)
     parser.add_argument("--parameter", action="append", help="Extra ROS parameter, e.g. opencv_threads:=1")
+    parser.add_argument("--cpu-affinity", help="Comma-separated estimator CPU IDs, e.g. 6,7")
     args = parser.parse_args()
     args.binary, args.config, args.output = args.binary.resolve(), args.config.resolve(), args.output.resolve()
     if args.rate <= 0 or args.repeats < 1:
         parser.error("rate and repeats must be positive")
+    try:
+        replay = load_replay_config(args.config, args.parameter)
+        args.cpu_affinity = parse_cpu_affinity(args.cpu_affinity)
+        args.taskset = None
+        if args.cpu_affinity:
+            args.taskset = shutil.which("taskset")
+            if not args.taskset:
+                raise ValueError("--cpu-affinity requires the taskset executable in PATH")
+    except ValueError as error:
+        parser.error(str(error))
     os.environ["ROS_DOMAIN_ID"] = str(args.domain_id)
     # Only benchmark processes are launched into this domain. Do not run parallel
     # contenders on the same CPU: that would make CPU/latency comparisons unfair.
@@ -398,6 +623,13 @@ def main():
     target.mkdir(parents=True, exist_ok=True)
     manifest = {"binary": str(args.binary), "binary_sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(),
                 "config": str(args.config), "config_text": args.config.read_text(),
+                "mode": replay["mode"], "topics": replay["topics"],
+                "playback_topics": replay["playback_topics"], "replay": replay,
+                "image_count_semantics": _IMAGE_COUNT_SEMANTICS,
+                "cpu_affinity": args.cpu_affinity,
+                "cpu_affinity_method": (
+                    "taskset -c prefix on estimator only; observer and bag player unbound"
+                    if args.cpu_affinity else None),
                 "argv": vars(args), "cpu_count": os.cpu_count(),
                 "git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
                 "method": "ROS subscriptions; Vicon header-time interpolation; rigid position alignment, no scale/time fit"}
@@ -409,7 +641,7 @@ def main():
         truth = np.loadtxt(truth_path, delimiter=",", skiprows=1) if truth_path.exists() else extract_truth(bag, truth_path)
         for repeat in range(1, args.repeats + 1):
             output = target / f"{dataset}_r{repeat}"
-            results.append(run_bag(args, bag, output, truth))
+            results.append(run_bag(args, replay, bag, output, truth))
             (target / "summary.json").write_text(json.dumps(results, indent=2) + "\n")
 
 

@@ -71,18 +71,45 @@ public:
     addFrameWithPixels(_frame_index, _camera_id, converted);
   }
 
-  // Registers a frame while retaining the raw pixel coordinates needed by the
-  // loop-fusion keyframe message. This is publication-only metadata; the
-  // measurement update consumes `uv` exactly as before.
+  // Registers one camera's observations for a frame while retaining the raw
+  // pixel coordinates needed by the loop-fusion keyframe message. This is
+  // publication-only metadata; the measurement update consumes `uv` exactly as
+  // before. A stereo pair is registered with two calls at the same
+  // `_frame_index` and different `_camera_id` values; each (frame, camera) view
+  // is kept so both measurements enter the Schur update. The per-feature
+  // history is kept ordered by (frame_index, camera_id), independent of call
+  // order, because triangulation anchors on the first view and consumes the
+  // last one for its two-view initialisation.
   void addFrameWithPixels(int _frame_index, int _camera_id, const std::vector<FrameObservation_s> & _observations)
   {
     newest_frame_index_ = std::max(newest_frame_index_, _frame_index);
     for (const auto & observation : _observations) {
       Entry_s & entry = features_[observation.feature_id_];
-      if (!entry.observations_.empty() && entry.observations_.back().frame_index_ == _frame_index)
-        continue;  // duplicate id in one frame: keep the first observation
-      entry.observations_.push_back(Observation_s{
-        _frame_index, _camera_id, observation.uv_, observation.pixel_uv_, observation.has_pixel_uv_});
+      auto & history = entry.observations_;
+      const Observation_s record{
+        _frame_index, _camera_id, observation.uv_, observation.pixel_uv_, observation.has_pixel_uv_};
+      // Normal tracking is monotonic: frames advance and the estimator adds
+      // camera 0 before camera 1, so the common case is a plain append.
+      const bool append_to_back =
+        history.empty() || history.back().frame_index_ < _frame_index ||
+        (history.back().frame_index_ == _frame_index && history.back().camera_id_ < _camera_id);
+      if (append_to_back) {
+        history.push_back(record);
+      } else {
+        // Out-of-order fallback (reverse camera order, replayed/older frame):
+        // keep the deterministic (frame_index, camera_id) order and drop only
+        // an exact duplicate view.
+        auto insert_at = history.begin();
+        while (
+          insert_at != history.end() &&
+          (insert_at->frame_index_ < _frame_index ||
+           (insert_at->frame_index_ == _frame_index && insert_at->camera_id_ < _camera_id)))
+          ++insert_at;
+        if (insert_at != history.end() && insert_at->frame_index_ == _frame_index &&
+            insert_at->camera_id_ == _camera_id)
+          continue;  // duplicate (frame, camera) view: keep the first observation
+        history.insert(insert_at, record);
+      }
       entry.last_frame_ = std::max(entry.last_frame_, _frame_index);
     }
   }
@@ -253,7 +280,7 @@ public:
 
 private:
   struct Entry_s {
-    std::vector<Observation_s> observations_;  // sorted by frame_index
+    std::vector<Observation_s> observations_;  // sorted by (frame_index, camera_id)
     int last_frame_ = -1;
   };
   std::unordered_map<int, Entry_s> features_;

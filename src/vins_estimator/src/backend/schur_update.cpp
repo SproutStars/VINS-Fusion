@@ -283,11 +283,27 @@ bool SchurUpdater::triangulate(
       return false;
   }
 
-  // ---- two-view linear initialisation (anchor = first observation) -------
-  const FeatureObservation_s & first = _track.observations_.front();
-  const FeatureObservation_s & last = _track.observations_.back();
-  if (first.clone_index_ == last.clone_index_)
-    return false;  // no baseline
+  // ---- two-view linear initialisation (anchor = earliest view) ----------
+  // Pick the views explicitly by (clone, camera) rather than trusting the
+  // caller's vector order. A same-timestamp stereo pair shares one clone but
+  // uses two cameras; the extrinsic baseline makes the two-view solve well
+  // posed, so only an identical (clone, camera) pair is rejected here.
+  const FeatureObservation_s * first_view = &_track.observations_.front();
+  const FeatureObservation_s * last_view = &_track.observations_.front();
+  for (const FeatureObservation_s & obs : _track.observations_) {
+    if (
+      obs.clone_index_ < first_view->clone_index_ ||
+      (obs.clone_index_ == first_view->clone_index_ && obs.camera_id_ < first_view->camera_id_))
+      first_view = &obs;
+    if (
+      obs.clone_index_ > last_view->clone_index_ ||
+      (obs.clone_index_ == last_view->clone_index_ && obs.camera_id_ > last_view->camera_id_))
+      last_view = &obs;
+  }
+  const FeatureObservation_s & first = *first_view;
+  const FeatureObservation_s & last = *last_view;
+  if (first.clone_index_ == last.clone_index_ && first.camera_id_ == last.camera_id_)
+    return false;  // identical view: no baseline
 
   const CloneNominal_s & c0 = _state.clone(first.clone_index_);
   const CloneNominal_s & c1 = _state.clone(last.clone_index_);

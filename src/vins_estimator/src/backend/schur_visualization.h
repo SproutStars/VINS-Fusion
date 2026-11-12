@@ -41,7 +41,9 @@ struct SchurVisualizationSnapshot_s {
   // Accepted, actually consumed tracks passing the stricter margin geometry
   // gate. At most one point per continuously tracked feature lifetime.
   std::vector<SchurVisualizationPoint_s> margin_points_;
-  // Tracks that also have a raw-pixel observation in the keyframe clone.
+  // Tracks that also have a camera-0 raw-pixel observation in the keyframe
+  // clone. The loop-fusion keyframe message carries no per-point camera id, so
+  // right-only keyframe observations are deliberately omitted here.
   std::vector<SchurVisualizationPoint_s> keyframe_points_;
 };
 
