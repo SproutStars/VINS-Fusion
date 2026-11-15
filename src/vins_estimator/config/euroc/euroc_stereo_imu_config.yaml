@@ -44,7 +44,7 @@
     schur_max_update_observations: 0    # 0 不限；本轮测试 240、480
     schur_window_size: 5
     schur_warmup_frames: 10
-    schur_max_features: 120
+    schur_max_features: 200
     schur_min_observations: 2
     schur_min_features: 12
     schur_min_update_observations: 12
