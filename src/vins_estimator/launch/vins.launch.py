@@ -3,7 +3,6 @@ import os
 import shlex
 import shutil
 
-import cv2
 import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -88,6 +87,9 @@ class CpuAffinityPrefix(Substitution):
 
     @staticmethod
     def _read_legacy(path):
+        # Only legacy OpenCV YAML needs the native Python bindings.
+        import cv2
+
         try:
             storage = cv2.FileStorage(path, cv2.FILE_STORAGE_READ)
         except cv2.error as error:
