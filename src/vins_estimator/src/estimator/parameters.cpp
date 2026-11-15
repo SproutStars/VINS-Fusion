@@ -48,6 +48,33 @@ bool STAGE_TIMING = false;
 int STAGE_TIMING_INTERVAL = 100;
 int RANSAC_OUTLIER_REJECTION = 0;
 std::string BACKEND_TYPE = "ceres";
+std::string SCHUR_INITIALIZATION = "standalone";
+bool SCHUR_INIT_ALLOW_STATIC = true;
+bool SCHUR_INIT_ALLOW_DYNAMIC = true;
+bool SCHUR_INIT_ALLOW_MONO_STATIC = true;
+double SCHUR_INIT_STATIC_WINDOW_SECONDS = 1.5;
+int SCHUR_INIT_STATIC_MIN_SAMPLES = 30;
+double SCHUR_INIT_MAX_IMU_GAP_SECONDS = 0.05;
+double SCHUR_INIT_STATIC_ACCEL_STD = 0.8;
+double SCHUR_INIT_STATIC_GYRO_STD = 0.08;
+double SCHUR_INIT_STATIC_ACCEL_NORM_TOL = 0.6;
+double SCHUR_INIT_STATIC_GYRO_MEAN_MAX = 0.30;
+double SCHUR_INIT_STATIC_FLOW_PX = 1.5;
+int SCHUR_INIT_STATIC_MIN_FEATURES = 20;
+int SCHUR_INIT_STATIC_MIN_QUADRANTS = 2;
+int SCHUR_INIT_DYNAMIC_MIN_FRAMES = 6;
+double SCHUR_INIT_DYNAMIC_MIN_ROTATION_DEG = 3.0;
+double SCHUR_INIT_DYNAMIC_MIN_TRANSLATION_M = 0.05;
+double SCHUR_INIT_DYNAMIC_GRAVITY_TOL = 0.5;
+double SCHUR_INIT_DYNAMIC_GYRO_BIAS_MAX = 0.3;
+double SCHUR_INIT_DYNAMIC_MAX_POS_RESIDUAL_M = 0.25;
+double SCHUR_INIT_DYNAMIC_MAX_VEL_RESIDUAL_MPS = 0.50;
+double SCHUR_INIT_DYNAMIC_MAX_ROT_RESIDUAL_DEG = 5.0;
+double SCHUR_INIT_EXTRINSIC_ROT_SIGMA = 0.02;
+double SCHUR_INIT_EXTRINSIC_TRANS_SIGMA = 0.05;
+double SCHUR_INIT_TD_SIGMA = 1e-3;
+double SCHUR_TD_MIN = -0.10;
+double SCHUR_TD_MAX = 0.10;
 int SCHUR_WINDOW_SIZE = 5;
 int SCHUR_WARMUP_FRAMES = 0;
 int SCHUR_MAX_FEATURES = 120;
@@ -192,6 +219,9 @@ void readParameters(std::string _config_file, const std::string & _output_path)
   BACKEND_TYPE = config.getString("backend_type", "ceres");
   if (BACKEND_TYPE != "ceres" && BACKEND_TYPE != "schur_ekf")
     throw std::invalid_argument("backend_type must be 'ceres' or 'schur_ekf'");
+  SCHUR_INITIALIZATION = config.getString("schur_initialization", "standalone");
+  if (SCHUR_INITIALIZATION != "standalone" && SCHUR_INITIALIZATION != "legacy_ceres")
+    throw std::invalid_argument("schur_initialization must be 'standalone' or 'legacy_ceres'");
   SCHUR_WINDOW_SIZE = config.getInt("schur_window_size", 5);
   if (SCHUR_WINDOW_SIZE < 2 || SCHUR_WINDOW_SIZE > WINDOW_SIZE)
     throw std::invalid_argument("schur_window_size must be in [2, WINDOW_SIZE]");
@@ -307,6 +337,42 @@ void readParameters(std::string _config_file, const std::string & _output_path)
   read_positive("schur_gyr_noise", SCHUR_GYR_NOISE, 1.6968e-4);
   read_positive("schur_acc_bias_noise", SCHUR_ACC_BIAS_NOISE, 3.0e-3);
   read_positive("schur_gyr_bias_noise", SCHUR_GYR_BIAS_NOISE, 1.9393e-5);
+  SCHUR_INIT_ALLOW_STATIC = config.getBool("schur_init_allow_static", true);
+  SCHUR_INIT_ALLOW_DYNAMIC = config.getBool("schur_init_allow_dynamic", true);
+  SCHUR_INIT_ALLOW_MONO_STATIC = config.getBool("schur_init_allow_mono_static", true);
+  read_positive("schur_init_static_window_seconds", SCHUR_INIT_STATIC_WINDOW_SECONDS, 1.5);
+  SCHUR_INIT_STATIC_MIN_SAMPLES = config.getInt("schur_init_static_min_samples", 30);
+  if (SCHUR_INIT_STATIC_MIN_SAMPLES < 5)
+    throw std::invalid_argument("schur_init_static_min_samples must be at least 5");
+  read_positive("schur_init_max_imu_gap_seconds", SCHUR_INIT_MAX_IMU_GAP_SECONDS, 0.05);
+  read_positive("schur_init_static_accel_std", SCHUR_INIT_STATIC_ACCEL_STD, 0.8);
+  read_positive("schur_init_static_gyro_std", SCHUR_INIT_STATIC_GYRO_STD, 0.08);
+  read_positive("schur_init_static_accel_norm_tol", SCHUR_INIT_STATIC_ACCEL_NORM_TOL, 0.6);
+  read_positive("schur_init_static_gyro_mean_max", SCHUR_INIT_STATIC_GYRO_MEAN_MAX, 0.30);
+  read_positive("schur_init_static_flow_px", SCHUR_INIT_STATIC_FLOW_PX, 1.5);
+  SCHUR_INIT_STATIC_MIN_FEATURES = config.getInt("schur_init_static_min_features", 20);
+  if (SCHUR_INIT_STATIC_MIN_FEATURES < 4)
+    throw std::invalid_argument("schur_init_static_min_features must be at least 4");
+  SCHUR_INIT_STATIC_MIN_QUADRANTS = config.getInt("schur_init_static_min_quadrants", 2);
+  if (SCHUR_INIT_STATIC_MIN_QUADRANTS < 1 || SCHUR_INIT_STATIC_MIN_QUADRANTS > 4)
+    throw std::invalid_argument("schur_init_static_min_quadrants must be in [1, 4]");
+  SCHUR_INIT_DYNAMIC_MIN_FRAMES = config.getInt("schur_init_dynamic_min_frames", 6);
+  if (SCHUR_INIT_DYNAMIC_MIN_FRAMES < 3 || SCHUR_INIT_DYNAMIC_MIN_FRAMES > WINDOW_SIZE + 1)
+    throw std::invalid_argument("schur_init_dynamic_min_frames must be in [3, WINDOW_SIZE+1]");
+  read_positive("schur_init_dynamic_min_rotation_deg", SCHUR_INIT_DYNAMIC_MIN_ROTATION_DEG, 3.0);
+  read_positive("schur_init_dynamic_min_translation_m", SCHUR_INIT_DYNAMIC_MIN_TRANSLATION_M, 0.05);
+  read_positive("schur_init_dynamic_gravity_tol", SCHUR_INIT_DYNAMIC_GRAVITY_TOL, 0.5);
+  read_positive("schur_init_dynamic_gyro_bias_max", SCHUR_INIT_DYNAMIC_GYRO_BIAS_MAX, 0.3);
+  read_positive("schur_init_dynamic_max_pos_residual_m", SCHUR_INIT_DYNAMIC_MAX_POS_RESIDUAL_M, 0.25);
+  read_positive("schur_init_dynamic_max_vel_residual_mps", SCHUR_INIT_DYNAMIC_MAX_VEL_RESIDUAL_MPS, 0.50);
+  read_positive("schur_init_dynamic_max_rot_residual_deg", SCHUR_INIT_DYNAMIC_MAX_ROT_RESIDUAL_DEG, 5.0);
+  read_positive("schur_init_extrinsic_rot_sigma", SCHUR_INIT_EXTRINSIC_ROT_SIGMA, 0.02);
+  read_positive("schur_init_extrinsic_trans_sigma", SCHUR_INIT_EXTRINSIC_TRANS_SIGMA, 0.05);
+  read_positive("schur_init_td_sigma", SCHUR_INIT_TD_SIGMA, 1e-3);
+  SCHUR_TD_MIN = config.getDouble("schur_td_min", -0.10);
+  SCHUR_TD_MAX = config.getDouble("schur_td_max", 0.10);
+  if (!std::isfinite(SCHUR_TD_MIN) || !std::isfinite(SCHUR_TD_MAX) || SCHUR_TD_MIN >= SCHUR_TD_MAX)
+    throw std::invalid_argument("schur_td_min/max must be finite and min < max");
 
   SCHUR_LANDING_ZUPT_ENABLE = config.getBool("schur_landing_zupt_enable", false);
   read_positive("schur_landing_zupt_min_still_seconds", SCHUR_LANDING_ZUPT_MIN_STILL_SECONDS, 0.5);
@@ -375,7 +441,8 @@ void readParameters(std::string _config_file, const std::string & _output_path)
     SCHUR_ACC_NOISE, SCHUR_GYR_NOISE, SCHUR_ACC_BIAS_NOISE, SCHUR_GYR_BIAS_NOISE);
 
   RCLCPP_INFO(
-    vins::logger(), "Schur experimental options: nullspace=%s batch_imu_covariance=%d max_update_observations=%d",
+    vins::logger(),
+    "Schur experimental options: nullspace=%s batch_imu_covariance=%d max_update_observations=%d",
     SCHUR_NULLSPACE_METHOD.c_str(), static_cast<int>(SCHUR_BATCH_IMU_COVARIANCE),
     SCHUR_MAX_UPDATE_OBSERVATIONS);
 
@@ -399,6 +466,8 @@ void readParameters(std::string _config_file, const std::string & _output_path)
 
   USE_IMU = config.getInt("imu");
   printf("USE_IMU: %d\n", USE_IMU);
+  if (BACKEND_TYPE == "schur_ekf" && !USE_IMU)
+    throw std::invalid_argument("backend_type=schur_ekf requires imu: 1 (no-IMU is unsupported)");
   IMU_TOPIC = config.getString("imu_topic");
   if (USE_IMU)
     printf("IMU_TOPIC: %s\n", IMU_TOPIC.c_str());

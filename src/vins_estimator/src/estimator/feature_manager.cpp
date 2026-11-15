@@ -239,9 +239,11 @@ bool FeatureManager::solvePoseByPnP(
   return true;
 }
 
-void FeatureManager::initFramePoseByPnP(
-  int _frameCnt, Vector3d _Ps[], Matrix3d _Rs[], Vector3d _tic[], Matrix3d _ric[])
+bool FeatureManager::initFramePoseByPnP(
+  int _frameCnt, Vector3d _Ps[], Matrix3d _Rs[], Vector3d _tic[], Matrix3d _ric[], bool _strict)
 {
+  if (_frameCnt <= 0)
+    return true;
 
   if (_frameCnt > 0) {
     vector<cv::Point2f> pts2D;
@@ -268,16 +270,45 @@ void FeatureManager::initFramePoseByPnP(
     RCam = _Rs[_frameCnt - 1] * _ric[0];
     PCam = _Rs[_frameCnt - 1] * _tic[0] + _Ps[_frameCnt - 1];
 
-    if (solvePoseByPnP(RCam, PCam, pts2D, pts3D)) {
-      // trans to w_T_imu
-      _Rs[_frameCnt] = RCam * _ric[0].transpose();
-      _Ps[_frameCnt] = -RCam * _ric[0].transpose() * _tic[0] + PCam;
-
-      Eigen::Quaterniond Q(_Rs[_frameCnt]);
-      //cout << "frameCnt: " << frameCnt <<  " pnp Q " << Q.w() << " " << Q.vec().transpose() << endl;
-      //cout << "frameCnt: " << frameCnt << " pnp P " << Ps[frameCnt].transpose() << endl;
+    if (_strict && pts2D.size() < 12)
+      return false;
+    if (!solvePoseByPnP(RCam, PCam, pts2D, pts3D))
+      return false;
+    if (_strict) {
+      if (!RCam.allFinite() || !PCam.allFinite())
+        return false;
+      // Reject a PnP solution that does not explain the correspondences. The
+      // visual-only stereo initializer must never treat the propagated pose
+      // as a valid visual measurement after an outlier-dominated solve.
+      std::vector<double> reprojection_errors;
+      reprojection_errors.reserve(pts3D.size());
+      const Eigen::Matrix3d R_cw = RCam.transpose();
+      for (std::size_t i = 0; i < pts3D.size(); ++i) {
+        const Eigen::Vector3d p_w(pts3D[i].x, pts3D[i].y, pts3D[i].z);
+        const Eigen::Vector3d p_c = R_cw * (p_w - PCam);
+        if (!(p_c.z() > 1e-6))
+          return false;
+        const Eigen::Vector2d uv(p_c.x() / p_c.z(), p_c.y() / p_c.z());
+        const Eigen::Vector2d measured(pts2D[i].x, pts2D[i].y);
+        reprojection_errors.push_back((uv - measured).norm() * FOCAL_LENGTH);
+      }
+      if (reprojection_errors.empty())
+        return false;
+      const std::size_t mid = reprojection_errors.size() / 2;
+      std::nth_element(
+        reprojection_errors.begin(), reprojection_errors.begin() + static_cast<std::ptrdiff_t>(mid),
+        reprojection_errors.end());
+      const double median_error = reprojection_errors[mid];
+      if (!std::isfinite(median_error) || median_error > 5.0)
+        return false;
     }
+
+    // trans to w_T_imu
+    _Rs[_frameCnt] = RCam * _ric[0].transpose();
+    _Ps[_frameCnt] = -RCam * _ric[0].transpose() * _tic[0] + PCam;
+    return true;
   }
+  return true;
 }
 
 void FeatureManager::triangulate(

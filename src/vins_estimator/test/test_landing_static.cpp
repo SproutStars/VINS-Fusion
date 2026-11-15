@@ -424,3 +424,38 @@ TEST(LandingZeroVelocityUpdate, JosephUpdateReducesVelocityAndKeepsPsd)
 }
 
 }  // namespace
+
+TEST(LandingZeroVelocityCalibration, InjectsCrossCovarianceCorrectionIntoExtrinsicsAndSharedOffset)
+{
+  using namespace vins::backend;
+  EkfOptions_s options;
+  options.num_cameras_ = 2;
+  options.estimate_extrinsics_ = true;
+  options.estimate_time_offset_ = true;
+  EkfState state;
+  state.reset(
+    options, 0.0, Eigen::Vector4d(1, 0, 0, 0), Eigen::Vector3d::Zero(), Eigen::Vector3d(0.2, -0.1, 0.05),
+    Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  state.augmentClone(0.0);
+  const int camera = state.cameraCalibOffset(1);
+  const int td = state.timeOffsetOffset();
+  Eigen::MatrixXd covariance = Eigen::MatrixXd::Identity(state.size(), state.size()) * 0.01;
+  covariance(camera, K_IMU_V) = covariance(K_IMU_V, camera) = 0.002;
+  covariance(camera + 3, K_IMU_V) = covariance(K_IMU_V, camera + 3) = 0.001;
+  covariance(td, K_IMU_V) = covariance(K_IMU_V, td) = 0.00001;
+  state.covariance() = covariance;
+  const double denominator = covariance(K_IMU_V, K_IMU_V) + 0.02 * 0.02;
+  const double expected_rotation = -0.2 * 0.002 / denominator;
+  const double expected_translation = -0.2 * 0.001 / denominator;
+  const double expected_td = -0.2 * 0.00001 / denominator;
+  const auto result = applyZeroVelocityUpdate(state, 0.02);
+  ASSERT_TRUE(result.applied_) << result.failure_reason_;
+  EXPECT_NEAR(state.cameraCalib(1).p_cb_.x(), expected_translation, 1e-12);
+  // The filter uses the normalised small-angle retraction [1, dtheta/2].
+  const Eigen::Vector4d expected_q = Eigen::Vector4d(1, 0.5 * expected_rotation, 0, 0).normalized();
+  EXPECT_TRUE(state.cameraCalib(1).q_cb_.isApprox(expected_q, 1e-12));
+  EXPECT_NEAR(state.cameraTimeOffset(0), expected_td, 1e-12);
+  EXPECT_NEAR(state.cameraTimeOffset(1), expected_td, 1e-12);
+  EXPECT_TRUE(state.cameraCalibFej(1).q_cb_.isApprox(Eigen::Vector4d(1, 0, 0, 0)));
+  EXPECT_TRUE(EkfState::isPositiveSemidefinite(state.covariance()));
+}

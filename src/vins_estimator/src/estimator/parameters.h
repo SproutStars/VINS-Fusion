@@ -80,6 +80,44 @@ extern int RANSAC_OUTLIER_REJECTION;
 // "schur_ekf" (opt-in Schur-complement EKF described in
 // docs/BACKEND_SCHUR_EKF.md).
 extern std::string BACKEND_TYPE;
+
+// Standalone Schur initialization. "standalone" never invokes Ceres for
+// initialization; "legacy_ceres" preserves the historical warm-up path for
+// A/B comparison. A failed standalone attempt waits (stereo dynamic) or
+// reports unsupported (monocular dynamic); it never silently falls back.
+extern std::string SCHUR_INITIALIZATION;
+extern bool SCHUR_INIT_ALLOW_STATIC;
+extern bool SCHUR_INIT_ALLOW_DYNAMIC;
+// Verified visual+IMU stationarity supports a monocular static seed. Metric
+// scale is unobservable at t=0 but becomes observable from later IMU motion;
+// monocular dynamic (moving-start) initialization remains unsupported.
+extern bool SCHUR_INIT_ALLOW_MONO_STATIC;
+extern double SCHUR_INIT_STATIC_WINDOW_SECONDS;
+extern int SCHUR_INIT_STATIC_MIN_SAMPLES;
+extern double SCHUR_INIT_MAX_IMU_GAP_SECONDS;
+extern double SCHUR_INIT_STATIC_ACCEL_STD;
+extern double SCHUR_INIT_STATIC_GYRO_STD;
+extern double SCHUR_INIT_STATIC_ACCEL_NORM_TOL;
+extern double SCHUR_INIT_STATIC_GYRO_MEAN_MAX;
+extern double SCHUR_INIT_STATIC_FLOW_PX;
+extern int SCHUR_INIT_STATIC_MIN_FEATURES;
+extern int SCHUR_INIT_STATIC_MIN_QUADRANTS;
+extern int SCHUR_INIT_DYNAMIC_MIN_FRAMES;
+extern double SCHUR_INIT_DYNAMIC_MIN_ROTATION_DEG;
+extern double SCHUR_INIT_DYNAMIC_MIN_TRANSLATION_M;
+extern double SCHUR_INIT_DYNAMIC_GRAVITY_TOL;
+extern double SCHUR_INIT_DYNAMIC_GYRO_BIAS_MAX;
+extern double SCHUR_INIT_DYNAMIC_MAX_POS_RESIDUAL_M;
+extern double SCHUR_INIT_DYNAMIC_MAX_VEL_RESIDUAL_MPS;
+extern double SCHUR_INIT_DYNAMIC_MAX_ROT_RESIDUAL_DEG;
+extern double SCHUR_INIT_EXTRINSIC_ROT_SIGMA;
+extern double SCHUR_INIT_EXTRINSIC_TRANS_SIGMA;
+extern double SCHUR_INIT_TD_SIGMA;
+// Hard physical bounds for the shared camera/IMU time offset. An EKF update
+// that would move td outside these bounds is rejected (state snapshot
+// rollback), never clamped with a stale covariance.
+extern double SCHUR_TD_MIN;
+extern double SCHUR_TD_MAX;
 extern int SCHUR_WINDOW_SIZE;
 extern int SCHUR_WARMUP_FRAMES;
 extern int SCHUR_MAX_FEATURES;

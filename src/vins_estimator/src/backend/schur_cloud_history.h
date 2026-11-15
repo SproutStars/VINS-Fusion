@@ -82,8 +82,13 @@ public:
 
       Entry_s & entry = found->second;
       auto & history = entry.observations_;
-      const FeatureHistory::Observation_s record{
-        _frame_index, _camera_id, observation.uv_, observation.pixel_uv_, observation.has_pixel_uv_};
+      const FeatureHistory::Observation_s record{_frame_index,
+                                                 _camera_id,
+                                                 observation.uv_,
+                                                 observation.pixel_uv_,
+                                                 observation.has_pixel_uv_,
+                                                 observation.velocity_,
+                                                 observation.cur_td_};
 
       const bool append_to_back =
         history.empty() || history.back().frame_index_ < _frame_index ||
@@ -149,6 +154,8 @@ public:
         resolved.clone_index_ = observation.frame_index_ - _oldest_frame_index;
         resolved.camera_id_ = observation.camera_id_;
         resolved.uv_ = observation.uv_;
+        resolved.velocity_ = observation.velocity_;
+        resolved.cur_td_ = observation.cur_td_;
         resolved.pixel_uv_ = observation.pixel_uv_;
         resolved.has_pixel_uv_ = observation.has_pixel_uv_;
         track.observations_.push_back(resolved);

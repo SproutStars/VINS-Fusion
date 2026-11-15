@@ -76,6 +76,7 @@ src/estimator/parameters.cpp
     src/initial/initial_ex_rotation.cpp
     src/featureTracker/feature_tracker.cpp
     src/backend/ekf_state.cpp
+    src/backend/schur_initializer.cpp
     src/backend/schur_update.cpp
     src/backend/schur_visualization.cpp
 )
@@ -128,6 +129,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_ekf_state test/test_ekf_state.cpp)
   target_include_directories(test_ekf_state PRIVATE src)
   target_link_libraries(test_ekf_state vins_lib Eigen3::Eigen Threads::Threads)
+  ament_add_gtest(test_schur_initializer test/test_schur_initializer.cpp)
+  target_include_directories(test_schur_initializer PRIVATE src)
+  target_link_libraries(test_schur_initializer vins_lib Eigen3::Eigen Threads::Threads)
   ament_add_gtest(test_schur_update test/test_schur_update.cpp)
   target_include_directories(test_schur_update PRIVATE src)
   target_link_libraries(test_schur_update vins_lib Eigen3::Eigen Threads::Threads)

@@ -42,13 +42,21 @@
     # 后端选择："ceres"（默认滑动窗口 NLS）或 "schur_ekf"
     #（面向 ARM 的 Schur 补 EKF，参见 docs/BACKEND_SCHUR_EKF.md）。
     backend_type: "schur_ekf"
+    # Independent startup; legacy_ceres restores the historical initialization.
+    schur_initialization: "standalone"
+    # Shared camera/IMU offset covariance and physical bounds (seconds).
+    schur_init_extrinsic_rot_sigma: 0.02
+    schur_init_extrinsic_trans_sigma: 0.05
+    schur_init_td_sigma: 0.001
+    schur_td_min: -0.10
+    schur_td_max: 0.10
     schur_nullspace_method: "qr"       # 改为 "qr" 开启 QR
     schur_batch_imu_covariance: false   # true 开启批量传播
     schur_max_update_observations: 0    # 0 不限；本轮测试 240、480
     schur_window_size: 5
     # 初始化后先用 Ceres 求解若干图像帧，然后
     # 再由 EKF 接管。这样可让初始化阶段的零偏/速度收敛。
-    schur_warmup_frames: 10
+    schur_warmup_frames: 0  # used only with legacy_ceres initialization
     schur_max_features: 120
     schur_min_observations: 2
     # 跳过视觉观测不足的帧，而不是执行低秩更新。

@@ -531,3 +531,328 @@ TEST(EstimatorSchurStereo, SchurProcessFrameCollectsBothConfiguredCameras)
   EXPECT_NEAR(tracks[0].observations_[0].pixel_uv_.x(), 320.0, 1e-12);
   EXPECT_NEAR(tracks[0].observations_[1].pixel_uv_.x(), 280.0, 1e-12);
 }
+
+namespace
+{
+struct StandaloneParameterGuard_s {
+  StandaloneParameterGuard_s()
+    : backend_type_(BACKEND_TYPE), initialization_(SCHUR_INITIALIZATION),
+      allow_static_(SCHUR_INIT_ALLOW_STATIC), allow_dynamic_(SCHUR_INIT_ALLOW_DYNAMIC),
+      allow_mono_static_(SCHUR_INIT_ALLOW_MONO_STATIC), static_window_(SCHUR_INIT_STATIC_WINDOW_SECONDS),
+      static_min_samples_(SCHUR_INIT_STATIC_MIN_SAMPLES), max_imu_gap_(SCHUR_INIT_MAX_IMU_GAP_SECONDS),
+      accel_std_(SCHUR_INIT_STATIC_ACCEL_STD), gyro_std_(SCHUR_INIT_STATIC_GYRO_STD),
+      accel_norm_tol_(SCHUR_INIT_STATIC_ACCEL_NORM_TOL), gyro_mean_max_(SCHUR_INIT_STATIC_GYRO_MEAN_MAX),
+      flow_px_(SCHUR_INIT_STATIC_FLOW_PX), min_features_(SCHUR_INIT_STATIC_MIN_FEATURES),
+      min_quadrants_(SCHUR_INIT_STATIC_MIN_QUADRANTS), row_(ROW), col_(COL)
+  {
+  }
+
+  ~StandaloneParameterGuard_s()
+  {
+    BACKEND_TYPE = backend_type_;
+    SCHUR_INITIALIZATION = initialization_;
+    SCHUR_INIT_ALLOW_STATIC = allow_static_;
+    SCHUR_INIT_ALLOW_DYNAMIC = allow_dynamic_;
+    SCHUR_INIT_ALLOW_MONO_STATIC = allow_mono_static_;
+    SCHUR_INIT_STATIC_WINDOW_SECONDS = static_window_;
+    SCHUR_INIT_STATIC_MIN_SAMPLES = static_min_samples_;
+    SCHUR_INIT_MAX_IMU_GAP_SECONDS = max_imu_gap_;
+    SCHUR_INIT_STATIC_ACCEL_STD = accel_std_;
+    SCHUR_INIT_STATIC_GYRO_STD = gyro_std_;
+    SCHUR_INIT_STATIC_ACCEL_NORM_TOL = accel_norm_tol_;
+    SCHUR_INIT_STATIC_GYRO_MEAN_MAX = gyro_mean_max_;
+    SCHUR_INIT_STATIC_FLOW_PX = flow_px_;
+    SCHUR_INIT_STATIC_MIN_FEATURES = min_features_;
+    SCHUR_INIT_STATIC_MIN_QUADRANTS = min_quadrants_;
+    ROW = row_;
+    COL = col_;
+  }
+
+  std::string backend_type_;
+  std::string initialization_;
+  bool allow_static_;
+  bool allow_dynamic_;
+  bool allow_mono_static_;
+  double static_window_;
+  int static_min_samples_;
+  double max_imu_gap_;
+  double accel_std_;
+  double gyro_std_;
+  double accel_norm_tol_;
+  double gyro_mean_max_;
+  double flow_px_;
+  int min_features_;
+  int min_quadrants_;
+  int row_;
+  int col_;
+};
+
+using StandaloneImage = std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>;
+
+StandaloneImage makeStandaloneStereoImage(double _pixel_flow)
+{
+  StandaloneImage image;
+  constexpr double k_focal = 460.0;
+  constexpr double k_depth = 2.0;
+  constexpr double k_baseline = 0.05;
+  constexpr double k_disparity = k_baseline / k_depth;
+  int id = 0;
+  for (int row = 0; row < 4; ++row) {
+    for (int col = 0; col < 6; ++col) {
+      const double u = 60.0 + 100.0 * col + _pixel_flow;
+      const double v = 50.0 + 100.0 * row;
+      const double x = (u - 320.0) / k_focal;
+      const double y = (v - 240.0) / k_focal;
+      Eigen::Matrix<double, 7, 1> left;
+      left << x, y, 1.0, u, v, 0.0, 0.0;
+      Eigen::Matrix<double, 7, 1> right;
+      right << x - k_disparity, y, 1.0, u - k_disparity * k_focal, v, 0.0, 0.0;
+      image[id].emplace_back(0, left);
+      image[id].emplace_back(1, right);
+      ++id;
+    }
+  }
+  return image;
+}
+
+void configureStandaloneEstimator(Estimator & _estimator, bool _allow_dynamic)
+{
+  ESTIMATE_EXTRINSIC = 0;
+  ESTIMATE_TD = 0;
+  NUM_OF_CAM = 2;
+  STEREO = 1;
+  USE_IMU = 1;
+  MULTIPLE_THREAD = 0;
+  TD = 0.0;
+  G = Eigen::Vector3d(0.0, 0.0, 9.81);
+  ROW = 480;
+  COL = 640;
+  RIC.assign(2, Eigen::Matrix3d::Identity());
+  TIC.clear();
+  TIC.push_back(Eigen::Vector3d::Zero());
+  TIC.push_back(Eigen::Vector3d(0.05, 0.0, 0.0));
+  CAM_NAMES.clear();
+
+  BACKEND_TYPE = "schur_ekf";
+  SCHUR_INITIALIZATION = "standalone";
+  SCHUR_INIT_ALLOW_STATIC = true;
+  SCHUR_INIT_ALLOW_DYNAMIC = _allow_dynamic;
+  SCHUR_INIT_ALLOW_MONO_STATIC = true;
+  SCHUR_INIT_STATIC_WINDOW_SECONDS = 0.30;
+  SCHUR_INIT_STATIC_MIN_SAMPLES = 10;
+  SCHUR_INIT_MAX_IMU_GAP_SECONDS = 0.02;
+  SCHUR_INIT_STATIC_ACCEL_STD = 0.2;
+  SCHUR_INIT_STATIC_GYRO_STD = 0.02;
+  SCHUR_INIT_STATIC_ACCEL_NORM_TOL = 0.2;
+  SCHUR_INIT_STATIC_GYRO_MEAN_MAX = 0.05;
+  SCHUR_INIT_STATIC_FLOW_PX = 0.5;
+  SCHUR_INIT_STATIC_MIN_FEATURES = 8;
+  SCHUR_INIT_STATIC_MIN_QUADRANTS = 1;
+
+  _estimator.setParameter();
+  _estimator.solver_flag_ = Estimator::INITIAL;
+  _estimator.frame_count_ = 0;
+  _estimator.first_imu_ = false;
+  _estimator.acc_0_.setZero();
+  _estimator.gyr_0_.setZero();
+}
+
+void feedStandaloneFrame(
+  Estimator & _estimator, double _frame_time, const StandaloneImage & _image, double & _last_imu_time,
+  const Eigen::Vector3d & _acc = Eigen::Vector3d(0.0, 0.0, 9.81),
+  const Eigen::Vector3d & _gyr = Eigen::Vector3d::Zero())
+{
+  constexpr double k_dt = 0.005;
+  double time = _last_imu_time < 0.0 ? 0.0 : _last_imu_time + k_dt;
+  if (_last_imu_time < 0.0) {
+    _estimator.processIMU(0.0, 0.0, _acc, _gyr);
+    _last_imu_time = 0.0;
+    time = k_dt;
+  }
+  while (time <= _frame_time + 1e-9) {
+    _estimator.processIMU(time, time - _last_imu_time, _acc, _gyr);
+    _last_imu_time = time;
+    time += k_dt;
+  }
+  _estimator.processImage(_image, _frame_time);
+}
+}  // namespace
+
+TEST(EstimatorStandaloneInit, StaticWindowInitializesWithoutCeres)
+{
+  EstimatorParameterGuard_s parameter_guard;
+  StandaloneParameterGuard_s standalone_guard;
+  InjectableEstimator estimator;
+  configureStandaloneEstimator(estimator, false);
+
+  double last_imu_time = -1.0;
+  for (int frame = 0; frame <= WINDOW_SIZE; ++frame) {
+    const double time = 0.05 * frame;
+    feedStandaloneFrame(estimator, time, makeStandaloneStereoImage(0.0), last_imu_time);
+    if (estimator.schurBackendActive())
+      break;
+  }
+
+  EXPECT_TRUE(estimator.schurBackendActive());
+  EXPECT_EQ(estimator.solver_flag_, Estimator::NON_LINEAR);
+  EXPECT_EQ(estimator.optimization_calls_, 0);
+  EXPECT_EQ(estimator.initialization_calls_, 0);
+  EXPECT_LT(estimator.schur_state_.imu().v_.norm(), 1e-12);
+  EXPECT_LE(estimator.all_image_frame_.size(), static_cast<size_t>(WINDOW_SIZE + 1));
+}
+
+TEST(EstimatorStandaloneInit, FailedPnpWindowIsRejectedWithoutCeresAndExpires)
+{
+  EstimatorParameterGuard_s parameter_guard;
+  StandaloneParameterGuard_s standalone_guard;
+  InjectableEstimator estimator;
+  configureStandaloneEstimator(estimator, false);
+
+  // Empty images cannot produce a strict PnP pose and cannot pass the visual
+  // static gate. The estimator must wait, keep the window bounded and never
+  // call Ceres. Once the bad frames have slid out, at least one slot becomes
+  // available for a future valid window.
+  double last_imu_time = -1.0;
+  const StandaloneImage empty;
+  for (int frame = 0; frame < WINDOW_SIZE + 8; ++frame)
+    feedStandaloneFrame(estimator, 0.05 * frame, empty, last_imu_time);
+
+  EXPECT_FALSE(estimator.schurBackendActive());
+  EXPECT_EQ(estimator.solver_flag_, Estimator::INITIAL);
+  EXPECT_EQ(estimator.optimization_calls_, 0);
+  EXPECT_EQ(estimator.initialization_calls_, 0);
+  EXPECT_LE(estimator.all_image_frame_.size(), static_cast<size_t>(WINDOW_SIZE + 1));
+  for (int i = 0; i <= WINDOW_SIZE; ++i)
+    EXPECT_FALSE(estimator.schur_pnp_valid_[i]);
+}
+
+namespace
+{
+std::vector<std::pair<double, Eigen::Vector3d>> imuPairVector(const std::vector<double> & _times, double _slope)
+{
+  std::vector<std::pair<double, Eigen::Vector3d>> values;
+  for (const double time : _times)
+    values.emplace_back(time, Eigen::Vector3d(_slope * (time - _times.front()), 0.0, 9.81));
+  return values;
+}
+}  // namespace
+
+TEST(EstimatorImuTiming, FutureEndpointIsInterpolatedAtCurTimeWithoutLeakage)
+{
+  const std::vector<double> times{1.005, 1.010, 1.015};
+  const auto acc = imuPairVector(times, 100.0);
+  auto gyr = acc;
+  for (auto & sample : gyr)
+    sample.second.setZero();
+
+  std::vector<Estimator::ImuIntervalSample_s> samples;
+  ASSERT_TRUE(Estimator::resampleImuIntervalSamples(
+    acc, gyr, 1.0, 1.0125, Eigen::Vector3d(0.0, 0.0, 9.81), Eigen::Vector3d::Zero(), samples));
+  ASSERT_EQ(samples.size(), 3u);
+  EXPECT_NEAR(samples[0].timestamp_, 1.005, 1e-12);
+  EXPECT_NEAR(samples[1].timestamp_, 1.010, 1e-12);
+  EXPECT_NEAR(samples[2].timestamp_, 1.0125, 1e-12);
+  EXPECT_NEAR(samples[2].acc_.x(), 0.75, 1e-9);
+  double sum_dt = 0.0;
+  for (const auto & sample : samples) {
+    EXPECT_LE(sample.timestamp_, 1.0125 + 1e-12);
+    EXPECT_GT(sample.dt_, 0.0);
+    sum_dt += sample.dt_;
+  }
+  EXPECT_NEAR(sum_dt, 0.0125, 1e-12);
+  EXPECT_NEAR(samples.back().timestamp_, 1.0125, 1e-12);
+}
+
+TEST(EstimatorImuTiming, SingleFutureSampleInterpolatesFromAnchorSample)
+{
+  const std::vector<double> times{1.005};
+  const auto acc = imuPairVector(times, 200.0);  // (1.005-1.005)=0, so use explicit values below
+  auto acc_override = acc;
+  acc_override[0].second = Eigen::Vector3d(1.0, -1.0, 9.81);
+  auto gyr = acc_override;
+  gyr[0].second = Eigen::Vector3d(0.2, -0.4, 0.6);
+
+  std::vector<Estimator::ImuIntervalSample_s> samples;
+  ASSERT_TRUE(Estimator::resampleImuIntervalSamples(
+    acc_override, gyr, 1.0, 1.003, Eigen::Vector3d(0.0, 0.0, 9.81), Eigen::Vector3d::Zero(), samples));
+  ASSERT_EQ(samples.size(), 1u);
+  EXPECT_NEAR(samples[0].timestamp_, 1.003, 1e-12);
+  EXPECT_NEAR(samples[0].dt_, 0.003, 1e-12);
+  EXPECT_NEAR(samples[0].acc_.x(), 0.6, 1e-9);
+  EXPECT_NEAR(samples[0].acc_.y(), -0.6, 1e-9);
+  EXPECT_NEAR(samples[0].gyr_.z(), 0.36, 1e-9);
+}
+
+TEST(EstimatorImuTiming, ExactEndpointUsesSensorValueAndExactDt)
+{
+  const std::vector<double> times{1.005};
+  auto acc = imuPairVector(times, 100.0);
+  acc[0].second = Eigen::Vector3d(2.0, 0.0, 9.81);
+  auto gyr = acc;
+  gyr[0].second.setZero();
+
+  std::vector<Estimator::ImuIntervalSample_s> samples;
+  ASSERT_TRUE(Estimator::resampleImuIntervalSamples(
+    acc, gyr, 1.0, 1.005, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), samples));
+  ASSERT_EQ(samples.size(), 1u);
+  EXPECT_NEAR(samples[0].timestamp_, 1.005, 1e-12);
+  EXPECT_NEAR(samples[0].dt_, 0.005, 1e-12);
+  EXPECT_NEAR(samples[0].acc_.x(), 2.0, 1e-12);
+}
+
+TEST(EstimatorImuTiming, NonPositiveIntervalProducesNoSamples)
+{
+  const std::vector<double> times{1.005};
+  const auto acc = imuPairVector(times, 100.0);
+  const auto gyr = acc;
+  std::vector<Estimator::ImuIntervalSample_s> samples;
+  EXPECT_FALSE(Estimator::resampleImuIntervalSamples(
+    acc, gyr, 1.0, 1.0, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), samples));
+  EXPECT_TRUE(samples.empty());
+  EXPECT_FALSE(Estimator::resampleImuIntervalSamples(
+    acc, gyr, 1.0, 0.999, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), samples));
+  EXPECT_TRUE(samples.empty());
+}
+
+TEST(EstimatorImuTiming, MissingFutureEndpointIsRejectedNotPadded)
+{
+  const std::vector<double> times{1.005, 1.010};
+  const auto acc = imuPairVector(times, 100.0);
+  const auto gyr = acc;
+  std::vector<Estimator::ImuIntervalSample_s> samples;
+  EXPECT_FALSE(Estimator::resampleImuIntervalSamples(
+    acc, gyr, 1.0, 1.0125, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), samples));
+  EXPECT_TRUE(samples.empty());
+}
+
+TEST(EstimatorSchurCalibration, SeedBoundaryAndWriteBackUseSharedOffset)
+{
+  EstimatorParameterGuard_s parameter_guard;
+  StandaloneParameterGuard_s standalone_guard;
+  InjectableEstimator estimator;
+  configureStandaloneEstimator(estimator, false);
+  ESTIMATE_EXTRINSIC = 1;
+  ESTIMATE_TD = 1;
+  estimator.frame_count_ = WINDOW_SIZE;
+  estimator.Headers_[WINDOW_SIZE] = 20.0;
+  estimator.td_ = 0.004;
+  estimator.initSchurBackend();
+  EXPECT_EQ(estimator.schur_state_.calibrationDimension(), 13);
+  EXPECT_DOUBLE_EQ(estimator.schur_state_.sharedTimeOffset(), 0.004);
+  // Seed frame is at the same sensor time as its reset. It has not yet
+  // consumed an earlier image and must not be rejected as non-monotonic.
+  EXPECT_TRUE(estimator.schurCalibrationStateValid());
+  const auto rotation = vins::backend::EkfState::quaternionFromAxisAngle(Eigen::Vector3d(0.01, -0.02, 0.03));
+  const Eigen::Vector3d translation(0.06, 0.01, -0.02);
+  estimator.schur_state_.injectCameraCalibration(1, rotation, translation, 0.005);
+  estimator.schurWriteBackCalibration();
+  EXPECT_DOUBLE_EQ(estimator.td_, 0.005);
+  EXPECT_DOUBLE_EQ(estimator.schur_state_.cameraTimeOffset(0), 0.005);
+  EXPECT_DOUBLE_EQ(estimator.schur_state_.cameraTimeOffset(1), 0.005);
+  EXPECT_TRUE(estimator.tic_[1].isApprox(translation));
+  EXPECT_TRUE(estimator.ric_[1].isApprox(vins::backend::EkfState::rotation(rotation)));
+  EXPECT_TRUE(estimator.schur_cameras_[1].p_cb_.isApprox(translation));
+  estimator.schur_frame_index_ = 1;
+  estimator.Headers_[WINDOW_SIZE] = 19.9;
+  EXPECT_FALSE(estimator.schurCalibrationStateValid());
+}

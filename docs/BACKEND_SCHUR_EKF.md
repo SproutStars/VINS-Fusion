@@ -1,6 +1,8 @@
 # Schur 补 EKF 后端（`backend_type: schur_ekf`）
 
-> 历史记录：`fast_grid` 已于 2026-11-15 移除，当前仅支持 `gftt` 与 `gftt_pyramid`。本文中的旧配置、命令和性能数据保留用于历史追溯，不代表当前可用功能。
+> 当前版本（2026-11-15）增加校准状态和独立初始化，见 §2.1.1、§2.4。
+> 后续旧实验中的“重新走 Ceres 初始化”等描述属于 `legacy_ceres` 路径，不适用于
+> `standalone`。`fast_grid` 已移除，当前仅支持 `gftt` 与 `gftt_pyramid`；旧实验数据保留追溯。
 
 本文描述 VINS-Fusion 中新增的、面向 ARM 平台的后端。它参考
 `open_vins`（OpenVINS MSCKF）与 `SchurVINS` 的状态管理与更新结构，把默认的
@@ -45,9 +47,32 @@ Ceres 残差块。
 | 9–11 | `dba` |
 | 12–14 | `dbg` |
 
-每个 clone（一帧一个，最旧在前）追加 6 维：`dtheta_i`、`dp_i`。总维度
-`15 + 6 * num_clones`。四元数为 Hamilton 约定 `[w,x,y,z]`，表示 body→world；
-重力 `g_w = (0, 0, -|g|)`。
+每个 clone（一帧一个，最旧在前）追加 6 维：`dtheta_i`、`dp_i`。
+在 clone 后保留可选校准块：每个相机外参 6 维（旋转右乘扰动、body 系平移），
+以及同步相机共用的 1 维 camera→IMU 时偏。总维度为
+`15 + 6 * num_clones + (estimate_extrinsic ? 6 * num_cameras : 0) + (estimate_td ? 1 : 0)`。
+固定标定不增加协方差列。四元数为 Hamilton 约定 `[w,x,y,z]`，表示 body→world；
+重力 `g_w = (0, 0, -|g|)`。校准 nominal 和冻结的 FEJ 值分开保存，克隆增广、
+硬删除、IMU 传播、ZUPT、实时预测器和软重启均保留相应校准交叉协方差或均值。
+
+### 2.1.1 在线外参与时偏
+
+`estimate_extrinsic: 1` 开启所有已配置相机的 6 维外参估计，
+`estimate_td: 1` 开启同步双目共用的时偏估计；不再在切换 Schur 后冻结这些量。
+视觉 residual、特征三角化、点云几何筛选均使用当前校准值，雅可比使用冻结校准值。
+估计结果写回 `ric_ / tic_ / td_`，相机姿态和 TF 发布使用这些值。
+
+时偏采用本项目 VINS 的显式图像速度补偿：
+`uv_corrected = uv - (td - cur_td) * velocity`，时间单位为秒，速度为归一化图像坐标每秒。
+历史保存每次观测的 `cur_td` 和速度；`H_td = +velocity / sigma` 与 `r = z - h`、
+`dx = K r` 的约定一致。没有同时添加 OpenVINS 的 clone 对 td 增广项，避免重复建模。
+这使用一阶匀速图像运动近似，不能代替任意大时差的精确重新同步。
+
+`schur_td_min/max` 限制可接受时偏，默认 ±0.10 s。越界或非有限校准提议会回滚
+整次测量更新的均值与协方差；当前帧克隆和观测历史仍保留，保证帧索引连续。
+初始校准先验由 `schur_init_extrinsic_rot_sigma`（rad）、
+`schur_init_extrinsic_trans_sigma`（m）和 `schur_init_td_sigma`（s）设置。
+外参、时偏仍需要足够运动激励，配置开启不等于每个方向都可观。
 
 ### 2.2 FEJ（First-Estimate Jacobian）
 
@@ -70,6 +95,33 @@ Ceres 残差块。
 裁剪方式是**直接删除对应行列**（`P(keep, keep)`），与 OpenVINS
 `StateHelper::marginalize()` 一致，**不做**条件 Schur 补——条件补会把剩余协方差
 人为缩小，导致后续更新过度自信。
+
+---
+
+## 2.4 独立初始化（2026-11-15）
+
+`backend_type: schur_ekf` 默认使用 `schur_initialization: standalone`。
+该模式从 INITIAL 到 NON_LINEAR 不调用 Ceres，激活后也禁止静默回退 Ceres。
+初始化条件不足时保持等待并抑制无效状态发布；历史按滑窗裁剪。
+`schur_warmup_frames` 仅适用于显式选择 `legacy_ceres` 的历史初始化对照。
+项目仍编译并链接 Ceres，以保留 Ceres 后端、原有初始化和对照工具；这里的独立性
+指 Schur 的运行初始化与估计路径，不表示整个可执行文件已经移除 Ceres 构建依赖。
+
+- 静止分支同时检查连续 IMU 窗口、三轴加速度/陀螺方差、specific-force 范数、
+  偏置范围、图像匹配数量和空间覆盖，以及所有窗口帧相对参考帧的最大中值位移。
+  roll/pitch 来自加速度均值，gyro bias 来自陀螺均值，初速度为零；只估计可由
+  重力范数支持的加计偏置分量。双目和单目均可使用经静止门控的 seed。
+- 双目运动分支用真实双目基线三角化与 PnP 恢复 metric 视觉位姿，以 IMU 预积分
+  对齐速度、重力和陀螺偏置，并检查运动激励、重力范数和位置/速度/旋转残差。
+  GT 不参与初始化。PnP 失败不能使用 IMU 预测位姿替代视觉输入。
+- 单目运动初始化尚未实现；运动开场需要等待可验证的静止窗口，或显式选择
+  `schur_initialization: legacy_ceres`。`estimate_extrinsic: 2` 仍需要原有旋转标定
+  先建立可用外参，不能从未知双目几何直接进行 metric 运动初始化。
+
+默认 `schur_init_static_window_seconds=1.5`、
+`schur_init_static_accel_std=0.8` m/s²、`schur_init_static_gyro_std=0.08` rad/s、
+`schur_init_static_flow_px=1.5`。门控拒绝会记录原因，不用放宽门控替代正确初始化。
+更多阈值见 `estimator/parameters.h`，验证结果见本次 MH/ARM 报告。
 
 ---
 
@@ -126,7 +178,7 @@ Ceres 残差块。
 |---|---:|---|
 | `backend_type` | `"ceres"` | `"ceres"` 或 `"schur_ekf"` |
 | `schur_window_size` | 5 | 协方差里保留的 clone 数 |
-| `schur_warmup_frames` | 0 | 初始化后用 Ceres 再解多少帧再切 EKF |
+| `schur_warmup_frames` | 0 | 仅 legacy_ceres：初始化后 Ceres 预热帧数 |
 | `schur_max_features` | 120 | 单帧最多参与更新的 track 数 |
 | `schur_min_observations` | 2 | 一个 track 进入更新的最少观测数 |
 | `schur_min_features` | 12 | 帧内特征数下限 |

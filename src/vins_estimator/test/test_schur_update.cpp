@@ -164,6 +164,58 @@ void regularize_covariance(EkfState & _state, double _sigma = 1e-4)
   _state.covariance().diagonal().array() += _sigma * _sigma;
 }
 
+CameraCalibrationNominal_s
+make_calibration(const Eigen::Vector3d & _axis_angle, const Eigen::Vector3d & _p_cb, double _td)
+{
+  CameraCalibrationNominal_s calib;
+  calib.q_cb_ = quat(_axis_angle);
+  calib.p_cb_ = _p_cb;
+  calib.td_ = _td;
+  return calib;
+}
+
+// Builds a state with online calibration enabled and clones at the given
+// poses.  The calibration section is seeded through the public reset overload.
+void build_calibrated_state(
+  EkfState & _state, const std::vector<Eigen::Vector4d> & _qs, const std::vector<Eigen::Vector3d> & _ps,
+  const std::vector<CameraCalibrationNominal_s> & _calibrations)
+{
+  ASSERT_EQ(_qs.size(), _ps.size());
+  ASSERT_FALSE(_qs.empty());
+  EkfOptions_s opt = default_ekf_options(static_cast<int>(_qs.size()) + 2);
+  opt.num_cameras_ = static_cast<int>(_calibrations.size());
+  opt.estimate_extrinsics_ = true;
+  opt.estimate_time_offset_ = true;
+  _state.reset(
+    opt, 0.0, _qs.front(), _ps.front(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+    Eigen::Vector3d::Zero(), _calibrations);
+  _state.augmentClone(0.0);
+  for (std::size_t i = 1; i < _qs.size(); ++i) {
+    _state.imu().q_ = _qs[i];
+    _state.imu().p_ = _ps[i];
+    _state.refreshImuFej();
+    _state.augmentClone(static_cast<double>(i));
+  }
+}
+
+CameraExtrinsics_s camera_of(const EkfState & _state, int _camera_id)
+{
+  CameraExtrinsics_s camera;
+  camera.q_cb_ = _state.cameraCalib(_camera_id).q_cb_;
+  camera.p_cb_ = _state.cameraCalib(_camera_id).p_cb_;
+  camera.td_ = _state.cameraTimeOffset(_camera_id);
+  return camera;
+}
+
+Eigen::Vector2d effective_projection(
+  const Eigen::Vector4d & _q_clone, const Eigen::Vector3d & _p_clone, const CameraExtrinsics_s & _camera,
+  double _td, const Eigen::Vector3d & _world_point, const FeatureObservation_s & _obs)
+{
+  Eigen::Vector2d h = project_world(_q_clone, _p_clone, _camera, _world_point);
+  h += (_td - _obs.cur_td_) * _obs.velocity_;
+  return h;
+}
+
 CameraExtrinsics_s make_camera(const Eigen::Vector3d & _axis_angle, const Eigen::Vector3d & _p_cb)
 {
   CameraExtrinsics_s cam;
@@ -827,10 +879,8 @@ TEST(SchurUpdate, T31FeatureHistoryKeepsStereoPairAndOrdersByFrameCamera)
   const Eigen::Vector2d uv(0.1, -0.2);
   const Eigen::Vector2d right_shift(0.03, 0.0);
 
-  history.addFrameWithPixels(
-    10, 1, {{310, uv + right_shift, Eigen::Vector2d(345.0, 240.0), true}});
-  history.addFrameWithPixels(
-    10, 0, {{310, uv, Eigen::Vector2d(320.0, 240.0), true}});
+  history.addFrameWithPixels(10, 1, {{310, uv + right_shift, Eigen::Vector2d(345.0, 240.0), true}});
+  history.addFrameWithPixels(10, 0, {{310, uv, Eigen::Vector2d(320.0, 240.0), true}});
   // Same frame and camera: must be ignored without disturbing the order.
   history.addFrameWithPixels(
     10, 0, {{310, uv + Eigen::Vector2d(0.2, 0.0), Eigen::Vector2d(400.0, 240.0), true}});
@@ -891,8 +941,7 @@ TEST(SchurUpdate, T33TriangulationSupportsSameCloneStereoBaseline)
 {
   const SchurUpdater updater(default_options());
   const CameraExtrinsics_s cam0 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
-  const CameraExtrinsics_s cam1 =
-    make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.11, 0.0, 0.0));
+  const CameraExtrinsics_s cam1 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.11, 0.0, 0.0));
   const std::vector<Eigen::Vector4d> qs{quat(Eigen::Vector3d::Zero())};
   const std::vector<Eigen::Vector3d> ps{Eigen::Vector3d::Zero()};
   EkfState state;
@@ -920,8 +969,7 @@ TEST(SchurUpdate, T33TriangulationSupportsSameCloneStereoBaseline)
   FeatureTrack_s mono_duplicate;
   mono_duplicate.id_ = 332;
   mono_duplicate.observations_.push_back(make_observation(0, 0, uv0));
-  mono_duplicate.observations_.push_back(
-    make_observation(0, 0, uv0 + Eigen::Vector2d(0.05, 0.01)));
+  mono_duplicate.observations_.push_back(make_observation(0, 0, uv0 + Eigen::Vector2d(0.05, 0.01)));
   EXPECT_FALSE(updater.triangulate(state, {cam0, cam1}, mono_duplicate));
   EXPECT_FALSE(mono_duplicate.has_point_);
 }
@@ -935,10 +983,8 @@ TEST(SchurUpdate, T34UpdateConsumesStereoObservationsPerClone)
   UpdateOptions_s opts = default_options();
   opts.condition_limit_ = 0.0;
   SchurUpdater updater(opts);
-  const CameraExtrinsics_s cam0 =
-    make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(0.02, 0.0, 0.0));
-  const CameraExtrinsics_s cam1 =
-    make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.09, 0.0, 0.0));
+  const CameraExtrinsics_s cam0 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(0.02, 0.0, 0.0));
+  const CameraExtrinsics_s cam1 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.09, 0.0, 0.0));
   std::vector<Eigen::Vector4d> qs;
   std::vector<Eigen::Vector3d> ps;
   smooth_trajectory(4, qs, ps);
@@ -954,11 +1000,11 @@ TEST(SchurUpdate, T34UpdateConsumesStereoObservationsPerClone)
     const Eigen::Vector3d world_point(-0.6 + 0.25 * f, 0.15 * ((f % 3) - 1), 4.0 + 0.1 * f);
     for (int i = 0; i < 4; ++i) {
       track.observations_.push_back(make_observation(
-        i, 0, project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0,
-                            world_point)));
+        i, 0,
+        project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0, world_point)));
       track.observations_.push_back(make_observation(
-        i, 1, project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam1,
-                            world_point)));
+        i, 1,
+        project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam1, world_point)));
     }
     tracks.push_back(track);
   }
@@ -2448,11 +2494,9 @@ TEST(SchurUpdate, T37QrSameCloneStereoAndDegenerateRank)
   track.id_ = 3700;
   for (int i = 0; i < 3; ++i) {
     track.observations_.push_back(make_observation(
-      i, 0,
-      project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0, world_point)));
+      i, 0, project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0, world_point)));
     track.observations_.push_back(make_observation(
-      i, 1,
-      project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam1, world_point)));
+      i, 1, project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam1, world_point)));
   }
   ASSERT_EQ(track.observations_.size(), 6u);
   ASSERT_TRUE(svd_updater.triangulate(state, {cam0, cam1}, track));
@@ -2646,4 +2690,420 @@ TEST(SchurUpdate, T40UnknownNullspaceMethodFallsBackToSvd)
   ASSERT_TRUE(red_unknown.valid_);
   EXPECT_DOUBLE_EQ(red_unknown.chi2_, red_svd.chi2_);
   EXPECT_EQ(red_unknown.gate_dof_, red_svd.gate_dof_);
+}
+
+// ===========================================================================
+// T41 -- analytic pose / extrinsic / td Jacobians match finite differences of
+// the SAME measurement prediction h (not of the residual with a different
+// sign convention).  td is a single shared column driven by observation
+// velocity with the VINS-style explicit compensation model.
+// ===========================================================================
+TEST(SchurUpdate, T41CalibrationJacobianMatchesPredictionFiniteDifference)
+{
+  const UpdateOptions_s opts = default_options();
+  const SchurUpdater updater(opts);
+  const double sigma = opts.pixel_noise_ / opts.focal_length_;
+
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(3, qs, ps);
+  const std::vector<CameraCalibrationNominal_s> cals{
+    make_calibration(Eigen::Vector3d(0.08, -0.04, 0.03), Eigen::Vector3d(0.04, -0.02, 0.09), 0.004),
+    make_calibration(Eigen::Vector3d(-0.03, 0.02, -0.05), Eigen::Vector3d(-0.10, 0.03, 0.05), 0.004)};
+  EkfState state;
+  build_calibrated_state(state, qs, ps, cals);
+
+  const int cam_id = 1;
+  const int clone_id = 2;
+  const Eigen::Vector3d world_point(0.42, -0.18, 4.1);
+  const CameraExtrinsics_s cam = camera_of(state, cam_id);
+  const double td = state.cameraTimeOffset(cam_id);
+
+  FeatureObservation_s obs;
+  obs.clone_index_ = clone_id;
+  obs.camera_id_ = cam_id;
+  obs.velocity_ = Eigen::Vector2d(0.13, -0.07);
+  obs.has_velocity_ = true;
+  obs.cur_td_ = td - 0.001;
+  obs.uv_ = effective_projection(state.clone(clone_id).q_, state.clone(clone_id).p_, cam, td, world_point, obs);
+
+  const ObservationJacobian_s J = updater.observationJacobian(state, world_point, obs);
+  ASSERT_TRUE(J.valid_);
+  ASSERT_EQ(J.calib_size_, 6);
+  ASSERT_EQ(J.td_column_, 6);
+  ASSERT_EQ(J.td_offset_, state.timeOffsetOffset());
+  EXPECT_TRUE(J.H_calib_.col(J.td_column_).isApprox(obs.velocity_ / sigma, 1e-12));
+  EXPECT_TRUE(
+    SchurUpdater::correctedObservation(state, obs)
+      .isApprox(project_world(state.clone(clone_id).q_, state.clone(clone_id).p_, cam, world_point), 1e-12));
+
+  const double eps = 1e-6;
+  auto numeric_h = [&](
+                     const Eigen::Vector4d & _q_clone, const Eigen::Vector3d & _p_clone,
+                     const Eigen::Vector4d & _q_cb, const Eigen::Vector3d & _p_cb, double _td,
+                     const Eigen::Vector3d & _point) -> Eigen::Vector2d
+  {
+    CameraExtrinsics_s c;
+    c.q_cb_ = _q_cb;
+    c.p_cb_ = _p_cb;
+    return effective_projection(_q_clone, _p_clone, c, _td, _point, obs);
+  };
+
+  for (int axis = 0; axis < 3; ++axis) {
+    Eigen::Vector3d da = Eigen::Vector3d::Zero();
+    da(axis) = eps;
+    const Eigen::Vector4d dq = quat(da);
+
+    // Clone pose right perturbation.
+    const Eigen::Vector2d hq_p = numeric_h(
+      EkfState::quaternionMultiply(state.clone(clone_id).q_, dq), state.clone(clone_id).p_,
+      cals[cam_id].q_cb_, cals[cam_id].p_cb_, td, world_point);
+    const Eigen::Vector2d hq_m = numeric_h(
+      EkfState::quaternionMultiply(state.clone(clone_id).q_, quat(-da)), state.clone(clone_id).p_,
+      cals[cam_id].q_cb_, cals[cam_id].p_cb_, td, world_point);
+    const Eigen::Vector2d num_pose_rot = (hq_p - hq_m) / (2.0 * eps * sigma);
+    EXPECT_TRUE(num_pose_rot.isApprox(J.H_pose_.col(axis), 2e-5)) << "clone dtheta axis " << axis;
+
+    // Extrinsic right perturbation.
+    const Eigen::Vector2d hc_p = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_,
+      EkfState::quaternionMultiply(cals[cam_id].q_cb_, dq), cals[cam_id].p_cb_, td, world_point);
+    const Eigen::Vector2d hc_m = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_,
+      EkfState::quaternionMultiply(cals[cam_id].q_cb_, quat(-da)), cals[cam_id].p_cb_, td, world_point);
+    const Eigen::Vector2d num_calib_rot = (hc_p - hc_m) / (2.0 * eps * sigma);
+    EXPECT_TRUE(num_calib_rot.isApprox(J.H_calib_.col(axis), 2e-5)) << "extrinsic dtheta axis " << axis;
+
+    // Clone translation and extrinsic translation share the same additive
+    // perturbation convention.
+    Eigen::Vector3d dp = Eigen::Vector3d::Zero();
+    dp(axis) = eps;
+    const Eigen::Vector2d hp_p = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_ + dp, cals[cam_id].q_cb_, cals[cam_id].p_cb_, td,
+      world_point);
+    const Eigen::Vector2d hp_m = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_ - dp, cals[cam_id].q_cb_, cals[cam_id].p_cb_, td,
+      world_point);
+    EXPECT_TRUE(((hp_p - hp_m) / (2.0 * eps * sigma)).isApprox(J.H_pose_.col(3 + axis), 2e-5))
+      << "clone dp axis " << axis;
+
+    const Eigen::Vector2d hcp_p = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_, cals[cam_id].q_cb_, cals[cam_id].p_cb_ + dp, td,
+      world_point);
+    const Eigen::Vector2d hcp_m = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_, cals[cam_id].q_cb_, cals[cam_id].p_cb_ - dp, td,
+      world_point);
+    EXPECT_TRUE(((hcp_p - hcp_m) / (2.0 * eps * sigma)).isApprox(J.H_calib_.col(3 + axis), 2e-5))
+      << "extrinsic dp axis " << axis;
+
+    // World point Jacobian.
+    const Eigen::Vector2d hpt_p = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_, cals[cam_id].q_cb_, cals[cam_id].p_cb_, td,
+      world_point + dp);
+    const Eigen::Vector2d hpt_m = numeric_h(
+      state.clone(clone_id).q_, state.clone(clone_id).p_, cals[cam_id].q_cb_, cals[cam_id].p_cb_, td,
+      world_point - dp);
+    EXPECT_TRUE(((hpt_p - hpt_m) / (2.0 * eps * sigma)).isApprox(J.H_point_.col(axis), 2e-5))
+      << "point axis " << axis;
+  }
+
+  const Eigen::Vector2d htd_p = numeric_h(
+    state.clone(clone_id).q_, state.clone(clone_id).p_, cals[cam_id].q_cb_, cals[cam_id].p_cb_, td + eps,
+    world_point);
+  const Eigen::Vector2d htd_m = numeric_h(
+    state.clone(clone_id).q_, state.clone(clone_id).p_, cals[cam_id].q_cb_, cals[cam_id].p_cb_, td - eps,
+    world_point);
+  const Eigen::Vector2d num_td = (htd_p - htd_m) / (2.0 * eps * sigma);
+  EXPECT_TRUE(num_td.isApprox(J.H_calib_.col(J.td_column_), 2e-5));
+}
+
+// ===========================================================================
+// T42 -- the Schur chi2 and reduction really include the 6D extrinsic blocks
+// and the SINGLE shared td column (accumulated from both cameras), including
+// nonzero calibration covariance cross terms.
+// ===========================================================================
+TEST(SchurUpdate, T42ReductionIncludesExtrinsicAndSharedTdColumns)
+{
+  const UpdateOptions_s opts = default_options();
+  const SchurUpdater updater(opts);
+
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(3, qs, ps);
+  const std::vector<CameraCalibrationNominal_s> cals{
+    make_calibration(Eigen::Vector3d(0.04, -0.02, 0.01), Eigen::Vector3d(0.03, 0.0, -0.02), 0.003),
+    make_calibration(Eigen::Vector3d(-0.03, 0.02, -0.01), Eigen::Vector3d(-0.10, 0.01, 0.02), 0.003)};
+  EkfState state;
+  build_calibrated_state(state, qs, ps, cals);
+  regularize_covariance(state);
+
+  // Add real live/clone-calibration and calibration-calibration correlations so
+  // the chi2 reference cannot accidentally pass with a block-diagonal P.
+  Eigen::MatrixXd & P = state.covariance();
+  const int c0 = state.cameraCalibOffset(0);
+  const int c1 = state.cameraCalibOffset(1);
+  const int td = state.timeOffsetOffset();
+  for (int i = 0; i < 3; ++i) {
+    P(0 + i, c0 + i) = 0.003 * (i + 1);
+    P(c0 + i, 0 + i) = P(0 + i, c0 + i);
+    P(K_IMU_P + i, c1 + 3 + i) = -0.002 * (i + 1);
+    P(c1 + 3 + i, K_IMU_P + i) = P(K_IMU_P + i, c1 + 3 + i);
+    P(c0 + i, c1 + 3 + i) = 0.0007 * (i + 1);
+    P(c1 + 3 + i, c0 + i) = P(c0 + i, c1 + 3 + i);
+  }
+  P(c0 + 4, td) = 0.0004;
+  P(td, c0 + 4) = 0.0004;
+  P(c1 + 1, td) = -0.0003;
+  P(td, c1 + 1) = -0.0003;
+  EkfState::symmetrize(P);
+
+  const Eigen::Vector3d world_point(0.35, 0.12, 4.3);
+  FeatureTrack_s track;
+  track.id_ = 4200;
+  track.world_point_ = world_point;
+  track.has_point_ = true;
+  for (int cam_id = 0; cam_id < 2; ++cam_id) {
+    FeatureObservation_s obs;
+    obs.clone_index_ = 1;
+    obs.camera_id_ = cam_id;
+    obs.velocity_ = Eigen::Vector2d(0.11 + 0.02 * cam_id, -0.06);
+    obs.has_velocity_ = true;
+    obs.cur_td_ = 0.001;
+    const CameraExtrinsics_s cam = camera_of(state, cam_id);
+    obs.uv_ = effective_projection(
+      state.clone(1).q_, state.clone(1).p_, cam, state.cameraTimeOffset(cam_id), world_point, obs);
+    // Small deterministic residual so chi2 is non-trivial.
+    obs.uv_ += Eigen::Vector2d(0.4, -0.3) * (cam_id == 0 ? 1.0 : -1.0) / K_FOCAL;
+    track.observations_.push_back(obs);
+  }
+
+  const TrackReduction_s red = updater.reduceTrack(state, track);
+  ASSERT_TRUE(red.valid_);
+  ASSERT_EQ(red.W_calib_.size(), 2u);
+  ASSERT_GT(red.W_td_.norm(), 1e-6);
+
+  // Independent joint system built from the public observation Jacobians.
+  const int m = 2 * static_cast<int>(track.observations_.size());
+  const int n = state.size();
+  Eigen::MatrixXd Hx = Eigen::MatrixXd::Zero(m, n);
+  Eigen::MatrixXd Hf = Eigen::MatrixXd::Zero(m, 3);
+  Eigen::VectorXd r(m);
+  for (int a = 0; a < m / 2; ++a) {
+    const FeatureObservation_s & obs = track.observations_[static_cast<std::size_t>(a)];
+    const ObservationJacobian_s J = updater.observationJacobian(state, world_point, obs);
+    ASSERT_TRUE(J.valid_);
+    Hx.block<2, 6>(2 * a, state.cloneOffset(obs.clone_index_)) = J.H_pose_;
+    Hx.block<2, 6>(2 * a, state.cameraCalibOffset(obs.camera_id_)) = J.H_calib_.block<2, 6>(0, 0);
+    Hx.block<2, 1>(2 * a, J.td_offset_) = J.H_calib_.col(J.td_column_);
+    Hf.block<2, 3>(2 * a, 0) = J.H_point_;
+    r.segment<2>(2 * a) = J.residual_;
+  }
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(Hf, Eigen::ComputeFullU);
+  const Eigen::MatrixXd N = svd.matrixU().rightCols(m - 3);
+  const Eigen::VectorXd r0 = N.transpose() * r;
+  const Eigen::MatrixXd H0 = N.transpose() * Hx;
+  Eigen::MatrixXd S0 = H0 * P * H0.transpose();
+  S0.diagonal().array() += 1.0;
+  Eigen::LDLT<Eigen::MatrixXd> ldlt(S0);
+  ASSERT_EQ(ldlt.info(), Eigen::Success);
+  const double chi2_ref = r0.dot(ldlt.solve(r0));
+  EXPECT_NEAR(red.chi2_, chi2_ref, 1e-9 * std::max(1.0, std::abs(chi2_ref)));
+
+  // Both cameras feed the same td block.
+  Eigen::Matrix<double, 1, 3> Wtd_ref = Eigen::Matrix<double, 1, 3>::Zero();
+  for (const FeatureObservation_s & obs : track.observations_) {
+    const ObservationJacobian_s J = updater.observationJacobian(state, world_point, obs);
+    Wtd_ref += J.H_calib_.col(J.td_column_).transpose() * J.H_point_;
+  }
+  EXPECT_TRUE(red.W_td_.isApprox(Wtd_ref, 1e-12));
+}
+
+// ===========================================================================
+// T43 -- with calibration enabled, the default condition_limit_ = 1e6 must not
+// reject every frame merely because rotation/translation/td columns have
+// different units.  This is a compact stereo, multi-view synthetic update.
+// ===========================================================================
+TEST(SchurUpdate, T43CalibratedUpdatePassesDefaultConditionLimit)
+{
+  UpdateOptions_s opts = default_options();
+  ASSERT_DOUBLE_EQ(opts.condition_limit_, 1e6);
+  SchurUpdater updater(opts);
+
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(5, qs, ps);
+  const std::vector<CameraCalibrationNominal_s> cals{
+    make_calibration(Eigen::Vector3d(0.02, -0.01, 0.0), Eigen::Vector3d(0.02, 0.0, 0.0), 0.003),
+    make_calibration(Eigen::Vector3d(-0.02, 0.01, 0.0), Eigen::Vector3d(-0.10, 0.0, 0.0), 0.003)};
+  EkfState state;
+  build_calibrated_state(state, qs, ps, cals);
+  regularize_covariance(state);
+
+  std::vector<FeatureTrack_s> tracks;
+  for (int f = 0; f < 14; ++f) {
+    const Eigen::Vector3d world_point(0.35 + 0.11 * (f % 5), 0.22 * ((f % 3) - 1), 3.6 + 0.18 * (f % 4));
+    FeatureTrack_s track;
+    track.id_ = 4300 + f;
+    for (int ci = 0; ci < state.numClones(); ++ci) {
+      const int cam_id = (ci + f) % 2;
+      const CameraExtrinsics_s cam = camera_of(state, cam_id);
+      FeatureObservation_s obs;
+      obs.clone_index_ = ci;
+      obs.camera_id_ = cam_id;
+      obs.velocity_ = Eigen::Vector2d(0.05 + 0.01 * f, -0.03 + 0.005 * (f % 4));
+      obs.has_velocity_ = true;
+      obs.cur_td_ = 0.0;
+      const double td = state.cameraTimeOffset(cam_id);
+      obs.uv_ = project_world(state.clone(ci).q_, state.clone(ci).p_, cam, world_point) + td * obs.velocity_;
+      track.observations_.push_back(obs);
+    }
+    tracks.push_back(track);
+  }
+
+  const UpdateSummary_s summary = updater.update(state, tracks);
+  std::printf(
+    "[T43] applied=%d used=%d obs=%d rank=%d cond=%.6e reason=%s\n", summary.applied_ ? 1 : 0,
+    summary.features_used_, summary.observations_used_, summary.rank_, summary.condition_,
+    summary.failure_reason_.c_str());
+  EXPECT_NE(summary.failure_reason_, "Schur information condition limit exceeded");
+  EXPECT_LT(summary.condition_, opts.condition_limit_);
+  EXPECT_TRUE(summary.applied_);
+  EXPECT_TRUE(state.covariance().allFinite());
+  EXPECT_TRUE(EkfState::isPositiveSemidefinite(state.covariance()));
+}
+
+// ===========================================================================
+// T44 -- an actual calibrated update must reduce residuals and move the
+// extrinsic/td estimates toward the truth.  Clone/live covariance is kept
+// tiny while calibration covariance is large, and every track sees multiple
+// camera/time-offset views so the free point cannot absorb the calibration
+// error by itself.
+// ===========================================================================
+TEST(SchurUpdate, T44CalibratedUpdateCorrectsExtrinsicAndSharedTd)
+{
+  UpdateOptions_s opts = default_options();
+  opts.condition_limit_ = 0.0;
+  SchurUpdater updater(opts);
+
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(5, qs, ps);
+  EkfOptions_s ekf_opts = default_ekf_options(7);
+  ekf_opts.num_cameras_ = 2;
+  ekf_opts.estimate_extrinsics_ = true;
+  ekf_opts.estimate_time_offset_ = true;
+  ekf_opts.init_extrinsic_rotation_sigma_ = 0.05;
+  ekf_opts.init_extrinsic_translation_sigma_ = 0.10;
+  ekf_opts.init_time_offset_sigma_ = 0.01;
+
+  const double td_true = 0.006;
+  std::vector<CameraCalibrationNominal_s> initial_cals{
+    make_calibration(Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d(0.015, 0.0, 0.0), 0.0),
+    make_calibration(Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d(-0.085, 0.0, 0.0), 0.0)};
+  std::vector<CameraCalibrationNominal_s> true_cals{
+    make_calibration(Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d::Zero(), td_true),
+    make_calibration(Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d(-0.10, 0.0, 0.0), td_true)};
+
+  EkfState state;
+  state.reset(
+    ekf_opts, 0.0, qs.front(), ps.front(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+    Eigen::Vector3d::Zero(), initial_cals);
+  state.augmentClone(0.0);
+  for (std::size_t i = 1; i < qs.size(); ++i) {
+    state.imu().q_ = qs[i];
+    state.imu().p_ = ps[i];
+    state.refreshImuFej();
+    state.augmentClone(static_cast<double>(i));
+  }
+
+  // Clones and live motion are well known; calibration is uncertain.  Clear
+  // the whole live+clone block (including the live-clone cross terms created
+  // by augmentation) before shrinking it: leaving the original cross terms
+  // while shrinking only the diagonals makes P indefinite and the gate's
+  // innovation covariance S0 non-positive-definite.
+  Eigen::MatrixXd & P = state.covariance();
+  const int motion_dim = state.calibrationOffset();
+  P.topLeftCorner(motion_dim, motion_dim).setZero();
+  P.topLeftCorner(motion_dim, motion_dim).diagonal().array() = 1e-8;
+
+  std::vector<FeatureTrack_s> tracks;
+  for (int f = 0; f < 16; ++f) {
+    const Eigen::Vector3d point(0.30 + 0.10 * (f % 6), 0.18 * ((f % 4) - 2), 3.7 + 0.15 * (f % 5));
+    FeatureTrack_s track;
+    track.id_ = 4400 + f;
+    for (int ci = 0; ci < state.numClones(); ++ci) {
+      const int cam_id = (ci + f) % 2;
+      const CameraExtrinsics_s true_cam{true_cals[cam_id].q_cb_, true_cals[cam_id].p_cb_, true_cals[cam_id].td_};
+      FeatureObservation_s obs;
+      obs.clone_index_ = ci;
+      obs.camera_id_ = cam_id;
+      obs.cur_td_ = 0.0;
+      obs.velocity_ = Eigen::Vector2d(0.28 + 0.02 * f, -0.22 + 0.03 * (ci % 3));
+      obs.has_velocity_ = true;
+      obs.uv_ =
+        project_world(state.clone(ci).q_, state.clone(ci).p_, true_cam, point) + td_true * obs.velocity_;
+      track.observations_.push_back(obs);
+    }
+    tracks.push_back(track);
+  }
+
+  const double td_before = state.cameraTimeOffset(0);
+  const Eigen::Vector3d p1_before = state.cameraCalib(1).p_cb_;
+  const double p1_err_before = (p1_before - true_cals[1].p_cb_).norm();
+  ASSERT_GT(std::abs(td_before - td_true), 1e-4);
+
+  const EkfState state_before = state;
+  std::vector<FeatureTrack_s> tracks_before = tracks;
+  for (FeatureTrack_s & track : tracks_before)
+    updater.triangulate(state_before, track);
+
+  const UpdateSummary_s summary = updater.update(state, tracks);
+  std::printf(
+    "[T44] applied=%d used=%d rejected=%d obs=%d rank=%d cond=%.3e reason=%s td=%.6f p1_err=%.5f\n",
+    summary.applied_ ? 1 : 0, summary.features_used_, summary.features_rejected_, summary.observations_used_,
+    summary.rank_, summary.condition_, summary.failure_reason_.c_str(), state.cameraTimeOffset(0),
+    (state.cameraCalib(1).p_cb_ - true_cals[1].p_cb_).norm());
+  ASSERT_TRUE(summary.applied_) << summary.failure_reason_;
+  EXPECT_LT(std::abs(state.cameraTimeOffset(0) - td_true), std::abs(td_before - td_true));
+  EXPECT_LT((state.cameraCalib(1).p_cb_ - true_cals[1].p_cb_).norm(), p1_err_before);
+  EXPECT_DOUBLE_EQ(state.cameraTimeOffset(0), state.cameraTimeOffset(1));
+  EXPECT_DOUBLE_EQ(state.cameraCalib(0).td_, state.cameraCalib(1).td_);
+
+  // Re-triangulate every track with the corrected state and compare the
+  // reprojection RMS before/after.  Parameters and points are both re-fitted,
+  // which is the real post-update consistency check.
+  double before_rms = 0.0;
+  double after_rms = 0.0;
+  int count = 0;
+  ASSERT_EQ(tracks_before.size(), tracks.size());
+  for (std::size_t ti = 0; ti < tracks.size(); ++ti) {
+    const FeatureTrack_s & before_track = tracks_before[ti];
+    FeatureTrack_s after_track = tracks[ti];
+    if (!before_track.has_point_)
+      continue;
+    double sq_before = 0.0;
+    for (const FeatureObservation_s & obs : before_track.observations_) {
+      const CameraExtrinsics_s cam = camera_of(state_before, obs.camera_id_);
+      const Eigen::Vector2d h = project_world(
+        state_before.clone(obs.clone_index_).q_, state_before.clone(obs.clone_index_).p_, cam,
+        before_track.world_point_);
+      const Eigen::Vector2d r = SchurUpdater::correctedObservation(state_before, obs) - h;
+      sq_before += r.squaredNorm();
+    }
+    if (!updater.triangulate(state, after_track))
+      continue;
+    double sq_after = 0.0;
+    for (const FeatureObservation_s & obs : after_track.observations_) {
+      const CameraExtrinsics_s cam = camera_of(state, obs.camera_id_);
+      const Eigen::Vector2d h = project_world(
+        state.clone(obs.clone_index_).q_, state.clone(obs.clone_index_).p_, cam, after_track.world_point_);
+      const Eigen::Vector2d r = SchurUpdater::correctedObservation(state, obs) - h;
+      sq_after += r.squaredNorm();
+    }
+    before_rms += std::sqrt(sq_before / before_track.observations_.size());
+    after_rms += std::sqrt(sq_after / after_track.observations_.size());
+    ++count;
+  }
+  ASSERT_GT(count, 0);
+  EXPECT_LT(after_rms, before_rms);
 }

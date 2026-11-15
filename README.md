@@ -7,6 +7,11 @@
 上游论文、作者和历史说明保存在 [ROS 1 README](docs/README_ROS1.md)，
 旧 launch/RViz 文件归档在 `docs/ros1_assets`。代码沿用各文件的上游许可证。
 
+Schur 后端已支持在线外参/共享时偏状态和 `schur_initialization: standalone` 独立启动。
+Machine Hall 使用 [专用配置](src/vins_estimator/config/euroc/machine_hall_stereo_imu_schur_online_config.yaml)，
+实现边界、203 项 C++ 回归与 ARM/EuRoC 结果见
+[Schur 完整性验证](docs/SCHUR_COMPLETENESS_MH_20261115.md)。单目运动开场初始化仍需等待静止窗口或显式选择 `legacy_ceres`。
+
 ## 安装与编译
 
 先安装 ROS 2 Jazzy；在本工作区根目录执行：

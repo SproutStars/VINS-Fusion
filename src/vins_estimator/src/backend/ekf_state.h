@@ -44,6 +44,22 @@ enum ImuErrorIndex_e : unsigned int {
 
 constexpr int K_IMU_STATE_SIZE = 15;
 constexpr int K_CLONE_STATE_SIZE = 6;
+constexpr int K_CAMERA_EXTRINSIC_STATE_SIZE = 6;
+constexpr int K_CAMERA_TIME_OFFSET_STATE_SIZE = 1;
+constexpr int K_CAMERA_CALIB_MAX_SIZE = K_CAMERA_EXTRINSIC_STATE_SIZE + K_CAMERA_TIME_OFFSET_STATE_SIZE;
+
+// Nominal camera calibration.  As in the rest of this filter, q_cb_ is the
+// body_T_cam rotation (camera -> body) and p_cb_ is its translation expressed
+// in the body frame.  td_ is the camera-to-IMU time offset in seconds:
+// t_imu = t_camera + td_.  The covariance perturbation is a right/body
+// perturbation of body_T_cam plus one additive td column:
+//   R_cb_true = R_cb (I + [dtheta]x),  p_cb_true = p_cb + dp,
+//   td_true   = td + dtd.
+struct CameraCalibrationNominal_s {
+  Eigen::Vector4d q_cb_ = Eigen::Vector4d(1, 0, 0, 0);
+  Eigen::Vector3d p_cb_ = Eigen::Vector3d::Zero();
+  double td_ = 0.0;
+};
 
 struct EkfOptions_s {
   int window_size_ = 5;             // clones kept in the covariance (one per image frame)
@@ -65,6 +81,28 @@ struct EkfOptions_s {
   // cross-blocks are touched once when the batch is flushed. Default false
   // keeps the historical per-sample P update bit-for-bit unchanged.
   bool batch_imu_covariance_ = false;
+
+  // Optional online camera calibration.  With num_cameras_ == 0 (the default)
+  // no calibration columns are appended and the state layout, propagation,
+  // clone augmentation and visual update are exactly the historical ones.
+  // After ALL clones, append each camera's optional 6D extrinsics followed
+  // by ONE shared td column for the synchronized camera rig:
+  //   [cam0 ext][cam1 ext]...[shared td]
+  // The td model is explicit VINS-style velocity compensation, not the
+  // OpenVINS clone-td augmentation model (see schur_update.h).
+  int num_cameras_ = 0;
+  bool estimate_extrinsics_ = false;
+  bool estimate_time_offset_ = false;
+  double init_extrinsic_rotation_sigma_ = 0.01;     // rad
+  double init_extrinsic_translation_sigma_ = 0.05;  // m
+  double init_time_offset_sigma_ = 1e-3;            // s
+  // Optional static random walk on the calibration block.  All default to 0
+  // (calibration is constant in the mean and P is propagated unchanged except
+  // for its live cross terms), so merely enabling calibration does not inject
+  // artificial drift.
+  double extrinsic_rotation_noise_ = 0.0;     // rad/sqrt(s)
+  double extrinsic_translation_noise_ = 0.0;  // m/sqrt(s)
+  double time_offset_noise_ = 0.0;            // s/sqrt(s)
 };
 
 struct ImuNominal_s {
@@ -88,6 +126,13 @@ public:
   void reset(
     const EkfOptions_s & _options, double _timestamp, const Eigen::Vector4d & _q, const Eigen::Vector3d & _p,
     const Eigen::Vector3d & _v, const Eigen::Vector3d & _ba, const Eigen::Vector3d & _bg);
+  // Same as above, additionally seeding each camera's nominal calibration.
+  // Missing entries keep the default identity/zero calibration.  The
+  // calibration covariance is still initialised from the *_sigma options.
+  void reset(
+    const EkfOptions_s & _options, double _timestamp, const Eigen::Vector4d & _q, const Eigen::Vector3d & _p,
+    const Eigen::Vector3d & _v, const Eigen::Vector3d & _ba, const Eigen::Vector3d & _bg,
+    const std::vector<CameraCalibrationNominal_s> & _calibrations);
 
   // Copy only the live marginal and its FEJ linearisation point. Used by the
   // IMU-rate predictor: no clone window copy and no covariance reset/inflation.
@@ -97,9 +142,37 @@ public:
   const EkfOptions_s & options() const { return options_; }
   double timestamp() const { return timestamp_; }
 
-  int size() const { return K_IMU_STATE_SIZE + K_CLONE_STATE_SIZE * numClones(); }
+  int cameraCount() const { return std::max(0, options_.num_cameras_); }
+  bool estimateExtrinsics() const { return options_.estimate_extrinsics_; }
+  bool estimateTimeOffset() const { return options_.estimate_time_offset_; }
+  // Per-camera extrinsic error-state dimension: 0 or 6.  The camera/IMU time
+  // offset is a SINGLE shared column, because all cameras in this project are
+  // synchronised.  Layout after the clone window:
+  //   [cam0 6D][cam1 6D]...[shared td 1D]
+  int cameraCalibSize() const
+  {
+    return (cameraCount() > 0 && options_.estimate_extrinsics_) ? K_CAMERA_EXTRINSIC_STATE_SIZE : 0;
+  }
+  int calibrationDimension() const
+  {
+    return cameraCount() * cameraCalibSize() +
+           ((cameraCount() > 0 && options_.estimate_time_offset_) ? K_CAMERA_TIME_OFFSET_STATE_SIZE : 0);
+  }
+  bool calibrationEnabled() const { return calibrationDimension() > 0; }
+  bool hasTimeOffsetState() const { return cameraCount() > 0 && options_.estimate_time_offset_; }
+  int size() const { return K_IMU_STATE_SIZE + K_CLONE_STATE_SIZE * numClones() + calibrationDimension(); }
   int numClones() const { return static_cast<int>(clones_.size()); }
   int cloneOffset(int _index) const { return K_IMU_STATE_SIZE + K_CLONE_STATE_SIZE * _index; }
+  // Start of the camera-calibration section (after all clone blocks).
+  int calibrationOffset() const { return K_IMU_STATE_SIZE + K_CLONE_STATE_SIZE * numClones(); }
+  int cameraCalibOffset(int _camera_id) const { return calibrationOffset() + cameraCalibSize() * _camera_id; }
+  // All cameras share this one offset.  The id argument is retained so callers
+  // need not special-case camera 0.
+  int timeOffsetOffset() const
+  {
+    return hasTimeOffsetState() ? calibrationOffset() + cameraCount() * cameraCalibSize() : -1;
+  }
+  int cameraTimeOffsetOffset(int /*_camera_id*/) const { return timeOffsetOffset(); }
 
   ImuNominal_s & imu() { return imu_; }
   const ImuNominal_s & imu() const { return imu_; }
@@ -114,6 +187,53 @@ public:
   CloneNominal_s & cloneFej(int _index) { return clone_fej_.at(_index); }
   const CloneNominal_s & cloneFej(int _index) const { return clone_fej_.at(_index); }
   double cloneTimestamp(int _index) const { return clone_timestamps_.at(_index); }
+
+  // ---- optional camera calibration state --------------------------------
+  // Nominal values are used by the residual; Fej values are frozen for the
+  // linearisation and are never overwritten by a visual update.
+  CameraCalibrationNominal_s & cameraCalib(int _camera_id) { return camera_calibs_.at(_camera_id); }
+  const CameraCalibrationNominal_s & cameraCalib(int _camera_id) const
+  {
+    return camera_calibs_.at(_camera_id);
+  }
+  CameraCalibrationNominal_s & cameraCalibFej(int _camera_id) { return camera_calib_fej_.at(_camera_id); }
+  const CameraCalibrationNominal_s & cameraCalibFej(int _camera_id) const
+  {
+    return camera_calib_fej_.at(_camera_id);
+  }
+  // Shared camera/IMU time offset (seconds).  The per-camera nominal td_
+  // fields are kept synchronised for compatibility, but this accessor is the
+  // single source of truth used by the measurement model.
+  double cameraTimeOffset(int _camera_id) const
+  {
+    return (options_.estimate_time_offset_ && _camera_id >= 0 && _camera_id < cameraCount())
+             ? camera_calibs_.front().td_
+             : 0.0;
+  }
+  double sharedTimeOffset() const { return camera_calibs_.empty() ? 0.0 : camera_calibs_.front().td_; }
+  // Seed/initialise one camera's nominal and FEJ calibration.  Intended for
+  // reset()/re-initialisation; visual updates must use
+  // injectCameraCalibrationDelta() so the frozen FEJ is preserved.
+  void injectCameraCalibration(
+    int _camera_id, const Eigen::Vector4d & _q_cb, const Eigen::Vector3d & _p_cb, double _td);
+  void injectCameraCalibration(int _camera_id, const CameraCalibrationNominal_s & _calibration)
+  {
+    injectCameraCalibration(_camera_id, _calibration.q_cb_, _calibration.p_cb_, _calibration.td_);
+  }
+  void seedCalibrations(const std::vector<CameraCalibrationNominal_s> & _calibrations);
+  // Applies a nominal-only correction.  The 6D pose uses the same right
+  // perturbation as the error state.  dtd is additive seconds and is applied
+  // only for camera_id == 0 so a per-camera loop cannot add it twice; use
+  // injectSharedTimeOffsetDelta() when the shared td should be updated
+  // independently of the extrinsic loop.
+  void
+  injectCameraCalibrationDelta(int _camera_id, const Eigen::Matrix<double, 6, 1> & _dpose, double _dtd = 0.0);
+  void injectSharedTimeOffsetDelta(double _dtd);
+  // Current 6x6 covariance block of one camera's extrinsics.  Empty when
+  // extrinsics are not estimated.  timeOffsetVariance() exposes the single
+  // shared td variance.
+  Eigen::MatrixXd cameraCalibrationCovariance(int _camera_id) const;
+  double timeOffsetVariance() const;
 
   // Any covariance access first applies a pending batched IMU interval. The
   // const overload uses the logically-const lazy-flush convention: the
@@ -228,6 +348,13 @@ private:
   std::vector<CloneNominal_s> clones_;
   std::vector<CloneNominal_s> clone_fej_;
   std::vector<double> clone_timestamps_;
+  std::vector<CameraCalibrationNominal_s> camera_calibs_;
+  std::vector<CameraCalibrationNominal_s> camera_calib_fej_;
+  // Last propagated body-frame gyro (bias-corrected) and velocity are used as
+  // the time-offset motion model for optional clone augmentation in tests and
+  // future integrations.  The selected visual td model is the explicit
+  // velocity-compensation form in schur_update.cpp.
+  Eigen::Vector3d last_gyro_ = Eigen::Vector3d::Zero();
   // P is mutable because covariance() const is a logically-const lazy flush.
   mutable Eigen::MatrixXd covariance_;
   // Pending IMU covariance batch. phi is the product of the per-sample

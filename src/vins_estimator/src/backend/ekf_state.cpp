@@ -99,6 +99,14 @@ void EkfState::reset(
   const EkfOptions_s & _options, double _timestamp, const Eigen::Vector4d & _q, const Eigen::Vector3d & _p,
   const Eigen::Vector3d & _v, const Eigen::Vector3d & _ba, const Eigen::Vector3d & _bg)
 {
+  reset(_options, _timestamp, _q, _p, _v, _ba, _bg, std::vector<CameraCalibrationNominal_s>());
+}
+
+void EkfState::reset(
+  const EkfOptions_s & _options, double _timestamp, const Eigen::Vector4d & _q, const Eigen::Vector3d & _p,
+  const Eigen::Vector3d & _v, const Eigen::Vector3d & _ba, const Eigen::Vector3d & _bg,
+  const std::vector<CameraCalibrationNominal_s> & _calibrations)
+{
   options_ = _options;
   initialized_ = true;
 
@@ -108,15 +116,19 @@ void EkfState::reset(
   imu_.ba_ = _ba;
   imu_.bg_ = _bg;
   imu_fej_ = imu_;
+  last_gyro_.setZero();
 
   clones_.clear();
   clone_fej_.clear();
   clone_timestamps_.clear();
+  camera_calibs_.assign(static_cast<std::size_t>(cameraCount()), CameraCalibrationNominal_s());
+  camera_calib_fej_ = camera_calibs_;
+  seedCalibrations(_calibrations);
   timestamp_ = _timestamp;
 
   // P0 = diag(rot, pos, vel, acc bias, gyr bias), all three-axis blocks.
   const Mat3 I3 = Mat3::Identity();
-  covariance_ = Eigen::MatrixXd::Zero(K_IMU_STATE_SIZE, K_IMU_STATE_SIZE);
+  covariance_ = Eigen::MatrixXd::Zero(size(), size());
   covariance_.block<3, 3>(K_IMU_THETA, K_IMU_THETA) =
     options_.init_rotation_sigma_ * options_.init_rotation_sigma_ * I3;
   covariance_.block<3, 3>(K_IMU_P, K_IMU_P) =
@@ -127,7 +139,104 @@ void EkfState::reset(
     options_.init_acc_bias_sigma_ * options_.init_acc_bias_sigma_ * I3;
   covariance_.block<3, 3>(K_IMU_BG, K_IMU_BG) =
     options_.init_gyr_bias_sigma_ * options_.init_gyr_bias_sigma_ * I3;
+
+  // Camera calibration blocks: one independent 6D right perturbation per
+  // camera plus one SHARED td column.  The zero off-diagonal prior is
+  // intentional; the visual update creates the calibration cross terms.
+  const int calib_size = cameraCalibSize();
+  const double rot_var = options_.init_extrinsic_rotation_sigma_ * options_.init_extrinsic_rotation_sigma_;
+  const double trans_var =
+    options_.init_extrinsic_translation_sigma_ * options_.init_extrinsic_translation_sigma_;
+  for (int cam = 0; cam < cameraCount(); ++cam) {
+    if (calib_size == 0)
+      break;
+    const int off = cameraCalibOffset(cam);
+    covariance_.block<3, 3>(off, off) = rot_var * I3;
+    covariance_.block<3, 3>(off + 3, off + 3) = trans_var * I3;
+  }
+  if (hasTimeOffsetState()) {
+    const double td_var = options_.init_time_offset_sigma_ * options_.init_time_offset_sigma_;
+    covariance_(timeOffsetOffset(), timeOffsetOffset()) = td_var;
+  }
   clearPendingImuCovariance();
+}
+
+void EkfState::seedCalibrations(const std::vector<CameraCalibrationNominal_s> & _calibrations)
+{
+  const int count = std::min(cameraCount(), static_cast<int>(_calibrations.size()));
+  for (int cam = 0; cam < count; ++cam) {
+    const CameraCalibrationNominal_s & calib = _calibrations[static_cast<std::size_t>(cam)];
+    if (cam < static_cast<int>(camera_calibs_.size())) {
+      camera_calibs_[static_cast<std::size_t>(cam)] = calib;
+      camera_calib_fej_[static_cast<std::size_t>(cam)] = calib;
+    }
+  }
+  // The project synchronises all cameras, so td is one shared state.  Keep the
+  // nominal per-camera td fields identical for compatibility.
+  if (hasTimeOffsetState() && !camera_calibs_.empty()) {
+    const double td = _calibrations.empty() ? camera_calibs_.front().td_ : _calibrations.front().td_;
+    for (CameraCalibrationNominal_s & calib : camera_calibs_)
+      calib.td_ = td;
+    for (CameraCalibrationNominal_s & calib : camera_calib_fej_)
+      calib.td_ = td;
+  }
+}
+
+void EkfState::injectCameraCalibration(
+  int _camera_id, const Eigen::Vector4d & _q_cb, const Eigen::Vector3d & _p_cb, double _td)
+{
+  if (_camera_id < 0 || _camera_id >= cameraCount())
+    return;
+  CameraCalibrationNominal_s calib;
+  calib.q_cb_ = EkfState::quaternionNormalize(_q_cb);
+  calib.p_cb_ = _p_cb;
+  calib.td_ = _td;
+  camera_calibs_[static_cast<std::size_t>(_camera_id)] = calib;
+  camera_calib_fej_[static_cast<std::size_t>(_camera_id)] = calib;
+  // Shared td: all cameras must report the same time base.
+  if (hasTimeOffsetState()) {
+    for (CameraCalibrationNominal_s & c : camera_calibs_)
+      c.td_ = _td;
+    for (CameraCalibrationNominal_s & c : camera_calib_fej_)
+      c.td_ = _td;
+  }
+}
+
+void EkfState::injectCameraCalibrationDelta(int _camera_id, const Eigen::Matrix<double, 6, 1> & _dpose, double _dtd)
+{
+  if (_camera_id < 0 || _camera_id >= cameraCount())
+    return;
+  if (cameraCalibSize() > 0) {
+    CameraCalibrationNominal_s & calib = camera_calibs_[static_cast<std::size_t>(_camera_id)];
+    EkfState::applyPoseCorrection(calib.q_cb_, calib.p_cb_, _dpose);
+  }
+  // Apply the shared td once, regardless of how many cameras the caller loops
+  // over.  camera 0 is the canonical owner of the shared value.
+  if (_camera_id == 0)
+    injectSharedTimeOffsetDelta(_dtd);
+}
+
+void EkfState::injectSharedTimeOffsetDelta(double _dtd)
+{
+  if (!hasTimeOffsetState() || camera_calibs_.empty() || !std::isfinite(_dtd))
+    return;
+  for (CameraCalibrationNominal_s & calib : camera_calibs_)
+    calib.td_ += _dtd;
+}
+
+Eigen::MatrixXd EkfState::cameraCalibrationCovariance(int _camera_id) const
+{
+  if (cameraCalibSize() == 0 || _camera_id < 0 || _camera_id >= cameraCount())
+    return Eigen::MatrixXd();
+  const int off = cameraCalibOffset(_camera_id);
+  return covariance().block(off, off, cameraCalibSize(), cameraCalibSize());
+}
+
+double EkfState::timeOffsetVariance() const
+{
+  if (!hasTimeOffsetState())
+    return 0.0;
+  return covariance()(timeOffsetOffset(), timeOffsetOffset());
 }
 
 void EkfState::copyLiveFrom(const EkfState & _source)
@@ -146,13 +255,31 @@ void EkfState::copyLiveFrom(const EkfState & _source)
   timestamp_ = _source.timestamp_;
   imu_ = _source.imu_;
   imu_fej_ = _source.imu_fej_;
+  last_gyro_ = _source.last_gyro_;
   clones_.clear();
   clone_fej_.clear();
   clone_timestamps_.clear();
-  if (initialized_)
-    covariance_ = _source.covariance_.topLeftCorner<K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>();
-  else
+  camera_calibs_ = _source.camera_calibs_;
+  camera_calib_fej_ = _source.camera_calib_fej_;
+  if (initialized_) {
+    const int calib_dim = calibrationDimension();
+    const int src_calib_dim = _source.calibrationDimension();
+    covariance_ = Eigen::MatrixXd::Zero(K_IMU_STATE_SIZE + calib_dim, K_IMU_STATE_SIZE + calib_dim);
+    covariance_.topLeftCorner<K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>() =
+      _source.covariance_.topLeftCorner<K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>();
+    if (calib_dim > 0 && src_calib_dim > 0 && calib_dim == src_calib_dim) {
+      const int src_off = _source.calibrationOffset();
+      const int dst_off = K_IMU_STATE_SIZE;
+      covariance_.block(0, dst_off, K_IMU_STATE_SIZE, calib_dim) =
+        _source.covariance_.block(0, src_off, K_IMU_STATE_SIZE, calib_dim);
+      covariance_.block(dst_off, 0, calib_dim, K_IMU_STATE_SIZE) =
+        _source.covariance_.block(src_off, 0, calib_dim, K_IMU_STATE_SIZE);
+      covariance_.block(dst_off, dst_off, calib_dim, calib_dim) =
+        _source.covariance_.block(src_off, src_off, calib_dim, calib_dim);
+    }
+  } else {
     covariance_.resize(0, 0);
+  }
   clearPendingImuCovariance();
 }
 
@@ -204,6 +331,7 @@ void EkfState::propagate(const Eigen::Vector3d & _acc, const Eigen::Vector3d & _
 
   // ---- nominal mean: RK4 with the biases frozen inside the step ----------
   const Eigen::Vector3d w = _gyr - imu_.bg_;
+  last_gyro_ = w;
   const Eigen::Vector3d a = _acc - imu_.ba_;
   rk4_imu_step(w, a, g_w, _dt, imu_.q_, imu_.p_, imu_.v_);
 
@@ -290,6 +418,26 @@ void EkfState::propagate(const Eigen::Vector3d & _acc, const Eigen::Vector3d & _
     symmetrize(covariance_);
   }
 
+  // Optional static calibration random walk.  It is a diagonal addition and
+  // therefore commutes with the batched IMU transition; default zero noise
+  // leaves P bit-for-bit unchanged.  td is one shared column, added once.
+  if (calibrationEnabled()) {
+    const int calib_size = cameraCalibSize();
+    const double rot_var = options_.extrinsic_rotation_noise_ * options_.extrinsic_rotation_noise_ * _dt;
+    const double trans_var =
+      options_.extrinsic_translation_noise_ * options_.extrinsic_translation_noise_ * _dt;
+    for (int cam = 0; cam < cameraCount(); ++cam) {
+      if (calib_size == 0)
+        break;
+      const int off = cameraCalibOffset(cam);
+      covariance_.block<3, 3>(off, off).diagonal().array() += rot_var;
+      covariance_.block<3, 3>(off + 3, off + 3).diagonal().array() += trans_var;
+    }
+    if (hasTimeOffsetState())
+      covariance_(timeOffsetOffset(), timeOffsetOffset()) +=
+        options_.time_offset_noise_ * options_.time_offset_noise_ * _dt;
+  }
+
   imu_fej_ = imu_;
   timestamp_ += _dt;
 }
@@ -313,13 +461,51 @@ void EkfState::augmentClone(double _timestamp)
 
   // The new clone is a perfect copy of the live pose, hence its covariance
   // block and all cross terms are copies of rows/cols 0:6.
-  Eigen::MatrixXd P_new = Eigen::MatrixXd::Zero(n + K_CLONE_STATE_SIZE, n + K_CLONE_STATE_SIZE);
-  P_new.topLeftCorner(n, n) = covariance_;
-  P_new.block(0, n, n, K_CLONE_STATE_SIZE) = covariance_.leftCols(K_CLONE_STATE_SIZE);
-  P_new.block(n, 0, K_CLONE_STATE_SIZE, n) = covariance_.topRows(K_CLONE_STATE_SIZE);
-  P_new.block(n, n, K_CLONE_STATE_SIZE, K_CLONE_STATE_SIZE) =
-    covariance_.topLeftCorner(K_CLONE_STATE_SIZE, K_CLONE_STATE_SIZE);
-  covariance_ = std::move(P_new);
+  const int calib_dim = calibrationDimension();
+  if (calib_dim == 0) {
+    // Historical layout: no calibration columns. Keep this path bit-for-bit.
+    Eigen::MatrixXd P_new = Eigen::MatrixXd::Zero(n + K_CLONE_STATE_SIZE, n + K_CLONE_STATE_SIZE);
+    P_new.topLeftCorner(n, n) = covariance_;
+    P_new.block(0, n, n, K_CLONE_STATE_SIZE) = covariance_.leftCols(K_CLONE_STATE_SIZE);
+    P_new.block(n, 0, K_CLONE_STATE_SIZE, n) = covariance_.topRows(K_CLONE_STATE_SIZE);
+    P_new.block(n, n, K_CLONE_STATE_SIZE, K_CLONE_STATE_SIZE) =
+      covariance_.topLeftCorner(K_CLONE_STATE_SIZE, K_CLONE_STATE_SIZE);
+    covariance_ = std::move(P_new);
+  } else {
+    // The calibration section lives after every clone.  Insert the new clone
+    // immediately before it with direct block moves (O(n^2), no dense
+    // selection-matrix product).  The selected td model does NOT add a
+    // clone-td dependence here (no double counting with the explicit
+    // velocity-compensated td Jacobian).
+    const int old_calib_off = n - calib_dim;  // n was captured before the clone push
+    const int new_calib_off = old_calib_off + K_CLONE_STATE_SIZE;
+    const int new_n = n + K_CLONE_STATE_SIZE;
+    Eigen::MatrixXd P_new = Eigen::MatrixXd::Zero(new_n, new_n);
+
+    // Everything before the calibration section keeps its position.
+    P_new.topLeftCorner(old_calib_off, old_calib_off) = covariance_.topLeftCorner(old_calib_off, old_calib_off);
+    // Calibration rows/columns move right by one clone block.
+    P_new.block(new_calib_off, new_calib_off, calib_dim, calib_dim) =
+      covariance_.block(old_calib_off, old_calib_off, calib_dim, calib_dim);
+    P_new.block(0, new_calib_off, old_calib_off, calib_dim) =
+      covariance_.block(0, old_calib_off, old_calib_off, calib_dim);
+    P_new.block(new_calib_off, 0, calib_dim, old_calib_off) =
+      covariance_.block(old_calib_off, 0, calib_dim, old_calib_off);
+
+    // The new clone copies the live pose (error rows 0:6) including its
+    // calibration cross terms.
+    P_new.block(0, old_calib_off, old_calib_off, K_CLONE_STATE_SIZE) =
+      covariance_.block(0, 0, old_calib_off, K_CLONE_STATE_SIZE);
+    P_new.block(old_calib_off, 0, K_CLONE_STATE_SIZE, old_calib_off) =
+      covariance_.block(0, 0, K_CLONE_STATE_SIZE, old_calib_off);
+    P_new.block(old_calib_off, new_calib_off, K_CLONE_STATE_SIZE, calib_dim) =
+      covariance_.block(0, old_calib_off, K_CLONE_STATE_SIZE, calib_dim);
+    P_new.block(new_calib_off, old_calib_off, calib_dim, K_CLONE_STATE_SIZE) =
+      covariance_.block(old_calib_off, 0, calib_dim, K_CLONE_STATE_SIZE);
+    P_new.block(old_calib_off, old_calib_off, K_CLONE_STATE_SIZE, K_CLONE_STATE_SIZE) =
+      covariance_.topLeftCorner(K_CLONE_STATE_SIZE, K_CLONE_STATE_SIZE);
+    covariance_ = std::move(P_new);
+  }
 
   timestamp_ = _timestamp;
 }
@@ -383,6 +569,7 @@ void EkfState::refreshFej()
 {
   imu_fej_ = imu_;
   clone_fej_ = clones_;
+  camera_calib_fej_ = camera_calibs_;
 }
 
 // --------------------------------------------------------------- helpers ----

@@ -36,6 +36,19 @@ struct ReliabilityProfile_s {
   bool exact_parallax = false;
 };
 
+CameraExtrinsics_s
+publicationCamera(const EkfState & _state, const std::vector<CameraExtrinsics_s> & _cameras, int _camera_id)
+{
+  CameraExtrinsics_s camera = _cameras.at(_camera_id);
+  if (_state.calibrationEnabled() && _camera_id < _state.cameraCount()) {
+    const auto & calibration = _state.cameraCalib(_camera_id);
+    camera.q_cb_ = calibration.q_cb_;
+    camera.p_cb_ = calibration.p_cb_;
+    camera.td_ = _state.sharedTimeOffset();
+  }
+  return camera;
+}
+
 double rayAngle(const Eigen::Vector3d & _a, const Eigen::Vector3d & _b)
 {
   return std::atan2(_a.cross(_b).norm(), _a.dot(_b));
@@ -98,7 +111,7 @@ bool reliablePoint(
       return false;
 
     const auto & clone = _state.clone(obs.clone_index_);
-    const auto & camera = _cameras[obs.camera_id_];
+    const auto camera = publicationCamera(_state, _cameras, obs.camera_id_);
     const Eigen::Matrix3d Rwb = EkfState::rotation(clone.q_);
     const Eigen::Matrix3d Rwc = Rwb * EkfState::rotation(camera.q_cb_);
     const Eigen::Vector3d camera_center = clone.p_ + Rwb * camera.p_cb_;
@@ -108,7 +121,8 @@ bool reliablePoint(
       return false;
 
     const Eigen::Vector2d projected = pc.head<2>() / pc.z();
-    const double error_px = (projected - obs.uv_).norm() * _options.focal_length_;
+    const double error_px =
+      (projected - SchurUpdater::correctedObservation(_state, obs)).norm() * _options.focal_length_;
     if (!std::isfinite(error_px) || error_px > _profile.max_residual_px)
       return false;
     squared_error_px += error_px * error_px;

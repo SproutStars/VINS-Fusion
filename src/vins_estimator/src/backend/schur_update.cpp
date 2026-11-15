@@ -126,6 +126,78 @@ constexpr double K_MIN_CAMERA_Z = 1e-6;
 // A triangulated point whose RMS reprojection error exceeds this is dropped.
 constexpr double K_MAX_TRIANGULATION_RMS_PX = 5.0;
 
+// True when an observation carries an explicit image velocity for td
+// compensation.  A non-zero vector is accepted even if the optional flag was
+// not set by an older caller.
+inline bool observation_has_velocity(const FeatureObservation_s & _observation)
+{
+  return _observation.has_velocity_ ||
+         (_observation.velocity_.allFinite() && _observation.velocity_.squaredNorm() > 0.0);
+}
+
+// Current/linearisation camera calibration used by the measurement model.  A
+// state with calibration disabled falls back to the caller-supplied constant
+// extrinsics, preserving the historical API bit-for-bit.
+struct CameraView_s {
+  CameraExtrinsics_s current_;
+  CameraExtrinsics_s fej_;
+  int camera_id_ = -1;
+  int calib_size_ = 0;
+  int calib_offset_ = -1;
+  int td_offset_ = -1;
+  int td_column_ = -1;
+};
+
+CameraView_s resolve_camera_view(const EkfState & _state, int _camera_id, const CameraExtrinsics_s & _fallback)
+{
+  CameraView_s view;
+  view.current_ = _fallback;
+  view.fej_ = _fallback;
+  view.camera_id_ = _camera_id;
+  if (!_state.calibrationEnabled() || _camera_id < 0 || _camera_id >= _state.cameraCount())
+    return view;
+
+  const CameraCalibrationNominal_s & cur = _state.cameraCalib(_camera_id);
+  const CameraCalibrationNominal_s & fej = _state.cameraCalibFej(_camera_id);
+  view.current_.q_cb_ = cur.q_cb_;
+  view.current_.p_cb_ = cur.p_cb_;
+  view.current_.td_ = _state.cameraTimeOffset(_camera_id);
+  view.fej_.q_cb_ = fej.q_cb_;
+  view.fej_.p_cb_ = fej.p_cb_;
+  view.fej_.td_ = fej.td_;
+  view.calib_size_ = _state.cameraCalibSize();
+  view.calib_offset_ = view.calib_size_ > 0 ? _state.cameraCalibOffset(_camera_id) : -1;
+  view.td_offset_ = _state.timeOffsetOffset();
+  if (view.td_offset_ >= 0)
+    view.td_column_ = view.calib_size_ > 0 ? K_CAMERA_EXTRINSIC_STATE_SIZE : 0;
+  return view;
+}
+
+CameraExtrinsics_s camera_from_state(const EkfState & _state, int _camera_id)
+{
+  CameraExtrinsics_s camera;
+  if (_camera_id < 0 || _camera_id >= _state.cameraCount())
+    return camera;
+  const CameraCalibrationNominal_s & calib = _state.cameraCalib(_camera_id);
+  camera.q_cb_ = calib.q_cb_;
+  camera.p_cb_ = calib.p_cb_;
+  camera.td_ = _state.cameraTimeOffset(_camera_id);
+  return camera;
+}
+
+// When calibration is being estimated the state is authoritative.  When it is
+// disabled the caller's constant vector is used unchanged.
+std::vector<CameraExtrinsics_s>
+resolved_cameras(const EkfState & _state, const std::vector<CameraExtrinsics_s> & _cameras)
+{
+  if (!_state.calibrationEnabled() || _state.cameraCount() <= 0)
+    return _cameras;
+  std::vector<CameraExtrinsics_s> cameras(static_cast<std::size_t>(_state.cameraCount()));
+  for (int cam = 0; cam < _state.cameraCount(); ++cam)
+    cameras[static_cast<std::size_t>(cam)] = camera_from_state(_state, cam);
+  return cameras;
+}
+
 // Normalised projection h = (x/z, y/z).
 inline Eigen::Vector2d project_normalized(const Eigen::Vector3d & _p_c)
 {
@@ -180,13 +252,6 @@ struct TrackScratch_s {
 TrackScratch_s & trackScratch()
 {
   static thread_local TrackScratch_s scratch;
-  return scratch;
-}
-
-// Scratch for the per-track 3x3 Schur solutions in update().
-std::vector<std::pair<int, Eigen::Matrix<double, 3, 6>>> & schurBlockScratch()
-{
-  static thread_local std::vector<std::pair<int, Eigen::Matrix<double, 3, 6>>> scratch;
   return scratch;
 }
 
@@ -283,29 +348,40 @@ ObservationJacobian_s SchurUpdater::observationJacobian(
     return J;
   if (_observation.clone_index_ < 0 || _observation.clone_index_ >= _state.numClones())
     return J;
-  if (!_world_point.allFinite() || !_observation.uv_.allFinite())
+  if (!_world_point.allFinite() || !_observation.uv_.allFinite() || !_observation.velocity_.allFinite())
     return J;
 
+  const CameraView_s view = resolve_camera_view(_state, _observation.camera_id_, _camera);
+  if (view.camera_id_ < 0)
+    return J;
+  const CameraExtrinsics_s & cur = view.current_;
+  const CameraExtrinsics_s & lin = view.fej_;
   const CloneNominal_s & clone = _state.clone(_observation.clone_index_);
   const CloneNominal_s & clone_lin = _state.cloneFej(_observation.clone_index_);
-  const Eigen::Matrix3d R_cb = EkfState::rotation(_camera.q_cb_);
+  const Eigen::Matrix3d R_cb = EkfState::rotation(cur.q_cb_);
 
-  // Residual at the current clone estimate, matching the OpenVINS FEJ update
-  // (the residual is evaluated at the current state).
+  // Residual at the current clone and calibration estimate.  The optional
+  // VINS-style td term uses the shared td state and the observation's sampled
+  // td/velocity; it is THE only td measurement term (no clone-td Jacobian is
+  // added, so information is not double counted).
   const Eigen::Matrix3d R_i = EkfState::rotation(clone.q_);
   const Eigen::Vector3d u = R_i.transpose() * (_world_point - clone.p_);
-  const Eigen::Vector3d p_c = R_cb.transpose() * (u - _camera.p_cb_);
+  const Eigen::Vector3d p_c = R_cb.transpose() * (u - cur.p_cb_);
   J.p_c_ = p_c;
   if (!(p_c.z() > K_MIN_CAMERA_Z))
     return J;  // behind / grazing the camera
-  const Eigen::Vector2d h = project_normalized(p_c);
+
+  Eigen::Vector2d h = project_normalized(p_c);
+  if (view.td_offset_ >= 0 && observation_has_velocity(_observation))
+    h += (_state.cameraTimeOffset(_observation.camera_id_) - _observation.cur_td_) * _observation.velocity_;
   J.residual_ = (_observation.uv_ - h) / sigma;
 
-  // Jacobian at the frozen clone FEJ, matching OpenVINS
+  // Jacobian at the frozen clone/calibration FEJ, matching OpenVINS
   // UpdaterHelper::get_feature_jacobian_3d().
   const Eigen::Matrix3d R_i_lin = EkfState::rotation(clone_lin.q_);
   const Eigen::Vector3d u_lin = R_i_lin.transpose() * (_world_point - clone_lin.p_);
-  const Eigen::Vector3d p_c_lin = R_cb.transpose() * (u_lin - _camera.p_cb_);
+  const Eigen::Matrix3d R_cb_lin = EkfState::rotation(lin.q_cb_);
+  const Eigen::Vector3d p_c_lin = R_cb_lin.transpose() * (u_lin - lin.p_cb_);
   if (!(p_c_lin.z() > K_MIN_CAMERA_Z))
     return J;
 
@@ -313,20 +389,70 @@ ObservationJacobian_s SchurUpdater::observationJacobian(
 
   // dp_c/d[dtheta_i | dp_i] and dp_c/d(P_w), all evaluated at the FEJ pose.
   Eigen::Matrix<double, 3, 6> dpc_dpose;
-  dpc_dpose.block<3, 3>(0, 0) = R_cb.transpose() * EkfState::skew(u_lin);
-  dpc_dpose.block<3, 3>(0, 3) = -R_cb.transpose() * R_i_lin.transpose();
-  const Eigen::Matrix3d dpc_dpoint = R_cb.transpose() * R_i_lin.transpose();
+  dpc_dpose.block<3, 3>(0, 0) = R_cb_lin.transpose() * EkfState::skew(u_lin);
+  dpc_dpose.block<3, 3>(0, 3) = -R_cb_lin.transpose() * R_i_lin.transpose();
+  const Eigen::Matrix3d dpc_dpoint = R_cb_lin.transpose() * R_i_lin.transpose();
 
   J.H_pose_ = (dh_dpc * dpc_dpose) / sigma;
   J.H_point_ = (dh_dpc * dpc_dpoint) / sigma;
-  J.valid_ = J.H_pose_.allFinite() && J.H_point_.allFinite() && J.residual_.allFinite();
+  J.camera_id_ = view.camera_id_;
+  J.calib_size_ = view.calib_size_;
+  J.calib_offset_ = view.calib_offset_;
+  J.td_offset_ = view.td_offset_;
+  J.td_column_ = view.td_column_;
+
+  // body_T_cam right perturbation:
+  //   R_cb_true = R_cb (I + [dtheta]x), p_cb_true = p_cb + dp
+  //   p_c = R_cb^T (u - p_cb)
+  //   dp_c/dtheta = [p_c]x, dp_c/dp_cb = -R_cb^T.
+  if (J.calib_size_ == K_CAMERA_EXTRINSIC_STATE_SIZE) {
+    Eigen::Matrix<double, 3, 6> dpc_dcalib;
+    dpc_dcalib.block<3, 3>(0, 0) = EkfState::skew(p_c_lin);
+    dpc_dcalib.block<3, 3>(0, 3) = -R_cb_lin.transpose();
+    J.H_calib_.block<2, 6>(0, 0) = (dh_dpc * dpc_dcalib) / sigma;
+  }
+
+  // Explicit VINS-style td Jacobian.  All H fields in this updater are
+  // dh/dx (residual is z-h, and the EKF uses dx = K r), so:
+  //   h_effective = h + (td-cur_td)*velocity  =>  H_td = +velocity/sigma.
+  // The same shared td column is used by every camera.
+  if (J.td_column_ >= 0) {
+    if (observation_has_velocity(_observation))
+      J.H_calib_.col(J.td_column_) = _observation.velocity_ / sigma;
+    else
+      J.H_calib_.col(J.td_column_).setZero();
+  }
+
+  J.valid_ =
+    J.H_pose_.allFinite() && J.H_point_.allFinite() && J.H_calib_.allFinite() && J.residual_.allFinite();
   return J;
+}
+
+ObservationJacobian_s SchurUpdater::observationJacobian(
+  const EkfState & _state, const Eigen::Vector3d & _world_point, const FeatureObservation_s & _observation) const
+{
+  const CameraExtrinsics_s camera = camera_from_state(_state, _observation.camera_id_);
+  return observationJacobian(_state, camera, _world_point, _observation);
+}
+
+Eigen::Vector2d
+SchurUpdater::correctedObservation(const EkfState & _state, const FeatureObservation_s & _observation)
+{
+  Eigen::Vector2d corrected = _observation.uv_;
+  if (
+    _state.hasTimeOffsetState() && observation_has_velocity(_observation) && _observation.camera_id_ >= 0 &&
+    _observation.camera_id_ < _state.cameraCount()) {
+    corrected -=
+      (_state.cameraTimeOffset(_observation.camera_id_) - _observation.cur_td_) * _observation.velocity_;
+  }
+  return corrected;
 }
 
 bool SchurUpdater::triangulate(
   const EkfState & _state, const std::vector<CameraExtrinsics_s> & _cameras, FeatureTrack_s & _track) const
 {
   _track.has_point_ = false;
+  const std::vector<CameraExtrinsics_s> cameras = resolved_cameras(_state, _cameras);
   const int num_obs = static_cast<int>(_track.observations_.size());
   if (num_obs < 2)
     return false;
@@ -336,7 +462,7 @@ bool SchurUpdater::triangulate(
   for (const FeatureObservation_s & obs : _track.observations_) {
     if (obs.clone_index_ < 0 || obs.clone_index_ >= _state.numClones())
       return false;
-    if (obs.camera_id_ < 0 || obs.camera_id_ >= static_cast<int>(_cameras.size()))
+    if (obs.camera_id_ < 0 || obs.camera_id_ >= static_cast<int>(cameras.size()))
       return false;
     if (!obs.uv_.allFinite())
       return false;
@@ -366,21 +492,23 @@ bool SchurUpdater::triangulate(
 
   const CloneNominal_s & c0 = _state.clone(first.clone_index_);
   const CloneNominal_s & c1 = _state.clone(last.clone_index_);
-  const CameraExtrinsics_s & cam0 = _cameras[static_cast<std::size_t>(first.camera_id_)];
-  const CameraExtrinsics_s & cam1 = _cameras[static_cast<std::size_t>(last.camera_id_)];
+  const CameraExtrinsics_s & cam0 = cameras[static_cast<std::size_t>(first.camera_id_)];
+  const CameraExtrinsics_s & cam1 = cameras[static_cast<std::size_t>(last.camera_id_)];
   const Eigen::Matrix3d R0 = EkfState::rotation(c0.q_);
   const Eigen::Matrix3d R1 = EkfState::rotation(c1.q_);
   const Eigen::Matrix3d R_cb0 = EkfState::rotation(cam0.q_cb_);
   const Eigen::Matrix3d R_cb1 = EkfState::rotation(cam1.q_cb_);
 
-  const Eigen::Vector3d b0(first.uv_.x(), first.uv_.y(), 1.0);
+  const Eigen::Vector2d first_uv = correctedObservation(_state, first);
+  const Eigen::Vector2d last_uv = correctedObservation(_state, last);
+  const Eigen::Vector3d b0(first_uv.x(), first_uv.y(), 1.0);
   // Point in the anchor camera frame at depth lambda:  p_C = lambda * b0.
   // Seen from the last clone: p_c1 = m + lambda * d, which must be parallel
   // to b1, i.e. [b1]_x (m + lambda d) = 0 solved in least squares.
   const Eigen::Vector3d t0 = R1.transpose() * ((c0.p_ - c1.p_) + R0 * cam0.p_cb_);
   const Eigen::Vector3d m = R_cb1.transpose() * (t0 - cam1.p_cb_);
   const Eigen::Vector3d d = R_cb1.transpose() * R1.transpose() * R0 * R_cb0 * b0;
-  const Eigen::Vector3d b1(last.uv_.x(), last.uv_.y(), 1.0);
+  const Eigen::Vector3d b1(last_uv.x(), last_uv.y(), 1.0);
   const Eigen::Matrix3d Sx = EkfState::skew(b1);
   const Eigen::Vector3d lhs = Sx * d;
   const double denom = lhs.squaredNorm();
@@ -391,8 +519,8 @@ bool SchurUpdater::triangulate(
     return false;  // behind the anchor
 
   // ---- Gauss-Newton on the anchored inverse-depth parameterisation -------
-  double alpha = first.uv_.x();
-  double beta = first.uv_.y();
+  double alpha = first_uv.x();
+  double beta = first_uv.y();
   double rho = 1.0 / lambda;
   if (!std::isfinite(rho) || !(rho > 0.0))
     return false;
@@ -405,7 +533,7 @@ bool SchurUpdater::triangulate(
     Eigen::Vector3d g = Eigen::Vector3d::Zero();
     for (const FeatureObservation_s & obs : _track.observations_) {
       const CloneNominal_s & ci = _state.clone(obs.clone_index_);
-      const CameraExtrinsics_s & cam = _cameras[static_cast<std::size_t>(obs.camera_id_)];
+      const CameraExtrinsics_s & cam = cameras[static_cast<std::size_t>(obs.camera_id_)];
       const Eigen::Matrix3d Ri = EkfState::rotation(ci.q_);
       const Eigen::Matrix3d Rc = EkfState::rotation(cam.q_cb_);
       const Eigen::Vector3d u = Ri.transpose() * (P_w - ci.p_);
@@ -421,7 +549,7 @@ bool SchurUpdater::triangulate(
       dpc_dp.col(1) = chain * Eigen::Vector3d(0.0, 1.0 / rho, 0.0);
       dpc_dp.col(2) = -(chain * p_C) / rho;
 
-      const Eigen::Vector2d res = obs.uv_ - project_normalized(p_c);
+      const Eigen::Vector2d res = correctedObservation(_state, obs) - project_normalized(p_c);
       // J = d(residual)/d(alpha, beta, rho).  Normal equations are
       // H = sum J^T J, g = sum J^T res and the Gauss-Newton step is
       // x <- x - H^-1 g (a *descent* step, hence the subtraction below).
@@ -465,14 +593,14 @@ bool SchurUpdater::triangulate(
   double sq_res = 0.0;
   for (const FeatureObservation_s & obs : _track.observations_) {
     const CloneNominal_s & ci = _state.clone(obs.clone_index_);
-    const CameraExtrinsics_s & cam = _cameras[static_cast<std::size_t>(obs.camera_id_)];
+    const CameraExtrinsics_s & cam = cameras[static_cast<std::size_t>(obs.camera_id_)];
     const Eigen::Matrix3d Ri = EkfState::rotation(ci.q_);
     const Eigen::Matrix3d Rc = EkfState::rotation(cam.q_cb_);
     const Eigen::Vector3d u = Ri.transpose() * (P_w - ci.p_);
     const Eigen::Vector3d p_c = Rc.transpose() * (u - cam.p_cb_);
     if (!(p_c.z() > K_MIN_CAMERA_Z))
       return false;
-    const Eigen::Vector2d res = obs.uv_ - project_normalized(p_c);
+    const Eigen::Vector2d res = correctedObservation(_state, obs) - project_normalized(p_c);
     if (!res.allFinite())
       return false;
     sq_res += res.squaredNorm();
@@ -492,6 +620,14 @@ bool SchurUpdater::triangulate(
   return true;
 }
 
+bool SchurUpdater::triangulate(const EkfState & _state, FeatureTrack_s & _track) const
+{
+  std::vector<CameraExtrinsics_s> cameras(static_cast<std::size_t>(std::max(0, _state.cameraCount())));
+  for (int cam = 0; cam < _state.cameraCount(); ++cam)
+    cameras[static_cast<std::size_t>(cam)] = camera_from_state(_state, cam);
+  return triangulate(_state, cameras, _track);
+}
+
 bool SchurUpdater::reduceTrackImpl(
   const EkfState & _state, const std::vector<CameraExtrinsics_s> & _cameras, const FeatureTrack_s & _track,
   std::vector<ObservationJacobian_s> & _jacobians, TrackReduction_s & _reduction) const
@@ -504,7 +640,8 @@ bool SchurUpdater::reduceTrackImpl(
   if (P.rows() != _state.size() || P.cols() != _state.size())
     return false;
 
-  if (!fill_track_jacobians(*this, _state, _cameras, _track, _jacobians))
+  const std::vector<CameraExtrinsics_s> cameras = resolved_cameras(_state, _cameras);
+  if (!fill_track_jacobians(*this, _state, cameras, _track, _jacobians))
     return false;
 
   // ---- point block and per-clone W blocks -------------------------------
@@ -521,6 +658,15 @@ bool SchurUpdater::reduceTrackImpl(
       it = _reduction.W_.emplace(ci, Eigen::Matrix<double, 6, 3>::Zero()).first;
     }
     it->second.noalias() += J.H_pose_.transpose() * J.H_point_;
+
+    if (J.calib_size_ == K_CAMERA_EXTRINSIC_STATE_SIZE) {
+      auto ical = _reduction.W_calib_.find(J.camera_id_);
+      if (ical == _reduction.W_calib_.end())
+        ical = _reduction.W_calib_.emplace(J.camera_id_, Eigen::Matrix<double, 6, 3>::Zero()).first;
+      ical->second.noalias() += J.H_calib_.block<2, 6>(0, 0).transpose() * J.H_point_;
+    }
+    if (J.td_column_ >= 0)
+      _reduction.W_td_.noalias() += J.H_calib_.col(J.td_column_).transpose() * J.H_point_;
   }
 
   // Weighted -> pixel residual: ||r|| * sigma * focal_length.
@@ -581,6 +727,10 @@ bool SchurUpdater::reduceTrackImpl(
     const ObservationJacobian_s & Ja = _jacobians[static_cast<std::size_t>(a)];
     const int oa = _state.cloneOffset(_track.observations_[static_cast<std::size_t>(a)].clone_index_);
     Hx.block<2, 6>(2 * a, oa) = Ja.H_pose_;
+    if (Ja.calib_size_ == K_CAMERA_EXTRINSIC_STATE_SIZE)
+      Hx.block<2, 6>(2 * a, Ja.calib_offset_) = Ja.H_calib_.block<2, 6>(0, 0);
+    if (Ja.td_column_ >= 0)
+      Hx.block<2, 1>(2 * a, Ja.td_offset_) = Ja.H_calib_.col(Ja.td_column_);
     Hf.block<2, 3>(2 * a, 0) = Ja.H_point_;
     r.segment<2>(2 * a) = Ja.residual_;
   }
@@ -665,10 +815,19 @@ TrackReduction_s SchurUpdater::reduceTrack(
   return red;
 }
 
+TrackReduction_s SchurUpdater::reduceTrack(const EkfState & _state, const FeatureTrack_s & _track) const
+{
+  std::vector<CameraExtrinsics_s> cameras(static_cast<std::size_t>(std::max(0, _state.cameraCount())));
+  for (int cam = 0; cam < _state.cameraCount(); ++cam)
+    cameras[static_cast<std::size_t>(cam)] = camera_from_state(_state, cam);
+  return reduceTrack(_state, cameras, _track);
+}
+
 UpdateSummary_s SchurUpdater::update(
   EkfState & _state, std::vector<FeatureTrack_s> & _tracks, const std::vector<CameraExtrinsics_s> & _cameras)
 {
   UpdateSummary_s summary;
+  const std::vector<CameraExtrinsics_s> cameras = resolved_cameras(_state, _cameras);
   // P6 starvation-adaptive weak update. A value > 1.0 relaxes the chi2 gate
   // threshold and down-weights the accepted observations (sigma -> sigma *
   // scale, i.e. R * scale^2). Defensive sanitisation: non-finite or <= 1.0
@@ -779,7 +938,7 @@ UpdateSummary_s SchurUpdater::update(
       // 0.1116 m on V2_01_easy 20 s and 0.2444 m vs 0.2295 m / 0.3895 m vs
       // 0.3809 m on the full V2_01_easy / V2_02_medium sequences, i.e. it was
       // never better on a full sequence, so the reference behaviour stays.
-      if (!triangulate(_state, _cameras, _tracks[i])) {
+      if (!triangulate(_state, cameras, _tracks[i])) {
         summary.rejected_feature_ids_.push_back(_tracks[i].id_);  // no usable point
         continue;
       }
@@ -802,7 +961,7 @@ UpdateSummary_s SchurUpdater::update(
     std::vector<int> triangulated;
     triangulated.reserve(accepted.size());
     for (const int index : accepted) {
-      if (!triangulate(_state, _cameras, _tracks[static_cast<std::size_t>(index)])) {
+      if (!triangulate(_state, cameras, _tracks[static_cast<std::size_t>(index)])) {
         summary.rejected_feature_ids_.push_back(_tracks[static_cast<std::size_t>(index)].id_);
         continue;
       }
@@ -823,7 +982,7 @@ UpdateSummary_s SchurUpdater::update(
     FeatureTrack_s & track = _tracks[static_cast<std::size_t>(index)];
     TrackReduction_s red;
     std::vector<ObservationJacobian_s> & jac = jacobian_scratch();
-    if (!reduceTrackImpl(_state, _cameras, track, jac, red)) {
+    if (!reduceTrackImpl(_state, cameras, track, jac, red)) {
       summary.rejected_feature_ids_.push_back(track.id_);
       continue;
     }
@@ -852,6 +1011,29 @@ UpdateSummary_s SchurUpdater::update(
       A.block<6, 6>(off, off) += J.H_pose_.transpose() * J.H_pose_;
       b.segment<6>(off) += J.H_pose_.transpose() * J.residual_;
 
+      if (J.calib_size_ == K_CAMERA_EXTRINSIC_STATE_SIZE) {
+        const int offc = J.calib_offset_;
+        const Eigen::Matrix<double, 2, 6> Hc = J.H_calib_.block<2, 6>(0, 0);
+        A.block<6, 6>(offc, offc) += Hc.transpose() * Hc;
+        b.segment<6>(offc) += Hc.transpose() * J.residual_;
+        A.block<6, 6>(off, offc) += J.H_pose_.transpose() * Hc;
+        A.block<6, 6>(offc, off) += Hc.transpose() * J.H_pose_;
+      }
+      if (J.td_column_ >= 0) {
+        const int offt = J.td_offset_;
+        const Eigen::Vector2d Htd = J.H_calib_.col(J.td_column_);
+        A(offt, offt) += Htd.squaredNorm();
+        b(offt) += Htd.dot(J.residual_);
+        A.block<6, 1>(off, offt) += J.H_pose_.transpose() * Htd;
+        A.block<1, 6>(offt, off) += Htd.transpose() * J.H_pose_;
+        if (J.calib_size_ == K_CAMERA_EXTRINSIC_STATE_SIZE) {
+          const int offc = J.calib_offset_;
+          const Eigen::Matrix<double, 2, 6> Hc = J.H_calib_.block<2, 6>(0, 0);
+          A.block<6, 1>(offc, offt) += Hc.transpose() * Htd;
+          A.block<1, 6>(offt, offc) += Htd.transpose() * Hc;
+        }
+      }
+
       const double px = J.residual_.norm() * sigma * options_.focal_length_;
       residual_sum_px += px;
       residual_max_px = std::max(residual_max_px, px);
@@ -863,26 +1045,51 @@ UpdateSummary_s SchurUpdater::update(
     // an explicit inverse, and reuse the solutions for every W_i block.
     Eigen::LDLT<Eigen::Matrix3d> point_ldlt(red.A_point_);
     const Eigen::Vector3d point_rhs = point_ldlt.solve(red.b_point_);
-    std::vector<std::pair<int, Eigen::Matrix<double, 3, 6>>> & schur_blocks = schurBlockScratch();
-    schur_blocks.clear();
-    schur_blocks.reserve(red.W_.size());
+    struct SchurBlock_s {
+      int offset_ = 0;
+      int dim_ = 0;
+      Eigen::MatrixXd W_;   // dim x 3
+      Eigen::MatrixXd Xi_;  // 3 x dim
+    };
+    std::vector<SchurBlock_s> schur_blocks;
+    schur_blocks.reserve(red.W_.size() + red.W_calib_.size() + 1);
     bool schur_ok = point_ldlt.info() == Eigen::Success && point_rhs.allFinite();
     for (const auto & wi : red.W_) {
-      const Eigen::Matrix<double, 3, 6> Xi = point_ldlt.solve(wi.second.transpose());
-      schur_ok = schur_ok && Xi.allFinite();
-      schur_blocks.emplace_back(wi.first, Xi);
+      SchurBlock_s block;
+      block.offset_ = _state.cloneOffset(wi.first);
+      block.dim_ = 6;
+      block.W_ = wi.second;
+      block.Xi_ = point_ldlt.solve(wi.second.transpose());
+      schur_ok = schur_ok && block.Xi_.allFinite();
+      schur_blocks.push_back(std::move(block));
+    }
+    for (const auto & wi : red.W_calib_) {
+      SchurBlock_s block;
+      block.offset_ = _state.cameraCalibOffset(wi.first);
+      block.dim_ = 6;
+      block.W_ = wi.second;
+      block.Xi_ = point_ldlt.solve(wi.second.transpose());
+      schur_ok = schur_ok && block.Xi_.allFinite();
+      schur_blocks.push_back(std::move(block));
+    }
+    if (_state.hasTimeOffsetState()) {
+      SchurBlock_s block;
+      block.offset_ = _state.timeOffsetOffset();
+      block.dim_ = 1;
+      block.W_ = red.W_td_;
+      block.Xi_ = point_ldlt.solve(red.W_td_.transpose());
+      schur_ok = schur_ok && block.Xi_.allFinite();
+      schur_blocks.push_back(std::move(block));
     }
     if (!schur_ok) {
       summary.rejected_feature_ids_.push_back(track.id_);
       continue;
     }
 
-    for (const auto & wi : red.W_) {
-      const int oi = _state.cloneOffset(wi.first);
-      b.segment<6>(oi).noalias() -= wi.second * point_rhs;
-      for (const auto & xj : schur_blocks) {
-        const int oj = _state.cloneOffset(xj.first);
-        A.block<6, 6>(oi, oj).noalias() -= wi.second * xj.second;
+    for (const SchurBlock_s & wi : schur_blocks) {
+      b.segment(wi.offset_, wi.dim_).noalias() -= wi.W_ * point_rhs;
+      for (const SchurBlock_s & xj : schur_blocks) {
+        A.block(wi.offset_, xj.offset_, wi.dim_, xj.dim_).noalias() -= wi.W_ * xj.Xi_;
       }
     }
 
@@ -940,8 +1147,19 @@ UpdateSummary_s SchurUpdater::update(
 
   // A is symmetric by construction (including the W A_ff^-1 W^T Schur
   // terms); symmetrise before an eigensolver to suppress roundoff asymmetry.
+  // Visual rows never touch the 15 live IMU columns, so with calibration
+  // enabled only the clone+calibration bottom-right block is decomposed.  The
+  // fixed-layout path keeps the historical full decomposition.
   EkfState::symmetrize(A);
-  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(A);
+  const bool reduced_eig = _state.calibrationEnabled() && n > K_IMU_STATE_SIZE;
+  const int red_dim = reduced_eig ? n - K_IMU_STATE_SIZE : n;
+  Eigen::MatrixXd A_red;
+  if (reduced_eig) {
+    A_red = A.bottomRightCorner(red_dim, red_dim);
+    EkfState::symmetrize(A_red);
+  }
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig;
+  eig.compute(reduced_eig ? A_red : A);
   if (eig.info() != Eigen::Success)
     return abandon("A eigensolver failed");
   const Eigen::VectorXd & lambda = eig.eigenvalues();
@@ -961,7 +1179,7 @@ UpdateSummary_s SchurUpdater::update(
   int rank = 0;
   double lambda_min_kept = std::numeric_limits<double>::infinity();
   double lambda_max_kept = 0.0;
-  for (int i = 0; i < n; ++i) {
+  for (int i = 0; i < red_dim; ++i) {
     if (lambda(i) > rank_tol) {
       ++rank;
       lambda_min_kept = std::min(lambda_min_kept, lambda(i));
@@ -972,20 +1190,58 @@ UpdateSummary_s SchurUpdater::update(
     return abandon("zero-rank Schur information");
   summary.rank_ = rank;
   summary.condition_ = lambda_max_kept / lambda_min_kept;
+  if (reduced_eig && summary.condition_ > options_.condition_limit_ && options_.condition_limit_ > 0.0) {
+    // The reduced information mixes rotation/translation/td physical units.
+    // Only when the raw metric would reject the frame, re-measure it after
+    // diagonal normalising EVERY reduced column to unit information.  This is
+    // a dimensionless correlation condition, used for the gate only; the
+    // update still uses the unscaled A/eigenvectors above.  Keeping the second
+    // eigensolve behind the raw-limit check avoids its cost on normal frames.
+    Eigen::VectorXd D = Eigen::VectorXd::Ones(red_dim);
+    const double diag_scale = std::max(1.0, A_red.diagonal().cwiseAbs().maxCoeff());
+    for (int i = 0; i < red_dim; ++i) {
+      const double d = std::max(0.0, A_red(i, i));
+      if (d > options_.info_rank_rtol_ * diag_scale)
+        D(i) = 1.0 / std::sqrt(d);
+    }
+    const Eigen::MatrixXd A_scaled = D.asDiagonal() * A_red * D.asDiagonal();
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> scaled_eig(A_scaled);
+    if (scaled_eig.info() != Eigen::Success)
+      return abandon("scaled A eigensolver failed");
+    const Eigen::VectorXd & scaled_lambda = scaled_eig.eigenvalues();
+    const double scaled_scale = scaled_lambda.cwiseAbs().maxCoeff();
+    if (scaled_scale > 0.0) {
+      const double scaled_tol = options_.info_rank_rtol_ * scaled_scale;
+      double scaled_min = std::numeric_limits<double>::infinity();
+      double scaled_max = 0.0;
+      for (int i = 0; i < red_dim; ++i) {
+        if (scaled_lambda(i) > scaled_tol) {
+          scaled_min = std::min(scaled_min, scaled_lambda(i));
+          scaled_max = std::max(scaled_max, scaled_lambda(i));
+        }
+      }
+      if (scaled_min > 0.0 && std::isfinite(scaled_max))
+        summary.condition_ = scaled_max / scaled_min;
+    }
+  }
   if (!std::isfinite(summary.condition_) || (options_.condition_limit_ > 0.0 && summary.condition_ > options_.condition_limit_))
     return abandon("Schur information condition limit exceeded");
 
   // Square-root information L: L^T L is the retained part of A.  The
   // measurement residual z is chosen so that L^T z = V V^T b.
-  Eigen::MatrixXd L(rank, n);
+  Eigen::MatrixXd L = Eigen::MatrixXd::Zero(rank, n);
   Eigen::VectorXd z(rank);
   int row = 0;
-  for (int i = 0; i < n; ++i) {
+  const Eigen::VectorXd & b_eig = reduced_eig ? b.tail(red_dim) : b;
+  for (int i = 0; i < red_dim; ++i) {
     if (!(lambda(i) > rank_tol))
       continue;
     const double sqrt_lambda = std::sqrt(lambda(i));
-    L.row(row) = sqrt_lambda * eig.eigenvectors().col(i).transpose();
-    z(row) = eig.eigenvectors().col(i).dot(b) / sqrt_lambda;
+    if (reduced_eig)
+      L.block(row, K_IMU_STATE_SIZE, 1, red_dim) = sqrt_lambda * eig.eigenvectors().col(i).transpose();
+    else
+      L.row(row) = sqrt_lambda * eig.eigenvectors().col(i).transpose();
+    z(row) = eig.eigenvectors().col(i).dot(b_eig) / sqrt_lambda;
     ++row;
   }
   if (!L.allFinite() || !z.allFinite())
@@ -1038,6 +1294,17 @@ UpdateSummary_s SchurUpdater::update(
     const Eigen::Matrix<double, 6, 1> dclone = dx.segment<6>(_state.cloneOffset(i));
     EkfState::applyPoseCorrection(_state.clone(i).q_, _state.clone(i).p_, dclone);
   }
+  if (_state.calibrationEnabled()) {
+    if (_state.cameraCalibSize() == K_CAMERA_EXTRINSIC_STATE_SIZE) {
+      for (int cam = 0; cam < _state.cameraCount(); ++cam) {
+        const Eigen::Matrix<double, 6, 1> dcalib = dx.segment<6>(_state.cameraCalibOffset(cam));
+        // dtd is injected once below; camera != 0 ignores it by construction.
+        _state.injectCameraCalibrationDelta(cam, dcalib, 0.0);
+      }
+    }
+    if (_state.hasTimeOffsetState())
+      _state.injectSharedTimeOffsetDelta(dx(_state.timeOffsetOffset()));
+  }
   P = P_new;
   EkfState::symmetrize(P);
   summary.applied_ = true;
@@ -1048,6 +1315,15 @@ UpdateSummary_s SchurUpdater::update(
     summary.max_residual_px_ = residual_max_px;
   }
   return summary;
+}
+
+
+UpdateSummary_s SchurUpdater::update(EkfState & _state, std::vector<FeatureTrack_s> & _tracks)
+{
+  std::vector<CameraExtrinsics_s> cameras(static_cast<std::size_t>(std::max(0, _state.cameraCount())));
+  for (int cam = 0; cam < _state.cameraCount(); ++cam)
+    cameras[static_cast<std::size_t>(cam)] = camera_from_state(_state, cam);
+  return update(_state, _tracks, cameras);
 }
 
 }  // namespace backend

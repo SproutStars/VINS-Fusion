@@ -638,3 +638,92 @@ TEST(SchurCloudQuality, CrossSegmentObservationsReduceSyntheticTriangulationErro
             << " full_mean=" << full_mean << std::endl;
   EXPECT_LT(full_mean, short_mean);
 }
+
+TEST(SchurFeatureHistory, PreservesCalibrationMeasurementsThroughSelectionAndCloudHistory)
+{
+  FeatureHistory history;
+  SchurCloudHistory cloud;
+  FeatureHistory::FrameObservation_s view;
+  view.feature_id_ = 731;
+  view.uv_ = Eigen::Vector2d(0.12, -0.03);
+  view.pixel_uv_ = Eigen::Vector2d(340.0, 222.0);
+  view.has_pixel_uv_ = true;
+  view.velocity_ = Eigen::Vector2d(0.32, -0.17);
+  view.cur_td_ = 0.006;
+  history.addFrameWithPixels(10, 0, {view});
+  cloud.addFrameWithPixels(10, 0, {view});
+  view.cur_td_ = 0.007;
+  view.velocity_ *= 0.5;
+  history.addFrameWithPixels(11, 0, {view});
+  cloud.addFrameWithPixels(11, 0, {view});
+  // A lost track enters the actual measurement selection path; the allTracks
+  // publication path and the longer-lived cloud history must retain the same
+  // acquisition metadata after the measurement history is consumed.
+  const auto selected = history.selectTracks(10, 12, 2, 10);
+  ASSERT_EQ(selected.tracks_.size(), 1u);
+  ASSERT_EQ(selected.tracks_[0].observations_.size(), 2u);
+  EXPECT_DOUBLE_EQ(selected.tracks_[0].observations_[0].cur_td_, 0.006);
+  EXPECT_TRUE(selected.tracks_[0].observations_[0].velocity_.isApprox(Eigen::Vector2d(0.32, -0.17)));
+  EXPECT_DOUBLE_EQ(selected.tracks_[0].observations_[1].cur_td_, 0.007);
+  const auto published = history.allTracks(10);
+  ASSERT_EQ(published.size(), 1u);
+  EXPECT_TRUE(published[0].observations_[1].velocity_.isApprox(view.velocity_));
+  history.eraseFeatures({731});
+  EXPECT_EQ(history.numFeatures(), 0u);
+  const auto retained = cloud.tracks(10, 10);
+  ASSERT_EQ(retained.size(), 1u);
+  EXPECT_DOUBLE_EQ(retained[0].observations_[0].cur_td_, 0.006);
+  EXPECT_TRUE(retained[0].observations_[1].velocity_.isApprox(view.velocity_));
+}
+
+TEST(SchurVisualizationCalibration, UsesEstimatedCalibrationForCloudQuality)
+{
+  EkfOptions_s options;
+  options.num_cameras_ = 1;
+  options.estimate_extrinsics_ = true;
+  options.estimate_time_offset_ = true;
+  options.window_size_ = 4;
+  CameraCalibrationNominal_s calibration;
+  calibration.p_cb_ = Eigen::Vector3d(0.3, 0.1, 0.0);
+  calibration.q_cb_ = EkfState::quaternionFromAxisAngle(Eigen::Vector3d(0.0, 0.15, 0.0));
+  calibration.td_ = 0.02;
+  EkfState state;
+  state.reset(
+    options, 0.0, Eigen::Vector4d(1, 0, 0, 0), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+    Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), {calibration});
+  state.augmentClone(0.0);
+  state.imu().p_ = Eigen::Vector3d(0.8, 0.0, 0.0);
+  state.refreshImuFej();
+  state.augmentClone(1.0);
+  state.imu().p_ = Eigen::Vector3d(1.6, 0.1, 0.0);
+  state.refreshImuFej();
+  state.augmentClone(2.0);
+  CameraExtrinsics_s estimated;
+  estimated.q_cb_ = calibration.q_cb_;
+  estimated.p_cb_ = calibration.p_cb_;
+  estimated.td_ = calibration.td_;
+  FeatureTrack_s track;
+  track.id_ = 881;
+  const Eigen::Vector3d truth(0.6, 0.2, 4.0);
+  for (int i = 0; i < 3; ++i) {
+    FeatureObservation_s obs;
+    obs.clone_index_ = i;
+    obs.velocity_ = Eigen::Vector2d(0.6, -0.3);
+    obs.cur_td_ = 0.0;
+    obs.uv_ = project_world(state, i, estimated, truth) + calibration.td_ * obs.velocity_;
+    obs.pixel_uv_ = obs.uv_ * 460.0 + Eigen::Vector2d(320.0, 240.0);
+    obs.has_pixel_uv_ = true;
+    track.observations_.push_back(obs);
+  }
+  const SchurUpdater updater(visualization_options());
+  // The legacy caller vector deliberately holds stale config calibration.
+  // Triangulation and quality filtering must both use the filter estimate.
+  const std::vector<FeatureTrack_s> tracks{track};
+  SchurVisualizationQuality_s quality;
+  quality.gate_all_cloud_tracks_ = true;
+  const auto snapshot = makeSchurVisualizationSnapshot(
+    state, {CameraExtrinsics_s()}, updater, tracks, tracks, 2, 2.0, {}, nullptr, quality);
+  ASSERT_TRUE(snapshot.valid_);
+  ASSERT_EQ(snapshot.cloud_points_.size(), 1u);
+  EXPECT_TRUE(snapshot.cloud_points_[0].world_point_.isApprox(truth, 1e-6));
+}

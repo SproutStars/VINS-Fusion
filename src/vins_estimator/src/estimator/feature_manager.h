@@ -97,7 +97,12 @@ public:
   void triangulatePoint(
     Eigen::Matrix<double, 3, 4> & _Pose0, Eigen::Matrix<double, 3, 4> & _Pose1, Eigen::Vector2d & _point0,
     Eigen::Vector2d & _point1, Eigen::Vector3d & _point_3d);
-  void initFramePoseByPnP(int _frameCnt, Vector3d _Ps[], Matrix3d _Rs[], Vector3d _tic[], Matrix3d _ric[]);
+  // Returns false when there are too few triangulated correspondences, PnP
+  // fails, or the solved pose has a large median reprojection error. Callers
+  // that need visual-only initialization must not retain the previous IMU
+  // predicted pose on failure.
+  bool initFramePoseByPnP(
+    int _frameCnt, Vector3d _Ps[], Matrix3d _Rs[], Vector3d _tic[], Matrix3d _ric[], bool _strict = false);
   bool solvePoseByPnP(
     Eigen::Matrix3d & _R_initial, Eigen::Vector3d & _P_initial, vector<cv::Point2f> & _pts2D,
     vector<cv::Point3f> & _pts3D);

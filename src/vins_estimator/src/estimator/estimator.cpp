@@ -135,6 +135,14 @@ void Estimator::clearState()
   schur_features_total_ = 0.0;
   schur_rejected_total_ = 0.0;
   schur_soft_restart_time_ = -1.0;
+  schur_motion_frames_.clear();
+  schur_init_gyro_bias_solved_ = false;
+  schur_last_init_log_time_ = -1.0;
+  schur_last_init_log_frame_ = -1000;
+  schur_last_frame_time_ = -1.0;
+  for (bool & valid : schur_pnp_valid_)
+    valid = false;
+  schur_initializer_.reset();
   schur_starvation_monitor_.reset(0.0);
   schur_landing_static_.reset();
   schur_landing_static_updates_ = 0;
@@ -219,6 +227,7 @@ void Estimator::setParameter()
   td_ = TD;
   g_ = G;
   cout << "set g " << g_.transpose() << '\n';
+  configureSchurInitializer();
   featureTracker_.readIntrinsicParameter(CAM_NAMES);
 
   std::cout << "MULTIPLE_THREAD is " << MULTIPLE_THREAD << '\n';
@@ -377,6 +386,69 @@ bool Estimator::getIMUInterval(
   return true;
 }
 
+bool Estimator::resampleImuIntervalSamples(
+  const std::vector<std::pair<double, Eigen::Vector3d>> & _acc,
+  const std::vector<std::pair<double, Eigen::Vector3d>> & _gyr, double _prev_time, double _cur_time,
+  const Eigen::Vector3d & _acc0, const Eigen::Vector3d & _gyr0, std::vector<ImuIntervalSample_s> & _output)
+{
+  _output.clear();
+  if (
+    _acc.empty() || _gyr.empty() || _acc.size() != _gyr.size() || !std::isfinite(_prev_time) ||
+    !std::isfinite(_cur_time) || !(_cur_time > _prev_time))
+    return false;
+
+  double boundary = _prev_time;
+  Eigen::Vector3d previous_acc = _acc0;
+  Eigen::Vector3d previous_gyr = _gyr0;
+  double previous_time = _prev_time;
+
+  for (std::size_t i = 0; i < _acc.size(); ++i) {
+    const double sample_time = _acc[i].first;
+    if (!std::isfinite(sample_time) || _gyr[i].first != sample_time)
+      continue;
+    if (sample_time <= boundary)
+      continue;
+
+    if (sample_time >= _cur_time) {
+      const double span = sample_time - previous_time;
+      if (!(span > 1e-12))
+        break;
+      const double alpha = std::max(0.0, std::min(1.0, (_cur_time - previous_time) / span));
+      ImuIntervalSample_s sample;
+      sample.timestamp_ = _cur_time;
+      sample.dt_ = _cur_time - boundary;
+      sample.acc_ = previous_acc + alpha * (_acc[i].second - previous_acc);
+      sample.gyr_ = previous_gyr + alpha * (_gyr[i].second - previous_gyr);
+      if (sample.dt_ > 0.0 && sample.acc_.allFinite() && sample.gyr_.allFinite())
+        _output.push_back(sample);
+      boundary = _cur_time;
+      break;
+    }
+
+    ImuIntervalSample_s sample;
+    sample.timestamp_ = sample_time;
+    sample.dt_ = sample_time - boundary;
+    sample.acc_ = _acc[i].second;
+    sample.gyr_ = _gyr[i].second;
+    if (sample.dt_ > 0.0 && sample.acc_.allFinite() && sample.gyr_.allFinite()) {
+      _output.push_back(sample);
+      boundary = sample_time;
+    }
+    previous_time = sample_time;
+    previous_acc = _acc[i].second;
+    previous_gyr = _gyr[i].second;
+  }
+
+  // getIMUInterval() must supply a sensor endpoint at or after cur_time. If
+  // it does not, reject the interval explicitly: never hold/pad a sample and
+  // never label a sensor-future value with the image timestamp.
+  if (boundary < _cur_time - 1e-12) {
+    _output.clear();
+    return false;
+  }
+  return true;
+}
+
 bool Estimator::imuAvailable(double _t)
 {
   std::lock_guard<std::mutex> lock(mBuf_);
@@ -411,15 +483,45 @@ void Estimator::processMeasurements()
     if (USE_IMU) {
       if (!initFirstPoseFlag_)
         initFirstIMUPose(accVector);
-      for (size_t i = 0; i < accVector.size(); ++i) {
-        double dt;
-        if (i == 0)
-          dt = accVector[i].first - prevTime_;
-        else if (i == accVector.size() - 1)
-          dt = curTime_ - accVector[i - 1].first;
-        else
-          dt = accVector[i].first - accVector[i - 1].first;
-        processIMU(accVector[i].first, dt, accVector[i].second, gyrVector[i].second);
+      const bool precise_schur_boundary =
+        BACKEND_TYPE == "schur_ekf" && (standaloneSchurInitializationEnabled() || schur_ekf_active_);
+      if (precise_schur_boundary) {
+        double interval_start = prevTime_;
+        if (interval_start < 0.0 && !accVector.empty()) {
+          // First image: initialise the anchor sample without inventing a huge
+          // dt from prevTime_ == -1.
+          processIMU(accVector.front().first, 0.0, accVector.front().second, gyrVector.front().second);
+          interval_start = accVector.front().first;
+        }
+        std::vector<ImuIntervalSample_s> samples;
+        if (!resampleImuIntervalSamples(
+              accVector, gyrVector, interval_start, curTime_, acc_0_, gyr_0_, samples)) {
+          suppress_state_publication_ = true;
+          RCLCPP_ERROR(
+            vins::logger(),
+            "Schur IMU boundary rejected: interval [%.9f, %.9f] has no future sensor endpoint; "
+            "refusing to pad/hold a sample or propagate future leakage",
+            interval_start, curTime_);
+          if (MULTIPLE_THREAD)
+            continue;
+          return;
+        }
+        for (const ImuIntervalSample_s & sample : samples) {
+          if (sample.dt_ > 0.0)
+            processIMU(sample.timestamp_, sample.dt_, sample.acc_, sample.gyr_);
+        }
+      } else {
+        // Historical Ceres path kept bit-for-bit for A/B comparison.
+        for (size_t i = 0; i < accVector.size(); ++i) {
+          double dt;
+          if (i == 0)
+            dt = accVector[i].first - prevTime_;
+          else if (i == accVector.size() - 1)
+            dt = curTime_ - accVector[i - 1].first;
+          else
+            dt = accVector[i].first - accVector[i - 1].first;
+          processIMU(accVector[i].first, dt, accVector[i].second, gyrVector[i].second);
+        }
       }
     }
     bool restart_after_failure = false;
@@ -501,18 +603,25 @@ void Estimator::processIMU(
     gyr_0_ = _angular_velocity;
   }
 
+  if (standaloneSchurInitializationEnabled() && solver_flag_ == INITIAL)
+    schur_initializer_.addImuSample(_t, _linear_acceleration, _angular_velocity);
+
   if (!pre_integrations_[frame_count_]) {
     pre_integrations_[frame_count_] =
       new IntegrationBase{acc_0_, gyr_0_, Bas_[frame_count_], Bgs_[frame_count_]};
   }
+  // Once the standalone EKF is active, the Ceres preintegration buffers are
+  // dead weight on ARM. They are retained during standalone initialization
+  // because the dynamic stereo alignment consumes their summaries.
+  const bool keep_ceres_preintegration = !(schur_ekf_active_ && standaloneSchurInitializationEnabled());
   if (frame_count_ != 0) {
-    pre_integrations_[frame_count_]->pushBack(_dt, _linear_acceleration, _angular_velocity);
-    //if(solver_flag != NON_LINEAR)
-    tmp_pre_integration_->pushBack(_dt, _linear_acceleration, _angular_velocity);
-
-    dt_buf_[frame_count_].push_back(_dt);
-    linear_acceleration_buf_[frame_count_].push_back(_linear_acceleration);
-    angular_velocity_buf_[frame_count_].push_back(_angular_velocity);
+    if (keep_ceres_preintegration) {
+      pre_integrations_[frame_count_]->pushBack(_dt, _linear_acceleration, _angular_velocity);
+      tmp_pre_integration_->pushBack(_dt, _linear_acceleration, _angular_velocity);
+      dt_buf_[frame_count_].push_back(_dt);
+      linear_acceleration_buf_[frame_count_].push_back(_linear_acceleration);
+      angular_velocity_buf_[frame_count_].push_back(_angular_velocity);
+    }
 
     int j = frame_count_;
     Vector3d un_acc_0 = Rs_[j] * (acc_0_ - Bas_[j]) - g_;
@@ -608,6 +717,32 @@ void Estimator::processImage(
         ESTIMATE_EXTRINSIC = 1;
       }
     }
+  }
+
+  if (solver_flag_ == INITIAL && standaloneSchurInitializationEnabled()) {
+    if (schurStandaloneInitFrame(_image, _header))
+      return;
+
+    // No Ceres and no silent fallback: keep the active visual window bounded
+    // while waiting for a verified static/dynamic initialization.
+    suppress_state_publication_ = true;
+    if (frame_count_ < WINDOW_SIZE) {
+      frame_count_++;
+      const int prev_frame = frame_count_ - 1;
+      Ps_[frame_count_] = Ps_[prev_frame];
+      Vs_[frame_count_] = Vs_[prev_frame];
+      Rs_[frame_count_] = Rs_[prev_frame];
+      Bas_[frame_count_] = Bas_[prev_frame];
+      Bgs_[frame_count_] = Bgs_[prev_frame];
+    } else {
+      // Standalone initialization is oldest-first. This keeps
+      // schur_pnp_valid_ shifting exactly with the pose arrays so a bad PnP
+      // frame can never contaminate a later dynamic window.
+      marginalization_flag_ = MARGIN_OLD;
+      slideWindow();
+      trimInitializationHistoryToActiveWindow();
+    }
+    return;
   }
 
   if (solver_flag_ == INITIAL) {
@@ -740,6 +875,13 @@ void Estimator::processImage(
       // Ceres solve and no marginalization factor.
       solve_ok = schurProcessFrame(_image, _header);
       if (!solve_ok) {
+        if (standaloneSchurInitializationEnabled()) {
+          RCLCPP_ERROR(
+            vins::logger(), "Standalone Schur EKF could not process this frame; refusing a silent Ceres "
+                            "fallback and scheduling a controlled standalone restart");
+          scheduleControlledRestart();
+          return;
+        }
         RCLCPP_WARN(
           vins::logger(), "Schur EKF could not process this frame; re-seeding the filter from a "
                           "Ceres solve to keep the estimate valid");
@@ -1237,6 +1379,282 @@ bool Estimator::failureDetection()
 // per retained clone; feature points are nuisance parameters that never enter
 // the covariance (Schur-eliminated per track).  See docs/BACKEND_SCHUR_EKF.md.
 
+bool Estimator::standaloneSchurInitializationEnabled() const
+{
+  return BACKEND_TYPE == "schur_ekf" && SCHUR_INITIALIZATION == "standalone";
+}
+
+void Estimator::configureSchurInitializer()
+{
+  if (!standaloneSchurInitializationEnabled()) {
+    schur_initializer_.reset();
+    return;
+  }
+  vins::backend::SchurInitConfig_s config;
+  config.gravity_ = G.norm() > 1e-3 ? G.norm() : 9.81007;
+  config.allow_static_ = SCHUR_INIT_ALLOW_STATIC;
+  config.allow_dynamic_ = SCHUR_INIT_ALLOW_DYNAMIC;
+  config.allow_mono_static_ = SCHUR_INIT_ALLOW_MONO_STATIC;
+  config.static_window_seconds_ = SCHUR_INIT_STATIC_WINDOW_SECONDS;
+  config.static_min_samples_ = SCHUR_INIT_STATIC_MIN_SAMPLES;
+  config.static_max_imu_gap_seconds_ = SCHUR_INIT_MAX_IMU_GAP_SECONDS;
+  config.static_accel_std_ = SCHUR_INIT_STATIC_ACCEL_STD;
+  config.static_gyro_std_ = SCHUR_INIT_STATIC_GYRO_STD;
+  config.static_accel_norm_tol_ = SCHUR_INIT_STATIC_ACCEL_NORM_TOL;
+  config.static_gyro_mean_max_ = SCHUR_INIT_STATIC_GYRO_MEAN_MAX;
+  config.static_flow_max_px_ = SCHUR_INIT_STATIC_FLOW_PX;
+  config.static_visual_min_matches_ = SCHUR_INIT_STATIC_MIN_FEATURES;
+  config.static_visual_min_quadrants_ = SCHUR_INIT_STATIC_MIN_QUADRANTS;
+  config.static_image_width_ = COL > 0 ? COL : 752;
+  config.static_image_height_ = ROW > 0 ? ROW : 480;
+  config.dynamic_min_frames_ = SCHUR_INIT_DYNAMIC_MIN_FRAMES;
+  config.dynamic_min_rotation_deg_ = SCHUR_INIT_DYNAMIC_MIN_ROTATION_DEG;
+  config.dynamic_min_translation_m_ = SCHUR_INIT_DYNAMIC_MIN_TRANSLATION_M;
+  config.dynamic_gravity_tol_ = SCHUR_INIT_DYNAMIC_GRAVITY_TOL;
+  config.dynamic_max_gyro_bias_norm_ = SCHUR_INIT_DYNAMIC_GYRO_BIAS_MAX;
+  config.dynamic_max_position_residual_m_ = SCHUR_INIT_DYNAMIC_MAX_POS_RESIDUAL_M;
+  config.dynamic_max_velocity_residual_mps_ = SCHUR_INIT_DYNAMIC_MAX_VEL_RESIDUAL_MPS;
+  config.dynamic_max_rotation_residual_deg_ = SCHUR_INIT_DYNAMIC_MAX_ROT_RESIDUAL_DEG;
+  schur_initializer_.configure(config);
+  schur_motion_frames_.clear();
+  schur_init_gyro_bias_solved_ = false;
+  schur_last_init_log_time_ = -1.0;
+  schur_last_init_log_frame_ = -1000;
+}
+
+bool Estimator::schurStandaloneInitFrame(
+  const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> & _image, double _header)
+{
+  if (!standaloneSchurInitializationEnabled() || solver_flag_ != INITIAL)
+    return false;
+
+  // ESTIMATE_EXTRINSIC==2 starts from identity/zero with no prior. A seed in
+  // that state would poison both static and dynamic alignment. Wait until the
+  // existing visual/IMU rotation calibration (which is Ceres-free) promotes it
+  // to ESTIMATE_EXTRINSIC==1.
+  if (ESTIMATE_EXTRINSIC == 2) {
+    suppress_state_publication_ = true;
+    static rclcpp::Clock ext_clock(RCL_STEADY_TIME);
+    RCLCPP_WARN_THROTTLE(
+      vins::logger(), ext_clock, 2000,
+      "Standalone Schur initialization is waiting for extrinsic rotation calibration "
+      "(estimate_extrinsic=2); refusing to seed identity/zero extrinsics");
+    return false;
+  }
+
+  std::vector<vins::backend::SchurInitVisualObservation_s> observations;
+  observations.reserve(_image.size() * 2);
+  for (const auto & feature : _image) {
+    for (const auto & observation : feature.second) {
+      vins::backend::SchurInitVisualObservation_s record;
+      record.feature_id_ = feature.first;
+      record.camera_id_ = observation.first;
+      record.pixel_uv_ = Eigen::Vector2d(observation.second(3), observation.second(4));
+      if (record.pixel_uv_.allFinite())
+        observations.push_back(record);
+    }
+  }
+  schur_initializer_.addVisualFrame(_header + td_, observations);
+  const double now = _header + td_;
+
+  // A genuinely stationary stereo/mono stream may not provide enough
+  // triangulated/PnP correspondences (zero baseline motion), so the verified
+  // static gate must run before the PnP-dependent dynamic path. Still require
+  // the full window index so the NON_LINEAR sliding-window machinery starts in
+  // its normal state.
+  if (frame_count_ == WINDOW_SIZE) {
+    const vins::backend::SchurInitSeed_s static_seed =
+      schur_initializer_.attempt(now, STEREO != 0, USE_IMU != 0, {}, Bgs_[0], Bas_[0]);
+    if (static_seed.kind_ == vins::backend::SchurInitResultKind_e::K_STATIC)
+      return schurSeedStandalone(static_seed, _image, _header);
+  }
+
+  // Stereo visual poses. PnP is anchored by the metric stereo triangulation
+  // from the first frame, so the dynamic alignment never needs Ceres or an
+  // arbitrary monocular scale.
+  if (STEREO) {
+    // Frame 0 is the metric stereo visual anchor; it is the only slot that is
+    // valid without a PnP solve. initFirstIMUPose() is not treated as PnP
+    // provenance. Every later slot defaults false and is set only on strict
+    // PnP success.
+    schur_pnp_valid_[frame_count_] = frame_count_ == 0;
+    const bool pnp_valid = f_manager_.initFramePoseByPnP(frame_count_, Ps_, Rs_, tic_, ric_, true);
+    schur_pnp_valid_[frame_count_] = pnp_valid;
+    if (!pnp_valid) {
+      suppress_state_publication_ = true;
+      static rclcpp::Clock pnp_clock(RCL_STEADY_TIME);
+      RCLCPP_WARN_THROTTLE(
+        vins::logger(), pnp_clock, 1000,
+        "Standalone stereo PnP rejected at frame %d: insufficient correspondences, "
+        "solve failure or median reprojection error; no visual pose is consumed",
+        frame_count_);
+      // Before the window is full this merely means the stereo anchor is still
+      // accumulating depth; the static gate above can still initialize later.
+      return false;
+    }
+    f_manager_.triangulate(frame_count_, Ps_, Rs_, tic_, ric_);
+  }
+
+  if (frame_count_ < WINDOW_SIZE)
+    return false;
+
+  if (STEREO) {
+    bool pnp_window_valid = true;
+    for (int i = 0; i <= frame_count_; ++i) {
+      if (!schur_pnp_valid_[i]) {
+        pnp_window_valid = false;
+        break;
+      }
+    }
+    if (!pnp_window_valid) {
+      suppress_state_publication_ = true;
+      static rclcpp::Clock pnp_window_clock(RCL_STEADY_TIME);
+      RCLCPP_WARN_THROTTLE(
+        vins::logger(), pnp_window_clock, 1000,
+        "Standalone dynamic initialization refuses the active window: at least one frame "
+        "has no strict-PnP provenance; waiting for the bad frame to slide out");
+      return false;
+    }
+    if (all_image_frame_.size() > static_cast<size_t>(frame_count_ + 1))
+      trimInitializationHistoryToActiveWindow();
+    for (int i = 0; i <= frame_count_; ++i) {
+      auto frame_it = all_image_frame_.find(Headers_[i]);
+      if (frame_it == all_image_frame_.end() || (i > 0 && frame_it->second.pre_integration_ == nullptr)) {
+        suppress_state_publication_ = true;
+        static rclcpp::Clock init_clock(RCL_STEADY_TIME);
+        RCLCPP_WARN_THROTTLE(
+          vins::logger(), init_clock, 2000,
+          "Standalone stereo initialization is missing image/IMU history for window index %d; "
+          "keeping the Ceres-free path and waiting for a clean window",
+          i);
+        return false;
+      }
+      frame_it->second.R_ = Rs_[i];
+      frame_it->second.T_ = Ps_[i];
+    }
+
+    if (!schur_init_gyro_bias_solved_) {
+      solveGyroscopeBias(all_image_frame_, Bgs_);
+      schur_init_gyro_bias_solved_ = true;
+    }
+
+    schur_motion_frames_.clear();
+    for (int i = 1; i <= frame_count_; ++i) {
+      auto frame_it = all_image_frame_.find(Headers_[i]);
+      if (frame_it == all_image_frame_.end() || frame_it->second.pre_integration_ == nullptr)
+        continue;
+      const IntegrationBase * pre = frame_it->second.pre_integration_;
+      vins::backend::SchurInitMotionFrame_s motion;
+      motion.t0_ = Headers_[i - 1];
+      motion.t1_ = Headers_[i];
+      motion.R0_ = Rs_[i - 1];
+      motion.R1_ = Rs_[i];
+      motion.p0_ = Ps_[i - 1];
+      motion.p1_ = Ps_[i];
+      motion.delta_p_ = pre->delta_p_;
+      motion.delta_q_ = pre->delta_q_;
+      motion.delta_v_ = pre->delta_v_;
+      motion.dq_dbg_ = pre->jacobian_.template block<3, 3>(O_R, O_BG);
+      // Ps_ holds body positions: FeatureManager::initFramePoseByPnP already
+      // converted the camera pose back to T_wb. Do not apply the camera lever
+      // arm a second time. p_ci_ remains a helper field for callers that pass
+      // camera-origin positions instead.
+      motion.p_ci_ = Eigen::Vector3d::Zero();
+      schur_motion_frames_.push_back(motion);
+    }
+  }
+
+  const vins::backend::SchurInitSeed_s seed =
+    schur_initializer_.attempt(now, STEREO != 0, USE_IMU != 0, schur_motion_frames_, Bgs_[0], Bas_[0]);
+
+  if (seed.kind_ == vins::backend::SchurInitResultKind_e::K_STATIC || seed.kind_ == vins::backend::SchurInitResultKind_e::K_DYNAMIC) {
+    return schurSeedStandalone(seed, _image, _header);
+  }
+
+  suppress_state_publication_ = true;
+  if (
+    now - schur_last_init_log_time_ > 1.0 || schur_last_init_log_frame_ < 0 ||
+    (seed.kind_ == vins::backend::SchurInitResultKind_e::K_REJECTED &&
+     frame_count_ - schur_last_init_log_frame_ >= 10)) {
+    RCLCPP_WARN(
+      vins::logger(),
+      "Standalone Schur initialization waiting at t=%.3f (frame=%d): %s; "
+      "no Ceres fallback is performed",
+      now, frame_count_, schur_initializer_.lastReason().c_str());
+    schur_last_init_log_time_ = now;
+    schur_last_init_log_frame_ = frame_count_;
+  }
+  return false;
+}
+
+bool Estimator::schurSeedStandalone(
+  const vins::backend::SchurInitSeed_s & _seed,
+  const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> & _image, double _header)
+{
+  if (_seed.frame_states_.empty()) {
+    RCLCPP_ERROR(vins::logger(), "Standalone Schur initialization produced an empty seed");
+    return false;
+  }
+
+  if (_seed.kind_ == vins::backend::SchurInitResultKind_e::K_STATIC) {
+    const Eigen::Matrix3d R =
+      Eigen::Quaterniond(_seed.q_(0), _seed.q_(1), _seed.q_(2), _seed.q_(3)).toRotationMatrix();
+    for (int i = 0; i <= frame_count_; ++i) {
+      Rs_[i] = R;
+      Ps_[i] = _seed.p_;
+      Vs_[i] = _seed.v_;
+      Bas_[i] = _seed.ba_;
+      Bgs_[i] = _seed.bg_;
+    }
+  } else {
+    const int num_states = static_cast<int>(_seed.frame_states_.size());
+    const int start = frame_count_ - (num_states - 1);
+    if (start < 0) {
+      RCLCPP_ERROR(
+        vins::logger(), "Dynamic Stereo initialization returned %d states for window %d", num_states,
+        frame_count_ + 1);
+      return false;
+    }
+    for (const auto & state : _seed.frame_states_) {
+      const int index = start + state.index_;
+      if (index < 0 || index > frame_count_)
+        continue;
+      Rs_[index] = Eigen::Quaterniond(state.q_(0), state.q_(1), state.q_(2), state.q_(3)).toRotationMatrix();
+      Ps_[index] = state.p_;
+      Vs_[index] = state.v_;
+      Bas_[index] = _seed.ba_;
+      Bgs_[index] = _seed.bg_;
+    }
+  }
+
+  // Estimator's legacy nominal propagation uses un_acc = R(acc-ba) - g_,
+  // so g_ stays positive-down (+z).  EkfState independently uses the physical
+  // convention g_w = (0, 0, -|g|); initSchurBackend only consumes g_.norm().
+  // The initializer has already produced q/p/v in the EKF gravity-aligned
+  // world, so do not flip estimator's g_ here.
+  g_ = Eigen::Vector3d(0.0, 0.0, _seed.gravity_visual_.norm() > 1e-3 ? _seed.gravity_visual_.norm() : G.norm());
+  solver_flag_ = NON_LINEAR;
+  initSchurBackend();
+  if (!schurProcessFrame(_image, _header)) {
+    schur_ekf_active_ = false;
+    solver_flag_ = INITIAL;
+    RCLCPP_ERROR(
+      vins::logger(), "Standalone Schur seed frame could not be consumed; scheduling a clean restart");
+    scheduleControlledRestart();
+    return false;
+  }
+  updateLatestStates();
+  slideWindow();
+  suppress_state_publication_ = false;
+  RCLCPP_INFO(
+    vins::logger(),
+    "Standalone Schur initialization finished (%s) at t=%.3f: |v|=%.3f bg=[%.4f %.4f %.4f] "
+    "td=%.5f; Ceres optimization calls=%d",
+    _seed.kind_ == vins::backend::SchurInitResultKind_e::K_STATIC ? "static" : "stereo-dynamic",
+    _header + td_, _seed.v_.norm(), _seed.bg_.x(), _seed.bg_.y(), _seed.bg_.z(), td_, 0);
+  return true;
+}
+
 void Estimator::initSchurBackend()
 {
   vins::backend::EkfOptions_s options;
@@ -1262,6 +1680,23 @@ void Estimator::initSchurBackend()
   // cost/ablation switch: with a short interval and a small clone window the
   // accumulation may cost more than the saved cross-block multiplies.
   options.batch_imu_covariance_ = SCHUR_BATCH_IMU_COVARIANCE;
+  options.num_cameras_ = NUM_OF_CAM;
+  options.estimate_extrinsics_ = ESTIMATE_EXTRINSIC != 0;
+  options.estimate_time_offset_ = ESTIMATE_TD != 0;
+  options.init_extrinsic_rotation_sigma_ = SCHUR_INIT_EXTRINSIC_ROT_SIGMA;
+  options.init_extrinsic_translation_sigma_ = SCHUR_INIT_EXTRINSIC_TRANS_SIGMA;
+  options.init_time_offset_sigma_ = SCHUR_INIT_TD_SIGMA;
+
+  std::vector<vins::backend::CameraCalibrationNominal_s> calibrations;
+  calibrations.reserve(static_cast<std::size_t>(std::max(NUM_OF_CAM, 0)));
+  for (int i = 0; i < NUM_OF_CAM; ++i) {
+    const Eigen::Quaterniond q_cb(ric_[i]);
+    vins::backend::CameraCalibrationNominal_s calibration;
+    calibration.q_cb_ = Eigen::Vector4d(q_cb.w(), q_cb.x(), q_cb.y(), q_cb.z());
+    calibration.p_cb_ = tic_[i];
+    calibration.td_ = td_;
+    calibrations.push_back(calibration);
+  }
 
   const Eigen::Quaterniond q_init(Rs_[frame_count_]);
   const Eigen::Vector4d q_vec(q_init.w(), q_init.x(), q_init.y(), q_init.z());
@@ -1269,7 +1704,9 @@ void Estimator::initSchurBackend()
   // of the time-based starvation criterion until the first applied update.
   const double seed_time = Headers_[frame_count_] + td_;
   schur_state_.reset(
-    options, seed_time, q_vec, Ps_[frame_count_], Vs_[frame_count_], Bas_[frame_count_], Bgs_[frame_count_]);
+    options, seed_time, q_vec, Ps_[frame_count_], Vs_[frame_count_], Bas_[frame_count_], Bgs_[frame_count_],
+    calibrations);
+  schur_last_frame_time_ = seed_time;
 
   vins::backend::UpdateOptions_s update_options;
   update_options.max_features_ = SCHUR_MAX_FEATURES;
@@ -1491,6 +1928,8 @@ bool Estimator::schurProcessFrame(
       observation_record.uv_ = Eigen::Vector2d(value(0), value(1));
       observation_record.pixel_uv_ = Eigen::Vector2d(value(3), value(4));
       observation_record.has_pixel_uv_ = observation_record.pixel_uv_.allFinite();
+      observation_record.velocity_ = Eigen::Vector2d(value(5), value(6));
+      observation_record.cur_td_ = td_;
       frame_observations[static_cast<std::size_t>(camera_id)].push_back(observation_record);
       feature_observed = true;
     }
@@ -1664,6 +2103,19 @@ bool Estimator::schurProcessFrame(
   // P6: inject the per-frame weak update scale into the updater options before
   // the update. With weak_scale == 1.0 this leaves the update unchanged.
   schur_updater_.setWeakUpdateScale(weak_scale);
+  // Snapshot AFTER frame insertion, clone augmentation, trim and track
+  // selection, but BEFORE the measurement update. A calibration rollback then
+  // preserves the current clone/history mapping (frame_index - oldest_frame)
+  // and only rejects the update, so the next frame remains continuous.
+  std::optional<vins::backend::EkfState> calibration_state_snapshot;
+  std::optional<vins::backend::FeatureHistory> calibration_history_snapshot;
+  std::optional<vins::backend::SchurCloudHistory> calibration_cloud_snapshot;
+  if (schur_state_.hasTimeOffsetState() || schur_state_.estimateExtrinsics()) {
+    calibration_state_snapshot = schur_state_;
+    calibration_history_snapshot = schur_history_;
+    if (schur_cloud_enabled_)
+      calibration_cloud_snapshot = schur_cloud_history_;
+  }
   if (!selection.tracks_.empty()) {
     summary = schur_updater_.update(schur_state_, selection.tracks_, schur_cameras_);
     schur_features_total_ += summary.features_used_;
@@ -1717,13 +2169,34 @@ bool Estimator::schurProcessFrame(
     }
   }
 
+  bool calibration_update_rejected = false;
+  if (calibration_state_snapshot && !schurCalibrationStateValid()) {
+    schur_state_ = *calibration_state_snapshot;
+    schur_history_ = *calibration_history_snapshot;
+    if (calibration_cloud_snapshot)
+      schur_cloud_history_ = *calibration_cloud_snapshot;
+    summary.applied_ = false;
+    summary.used_feature_ids_.clear();
+    summary.failure_reason_ = "calibration proposal (td/extrinsic) left bounds; frame rolled back";
+    zupt_applied = false;
+    calibration_update_rejected = true;
+    schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot_s();
+    schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
+    static rclcpp::Clock calibration_clock(RCL_STEADY_TIME);
+    RCLCPP_WARN_THROTTLE(
+      vins::logger(), calibration_clock, 1000,
+      "Schur calibration update rejected at frame %d (t=%.3f): td/extrinsic validation "
+      "failed; restored the pre-update state, covariance and feature history",
+      schur_frame_index_, frame_time);
+  }
+
   // Publication-only snapshot. Build it before consumed tracks are erased so
   // loop_fusion still sees the complete feature set of this image, but
   // triangulate copies only: neither the filter history nor the accepted
   // measurement tracks are modified. The snapshot is deliberately separate
   // from FeatureManager because Schur never runs setDepth(), which is the
   // only place that sets Ceres solve_flag=1.
-  if (schurVisualizationRequested()) {
+  if (!calibration_update_rejected && schurVisualizationRequested()) {
     const int keyframe_clone_index = schur_frame_index_ - schur_oldest_frame_;
     const std::vector<int> consumed_for_margin =
       summary.applied_ ? summary.used_feature_ids_ : std::vector<int>{};
@@ -2019,6 +2492,7 @@ bool Estimator::schurProcessFrame(
   // 7. Publish the corrected state through the existing window arrays so the
   //    visualisation and odometry output paths stay unchanged.
   schurWriteBackWindow();
+  schur_last_frame_time_ = std::max(frame_time, Headers_[frame_count_] + td_);
   schurReportStageTiming(t_update.toc());
   return true;
 }
@@ -2096,7 +2570,13 @@ void Estimator::schurSoftRestart(double _frame_time, double _gap_seconds)
   const int frame_index = schur_frame_index_;
   // Discard the clone window and the old covariance, re-inflating P from the
   // configured init_*_sigma values while preserving the motion state.
-  schur_state_.reset(schur_state_.options(), _frame_time, imu.q_, imu.p_, imu.v_, imu.ba_, imu.bg_);
+  std::vector<vins::backend::CameraCalibrationNominal_s> calibrations;
+  calibrations.reserve(static_cast<std::size_t>(schur_state_.cameraCount()));
+  for (int i = 0; i < schur_state_.cameraCount(); ++i)
+    calibrations.push_back(schur_state_.cameraCalib(i));
+  schur_state_.reset(
+    schur_state_.options(), _frame_time, imu.q_, imu.p_, imu.v_, imu.ba_, imu.bg_, calibrations);
+  schur_last_frame_time_ = _frame_time;
   schur_history_.clear();
   schur_cloud_history_.clear();
   schur_landing_static_.reset();
@@ -2145,6 +2625,71 @@ void Estimator::schurWriteBackWindow()
     Rs_[window_index] = q_clone.toRotationMatrix();
     Ps_[window_index] = clone.p_;
   }
+  schurWriteBackCalibration();
+}
+
+void Estimator::schurWriteBackCalibration()
+{
+  if (!schur_state_.initialized() || schur_state_.cameraCount() <= 0)
+    return;
+
+  for (int i = 0; i < std::min(NUM_OF_CAM, schur_state_.cameraCount()); ++i) {
+    const vins::backend::CameraCalibrationNominal_s & calibration = schur_state_.cameraCalib(i);
+    const Eigen::Quaterniond q_cb(
+      calibration.q_cb_(0), calibration.q_cb_(1), calibration.q_cb_(2), calibration.q_cb_(3));
+    ric_[i] = q_cb.normalized().toRotationMatrix();
+    tic_[i] = calibration.p_cb_;
+    if (static_cast<size_t>(i) < RIC.size())
+      RIC[i] = ric_[i];
+    if (static_cast<size_t>(i) < TIC.size())
+      TIC[i] = tic_[i];
+    if (static_cast<size_t>(i) < schur_cameras_.size()) {
+      schur_cameras_[i].q_cb_ = calibration.q_cb_;
+      schur_cameras_[i].p_cb_ = calibration.p_cb_;
+    }
+  }
+  f_manager_.setRic(ric_);
+
+  if (ESTIMATE_TD && schur_state_.hasTimeOffsetState()) {
+    const double updated_td = schur_state_.sharedTimeOffset();
+    // schurCalibrationStateValid() already enforced this before the visual
+    // transaction committed. Keep the assertion here as a final guard.
+    if (std::isfinite(updated_td) && updated_td >= SCHUR_TD_MIN && updated_td <= SCHUR_TD_MAX) {
+      td_ = updated_td;
+      TD = updated_td;
+    }
+  }
+}
+
+bool Estimator::schurCalibrationStateValid() const
+{
+  if (!schur_state_.initialized())
+    return false;
+  const Eigen::MatrixXd & covariance = schur_state_.covariance();
+  if (!covariance.allFinite())
+    return false;
+  for (int i = 0; i < schur_state_.cameraCount(); ++i) {
+    const vins::backend::CameraCalibrationNominal_s & calibration = schur_state_.cameraCalib(i);
+    if (
+      !calibration.q_cb_.allFinite() || calibration.q_cb_.norm() < 1e-9 || !calibration.p_cb_.allFinite() ||
+      !std::isfinite(calibration.td_))
+      return false;
+    if (schur_state_.estimateExtrinsics()) {
+      const Eigen::MatrixXd block = schur_state_.cameraCalibrationCovariance(i);
+      if (block.size() > 0 && !block.allFinite())
+        return false;
+    }
+  }
+  if (schur_state_.hasTimeOffsetState()) {
+    const double td = schur_state_.sharedTimeOffset();
+    if (!std::isfinite(td) || td < SCHUR_TD_MIN || td > SCHUR_TD_MAX)
+      return false;
+    // The next image frame must remain strictly later than the frame that was
+    // already consumed under the previous td.
+    if (schur_frame_index_ > 0 && schur_last_frame_time_ >= 0.0 && Headers_[frame_count_] + td <= schur_last_frame_time_ + 1e-6)
+      return false;
+  }
+  return true;
 }
 
 bool Estimator::schurStateFinite() const
@@ -2157,6 +2702,18 @@ bool Estimator::schurStateFinite() const
   for (int i = 0; i < schur_state_.numClones(); ++i) {
     const vins::backend::CloneNominal_s & clone = schur_state_.clone(i);
     if (!clone.q_.allFinite() || !clone.p_.allFinite())
+      return false;
+  }
+  for (int i = 0; i < schur_state_.cameraCount(); ++i) {
+    const vins::backend::CameraCalibrationNominal_s & calibration = schur_state_.cameraCalib(i);
+    if (
+      !calibration.q_cb_.allFinite() || calibration.q_cb_.norm() < 1e-9 || !calibration.p_cb_.allFinite() ||
+      !std::isfinite(calibration.td_))
+      return false;
+  }
+  if (schur_state_.hasTimeOffsetState()) {
+    const double td = schur_state_.sharedTimeOffset();
+    if (!std::isfinite(td) || td < SCHUR_TD_MIN || td > SCHUR_TD_MAX)
       return false;
   }
   return true;
@@ -2178,6 +2735,13 @@ void Estimator::schurReportStageTiming(double _update_ms)
     STAGE_TIMING_INTERVAL, schur_stage_total_ms_ / samples, schur_features_total_ / samples,
     schur_rejected_total_ / samples, schur_lost_total_ / samples, schur_marginalized_total_ / samples,
     schur_skipped_frames_, schur_state_.size(), schur_state_.size());
+  if (schur_state_.calibrationEnabled()) {
+    RCLCPP_INFO(
+      vins::logger(), "schur_ekf calibration: cameras=%d extrinsic=%d td_estimated=%d td=%.9f td_sigma=%.9f",
+      schur_state_.cameraCount(), static_cast<int>(schur_state_.estimateExtrinsics()),
+      static_cast<int>(schur_state_.hasTimeOffsetState()), schur_state_.sharedTimeOffset(),
+      std::sqrt(std::max(0.0, schur_state_.timeOffsetVariance())));
+  }
   schur_stage_total_ms_ = 0.0;
   schur_features_total_ = 0.0;
   schur_rejected_total_ = 0.0;
@@ -2733,6 +3297,7 @@ void Estimator::slideWindow()
         Headers_[i] = Headers_[i + 1];
         Rs_[i].swap(Rs_[i + 1]);
         Ps_[i].swap(Ps_[i + 1]);
+        schur_pnp_valid_[i] = schur_pnp_valid_[i + 1];
         if (USE_IMU) {
           std::swap(pre_integrations_[i], pre_integrations_[i + 1]);
 
@@ -2748,6 +3313,7 @@ void Estimator::slideWindow()
       Headers_[WINDOW_SIZE] = Headers_[WINDOW_SIZE - 1];
       Ps_[WINDOW_SIZE] = Ps_[WINDOW_SIZE - 1];
       Rs_[WINDOW_SIZE] = Rs_[WINDOW_SIZE - 1];
+      schur_pnp_valid_[WINDOW_SIZE] = false;
 
       if (USE_IMU) {
         Vs_[WINDOW_SIZE] = Vs_[WINDOW_SIZE - 1];
@@ -2779,6 +3345,8 @@ void Estimator::slideWindow()
       Headers_[frame_count_ - 1] = Headers_[frame_count_];
       Ps_[frame_count_ - 1] = Ps_[frame_count_];
       Rs_[frame_count_ - 1] = Rs_[frame_count_];
+      schur_pnp_valid_[frame_count_ - 1] = schur_pnp_valid_[frame_count_];
+      schur_pnp_valid_[frame_count_] = false;
 
       if (USE_IMU) {
         for (unsigned int i = 0; i < dt_buf_[frame_count_].size(); i++) {

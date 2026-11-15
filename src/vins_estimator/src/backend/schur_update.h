@@ -38,10 +38,14 @@ namespace vins
 namespace backend
 {
 
-// Camera-to-body extrinsics (constant, from the config).
+// Camera-to-body extrinsics.  q_cb_/p_cb_ describe body_T_cam (camera ->
+// body).  td_ is the camera/IMU time offset in seconds (t_imu = t_cam + td).
+// When EkfState::calibrationEnabled() is false this struct is a pure constant
+// calibration and the historical code path is used unchanged.
 struct CameraExtrinsics_s {
   Eigen::Vector4d q_cb_ = Eigen::Vector4d(1, 0, 0, 0);  // body_T_cam rotation
   Eigen::Vector3d p_cb_ = Eigen::Vector3d::Zero();      // body_T_cam translation
+  double td_ = 0.0;                                     // shared camera/IMU offset
 };
 
 struct FeatureObservation_s {
@@ -52,6 +56,17 @@ struct FeatureObservation_s {
   // use `uv`; this field is publication metadata and never enters the EKF.
   Eigen::Vector2d pixel_uv_ = Eigen::Vector2d::Zero();
   bool has_pixel_uv_ = false;
+
+  // VINS-style explicit time-offset motion compensation.  velocity_ is the
+  // normalised image velocity (du/dt, dv/dt) in 1/s and cur_td_ is the shared
+  // td used when this observation was sampled.  The residual model is
+  //   r = uv_obs - [h(clone, cam) + (td - cur_td_) * velocity_].
+  // A non-zero velocity_ (or has_velocity_ == true) enables the td Jacobian.
+  // The clone-td augmentation form is deliberately NOT combined with this
+  // explicit term, so td information is never counted twice.
+  Eigen::Vector2d velocity_ = Eigen::Vector2d::Zero();
+  double cur_td_ = 0.0;
+  bool has_velocity_ = false;
 };
 
 struct FeatureTrack_s {
@@ -154,8 +169,8 @@ struct UpdateSummary_s {
   // bound on observations_used_ (triangulation/gating may still drop a track).
   // Deferred tracks stay in FeatureHistory and are retried; expired tracks
   // must be erased without being treated as outliers or consumed.
-  bool budget_active_ = false;    // positive max_update_observations_
-  bool budget_limited_ = false;   // at least one track deferred or expired
+  bool budget_active_ = false;   // positive max_update_observations_
+  bool budget_limited_ = false;  // at least one track deferred or expired
   int budget_input_observations_ = 0;
   int budget_selected_observations_ = 0;
   int budget_deferred_observations_ = 0;
@@ -171,6 +186,15 @@ struct UpdateSummary_s {
 struct ObservationJacobian_s {
   Eigen::Matrix<double, 2, 6> H_pose_ = Eigen::Matrix<double, 2, 6>::Zero();
   Eigen::Matrix<double, 2, 3> H_point_ = Eigen::Matrix<double, 2, 3>::Zero();
+  // Calibration columns: [0..5] = camera right-perturbation dtheta/dp when
+  // calib_size_ == 6; the shared td entry is H_calib_.col(td_column_).
+  // calib_size_ is 0 or 6, td_column_ is -1 when td is not estimated.
+  Eigen::Matrix<double, 2, 7> H_calib_ = Eigen::Matrix<double, 2, 7>::Zero();
+  int calib_size_ = 0;
+  int calib_offset_ = -1;
+  int td_offset_ = -1;
+  int td_column_ = -1;
+  int camera_id_ = -1;
   Eigen::Vector2d residual_ = Eigen::Vector2d::Zero();  // (z - h) / sigma
   Eigen::Vector3d p_c_ = Eigen::Vector3d::Zero();       // point in the camera frame
   bool valid_ = false;
@@ -183,6 +207,10 @@ struct TrackReduction_s {
   Eigen::Vector3d b_point_ = Eigen::Vector3d::Zero();  // H_f^T r
   // clone_index -> H_xi^T H_f (6x3)
   std::unordered_map<int, Eigen::Matrix<double, 6, 3>> W_;
+  // camera_id -> H_calib^T H_f for its 6D extrinsic block.
+  std::unordered_map<int, Eigen::Matrix<double, 6, 3>> W_calib_;
+  // Shared td column: H_td^T H_f accumulated over ALL cameras.
+  Eigen::Matrix<double, 1, 3> W_td_ = Eigen::Matrix<double, 1, 3>::Zero();
   // Numerical rank of H_f (= rank of A_point). The point-depth direction is
   // unobservable when this drops below 3; such tracks are rejected by this
   // updater.
@@ -205,25 +233,39 @@ public:
 
   // Triangulates and refines `track.world_point` from its observations using the
   // current clone poses. Returns false when the track cannot be triangulated.
+  // The overload without `_cameras` reads the (possibly estimated) calibration
+  // from EkfState.  When calibration is enabled, the vector overload is also
+  // resolved through EkfState so residuals and Jacobians stay consistent.
   bool triangulate(
     const EkfState & _state, const std::vector<CameraExtrinsics_s> & _cameras, FeatureTrack_s & _track) const;
+  bool triangulate(const EkfState & _state, FeatureTrack_s & _track) const;
 
   // Weighted residual/Jacobians of a single observation. The residual uses
   // the current clone pose; the Jacobian uses the frozen clone FEJ pose.
   ObservationJacobian_s observationJacobian(
     const EkfState & _state, const CameraExtrinsics_s & _camera, const Eigen::Vector3d & _world_point,
     const FeatureObservation_s & _observation) const;
+  ObservationJacobian_s observationJacobian(
+    const EkfState & _state, const Eigen::Vector3d & _world_point,
+    const FeatureObservation_s & _observation) const;
+
+  // Shared td helper for visualization: returns the measured uv corrected to
+  // the clone timestamp, i.e. uv - (td_state - cur_td) * velocity.  This is the
+  // uv that should be compared against the static projection h(clone, cam).
+  static Eigen::Vector2d correctedObservation(const EkfState & _state, const FeatureObservation_s & _observation);
 
   // Builds the per-track Schur reduction (A_point, b_point, W blocks, chi2 gate
   // value). `_state` is not modified.
   TrackReduction_s reduceTrack(
     const EkfState & _state, const std::vector<CameraExtrinsics_s> & _cameras,
     const FeatureTrack_s & _track) const;
+  TrackReduction_s reduceTrack(const EkfState & _state, const FeatureTrack_s & _track) const;
 
   // Full measurement update: triangulate + gate + Schur-eliminate + EKF update.
   // `tracks` are updated in place (world_point) and `state` is corrected.
   UpdateSummary_s update(
     EkfState & _state, std::vector<FeatureTrack_s> & _tracks, const std::vector<CameraExtrinsics_s> & _cameras);
+  UpdateSummary_s update(EkfState & _state, std::vector<FeatureTrack_s> & _tracks);
 
   // 0.95 quantile of the chi-square distribution (Wilson-Hilferty approximation,
   // no Boost dependency). Used for the outlier gate.

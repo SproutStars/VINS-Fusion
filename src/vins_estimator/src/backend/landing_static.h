@@ -489,6 +489,17 @@ inline ZeroVelocityUpdateResult_s applyZeroVelocityUpdate(EkfState & _state, dou
     const Eigen::Matrix<double, 6, 1> dclone = dx.segment<6>(_state.cloneOffset(i));
     EkfState::applyPoseCorrection(_state.clone(i).q_, _state.clone(i).p_, dclone);
   }
+  // The velocity measurement also corrects calibration through its cross
+  // covariance. Inject every estimated block before committing the full P.
+  for (int camera = 0; camera < _state.cameraCount(); ++camera) {
+    Eigen::Matrix<double, 6, 1> dcalib = Eigen::Matrix<double, 6, 1>::Zero();
+    const int extrinsic = _state.estimateExtrinsics() ? _state.cameraCalibOffset(camera) : -1;
+    if (extrinsic >= 0)
+      dcalib = dx.segment<6>(extrinsic);
+    const int time_offset = _state.cameraTimeOffsetOffset(camera);
+    const double dtd = camera == 0 && time_offset >= 0 ? dx(time_offset) : 0.0;
+    _state.injectCameraCalibrationDelta(camera, dcalib, dtd);
+  }
   P = std::move(P_new);
   EkfState::symmetrize(P);
   result.applied_ = true;

@@ -49,6 +49,8 @@ public:
     Eigen::Vector2d uv_ = Eigen::Vector2d::Zero();  // normalised, undistorted
     Eigen::Vector2d pixel_uv_ = Eigen::Vector2d::Zero();
     bool has_pixel_uv_ = false;
+    Eigen::Vector2d velocity_ = Eigen::Vector2d::Zero();  // normalised image velocity (s^-1)
+    double cur_td_ = 0.0;  // camera-to-IMU offset used when this view was acquired
   };
 
   struct FrameObservation_s {
@@ -56,6 +58,8 @@ public:
     Eigen::Vector2d uv_ = Eigen::Vector2d::Zero();
     Eigen::Vector2d pixel_uv_ = Eigen::Vector2d::Zero();
     bool has_pixel_uv_ = false;
+    Eigen::Vector2d velocity_ = Eigen::Vector2d::Zero();  // normalised image velocity (s^-1)
+    double cur_td_ = 0.0;  // camera-to-IMU offset used when this view was acquired
   };
 
   using TrackSelection = ::vins::backend::TrackSelection_s;
@@ -73,9 +77,9 @@ public:
 
   // Registers one camera's observations for a frame while retaining the raw
   // pixel coordinates needed by the loop-fusion keyframe message. This is
-  // publication-only metadata; the measurement update consumes `uv` exactly as
-  // before. A stereo pair is registered with two calls at the same
-  // `_frame_index` and different `_camera_id` values; each (frame, camera) view
+  // publication metadata. Image velocity and acquisition time offset are
+  // retained for the calibration measurement model. A stereo pair is registered
+  // with two calls at the same `_frame_index` and different `_camera_id` values; each (frame, camera) view
   // is kept so both measurements enter the Schur update. The per-feature
   // history is kept ordered by (frame_index, camera_id), independent of call
   // order, because triangulation anchors on the first view and consumes the
@@ -86,8 +90,13 @@ public:
     for (const auto & observation : _observations) {
       Entry_s & entry = features_[observation.feature_id_];
       auto & history = entry.observations_;
-      const Observation_s record{
-        _frame_index, _camera_id, observation.uv_, observation.pixel_uv_, observation.has_pixel_uv_};
+      const Observation_s record{_frame_index,
+                                 _camera_id,
+                                 observation.uv_,
+                                 observation.pixel_uv_,
+                                 observation.has_pixel_uv_,
+                                 observation.velocity_,
+                                 observation.cur_td_};
       // Normal tracking is monotonic: frames advance and the estimator adds
       // camera 0 before camera 1, so the common case is a plain append.
       const bool append_to_back =
@@ -100,13 +109,11 @@ public:
         // keep the deterministic (frame_index, camera_id) order and drop only
         // an exact duplicate view.
         auto insert_at = history.begin();
-        while (
-          insert_at != history.end() &&
-          (insert_at->frame_index_ < _frame_index ||
-           (insert_at->frame_index_ == _frame_index && insert_at->camera_id_ < _camera_id)))
+        while (insert_at != history.end() &&
+               (insert_at->frame_index_ < _frame_index ||
+                (insert_at->frame_index_ == _frame_index && insert_at->camera_id_ < _camera_id)))
           ++insert_at;
-        if (insert_at != history.end() && insert_at->frame_index_ == _frame_index &&
-            insert_at->camera_id_ == _camera_id)
+        if (insert_at != history.end() && insert_at->frame_index_ == _frame_index && insert_at->camera_id_ == _camera_id)
           continue;  // duplicate (frame, camera) view: keep the first observation
         history.insert(insert_at, record);
       }
@@ -180,6 +187,10 @@ public:
         resolved.clone_index_ = observation.frame_index_ - _oldest_frame_index;
         resolved.camera_id_ = observation.camera_id_;
         resolved.uv_ = observation.uv_;
+        resolved.velocity_ = observation.velocity_;
+        resolved.cur_td_ = observation.cur_td_;
+        resolved.pixel_uv_ = observation.pixel_uv_;
+        resolved.has_pixel_uv_ = observation.has_pixel_uv_;
         track.observations_.push_back(resolved);
       }
       selection.tracks_.push_back(std::move(track));
@@ -252,6 +263,8 @@ public:
         resolved.clone_index_ = observation.frame_index_ - _oldest_frame_index;
         resolved.camera_id_ = observation.camera_id_;
         resolved.uv_ = observation.uv_;
+        resolved.velocity_ = observation.velocity_;
+        resolved.cur_td_ = observation.cur_td_;
         resolved.pixel_uv_ = observation.pixel_uv_;
         resolved.has_pixel_uv_ = observation.has_pixel_uv_;
         track.observations_.push_back(resolved);

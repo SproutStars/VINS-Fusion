@@ -15,6 +15,7 @@
 #include "../utility/runtime_utils.h"
 #include <ceres/ceres.h>
 #include <condition_variable>
+#include <deque>
 #include <eigen3/Eigen/Dense>
 #include <eigen3/Eigen/Geometry>
 #include <mutex>
@@ -29,6 +30,7 @@
 #include "../backend/feature_history.h"
 #include "../backend/landing_static.h"
 #include "../backend/schur_cloud_history.h"
+#include "../backend/schur_initializer.h"
 #include "../backend/schur_update.h"
 #include "../backend/schur_visualization.h"
 #include "../factor/imu_factor.h"
@@ -73,6 +75,22 @@ public:
     const std::optional<builtin_interfaces::msg::Time> & _stamp = std::nullopt);
   void
   processIMU(double _t, double _dt, const Vector3d & _linear_acceleration, const Vector3d & _angular_velocity);
+
+  // ROS-free IMU interval resampling used by processMeasurements(). Every
+  // emitted timestamp is <= cur_time (no future leakage), the dt values sum
+  // exactly to cur_time - prev_time, and a future sensor endpoint is linearly
+  // interpolated from the last in-interval sample (or acc0/gyr0 for the first
+  // sample). Exposed for the estimator timing regression tests.
+  struct ImuIntervalSample_s {
+    double timestamp_ = 0.0;
+    double dt_ = 0.0;
+    Eigen::Vector3d acc_ = Eigen::Vector3d::Zero();
+    Eigen::Vector3d gyr_ = Eigen::Vector3d::Zero();
+  };
+  static bool resampleImuIntervalSamples(
+    const std::vector<std::pair<double, Eigen::Vector3d>> & _acc,
+    const std::vector<std::pair<double, Eigen::Vector3d>> & _gyr, double _prev_time, double _cur_time,
+    const Eigen::Vector3d & _acc0, const Eigen::Vector3d & _gyr0, std::vector<ImuIntervalSample_s> & _output);
   void processImage(
     const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> & _image, const double _header,
     const std::optional<builtin_interfaces::msg::Time> & _stamp = std::nullopt);
@@ -87,6 +105,9 @@ public:
   // ARM-oriented Schur-complement EKF backend (opt-in through the
   // `backend_type` parameter). Returns true once the filter is running.
   bool schurBackendActive() const { return schur_ekf_active_; }
+  // True when backend_type=schur_ekf and schur_initialization=standalone.
+  // In this mode initialization never calls runOptimization()/Ceres.
+  bool standaloneSchurInitializationEnabled() const;
   const vins::backend::SchurVisualizationSnapshot_s & schurVisualizationSnapshot() const
   {
     return schur_visual_snapshot_;
@@ -157,6 +178,19 @@ public:
   // longest observed no-update interval, the current starvation duration and
   // the active thresholds.
   void schurReportStarvation(double _frame_time) const;
+  void configureSchurInitializer();
+  // Attempts one standalone initialization frame. Returns true when the EKF
+  // was seeded and is now driving the estimate (NON_LINEAR + active).
+  bool schurStandaloneInitFrame(
+    const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> & _image, double _header);
+  bool schurSeedStandalone(
+    const vins::backend::SchurInitSeed_s & _seed,
+    const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> & _image, double _header);
+  // Writes the EKF calibration nominal values back after visual+ZUPT updates.
+  // The shared td is rejected by snapshot rollback if it leaves its bounds;
+  // this function therefore only publishes a value already validated.
+  void schurWriteBackCalibration();
+  bool schurCalibrationStateValid() const;
   bool fastPredictIMU(double _t, Eigen::Vector3d _linear_acceleration, Eigen::Vector3d _angular_velocity);
   bool imuAvailable(double _t);
   void initFirstIMUPose(vector<pair<double, Eigen::Vector3d>> & _accVector);
@@ -268,6 +302,16 @@ public:
   bool initThreadFlag_;
 
   // --- Schur-complement EKF backend state ---
+  vins::backend::SchurInitializer schur_initializer_;
+  std::vector<vins::backend::SchurInitMotionFrame_s> schur_motion_frames_;
+  bool schur_init_gyro_bias_solved_ = false;
+  double schur_last_init_log_time_ = -1.0;
+  int schur_last_init_log_frame_ = -1000;
+  double schur_last_frame_time_ = -1.0;
+  // Per-window PnP provenance. Frame 0 is the visual anchor; every other
+  // slot starts false and is set only after a strict PnP success. Dynamic
+  // initialization refuses the whole active window if any slot is false.
+  bool schur_pnp_valid_[WINDOW_SIZE + 1] = {};
   vins::backend::EkfState schur_state_;
   vins::backend::SchurUpdater schur_updater_;
   vins::backend::FeatureHistory schur_history_;

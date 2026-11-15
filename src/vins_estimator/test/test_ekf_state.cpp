@@ -1576,13 +1576,235 @@ TEST(EkfStateBatchPropagation, T35DefaultPathRemainsPerSample)
   const EkfOptions_s options = batch_test_options(false);
   EkfState state;
   state.reset(
-    options, 0.0, Vector4d(1, 0, 0, 0), Vector3d::Zero(), Vector3d::Zero(), Vector3d::Zero(),
-    Vector3d::Zero());
+    options, 0.0, Vector4d(1, 0, 0, 0), Vector3d::Zero(), Vector3d::Zero(), Vector3d::Zero(), Vector3d::Zero());
   EXPECT_FALSE(state.batchImuCovarianceEnabled());
   const double position_variance = state.covariance()(K_IMU_P, K_IMU_P);
   state.propagate(Vector3d(0.0, 0.0, 9.81), Vector3d(0.01, 0.0, 0.0), 0.01);
   EXPECT_FALSE(state.hasPendingImuCovariance());
   EXPECT_GT(state.covariance()(K_IMU_P, K_IMU_P), position_variance);
+}
+
+}  // namespace backend
+}  // namespace vins
+
+namespace vins
+{
+namespace backend
+{
+
+// ===========================================================================
+// T36 -- optional calibration layout.  Extrinsics are 6D per camera and td is
+// ONE shared column after all cameras; fixed configuration steps stay absent.
+// ===========================================================================
+TEST(EkfStateCalibration, T36SharedTdLayoutAndInjection)
+{
+  EkfOptions_s options = test_options();
+  options.num_cameras_ = 2;
+  options.estimate_extrinsics_ = true;
+  options.estimate_time_offset_ = true;
+  options.init_extrinsic_rotation_sigma_ = 0.02;
+  options.init_extrinsic_translation_sigma_ = 0.04;
+  options.init_time_offset_sigma_ = 0.003;
+
+  EkfState state;
+  state.reset(
+    options, 1.0, Vector4d(1, 0, 0, 0), Vector3d(1, 2, 3), Vector3d::Zero(), Vector3d::Zero(),
+    Vector3d::Zero());
+  EXPECT_EQ(state.size(), K_IMU_STATE_SIZE + 2 * K_CAMERA_EXTRINSIC_STATE_SIZE + 1);
+  EXPECT_EQ(state.calibrationOffset(), K_IMU_STATE_SIZE);
+  EXPECT_EQ(state.cameraCalibOffset(0), K_IMU_STATE_SIZE);
+  EXPECT_EQ(state.cameraCalibOffset(1), K_IMU_STATE_SIZE + 6);
+  EXPECT_EQ(state.timeOffsetOffset(), K_IMU_STATE_SIZE + 12);
+  EXPECT_EQ(state.cameraTimeOffsetOffset(0), state.timeOffsetOffset());
+  EXPECT_EQ(state.cameraTimeOffsetOffset(1), state.timeOffsetOffset());
+  EXPECT_NEAR(state.cameraCalibrationCovariance(0)(0, 0), 0.02 * 0.02, 1e-12);
+  EXPECT_NEAR(state.cameraCalibrationCovariance(1)(3, 3), 0.04 * 0.04, 1e-12);
+  EXPECT_NEAR(state.timeOffsetVariance(), 0.003 * 0.003, 1e-12);
+
+  state.injectCameraCalibration(0, Vector4d(1, 0, 0, 0), Vector3d(0.05, -0.02, 0.01), 0.009);
+  EXPECT_DOUBLE_EQ(state.cameraTimeOffset(0), 0.009);
+  EXPECT_DOUBLE_EQ(state.cameraTimeOffset(1), 0.009);
+  EXPECT_DOUBLE_EQ(state.cameraCalib(1).td_, 0.009);
+  EXPECT_DOUBLE_EQ(state.cameraCalibFej(1).td_, 0.009);
+
+  // A per-camera loop cannot accumulate the shared td twice: only camera 0
+  // applies dtd through this compatibility entry point.
+  const Eigen::Matrix<double, 6, 1> zero = Eigen::Matrix<double, 6, 1>::Zero();
+  state.injectCameraCalibrationDelta(0, zero, 0.002);
+  state.injectCameraCalibrationDelta(1, zero, 0.5);
+  EXPECT_DOUBLE_EQ(state.cameraTimeOffset(0), 0.011);
+  EXPECT_DOUBLE_EQ(state.cameraTimeOffset(1), 0.011);
+  EXPECT_DOUBLE_EQ(state.cameraCalib(0).td_, 0.011);
+  EXPECT_DOUBLE_EQ(state.cameraCalib(1).td_, 0.011);
+  state.injectSharedTimeOffsetDelta(-0.001);
+  EXPECT_DOUBLE_EQ(state.cameraTimeOffset(0), 0.010);
+  EXPECT_DOUBLE_EQ(state.cameraTimeOffset(1), 0.010);
+
+  // A fixed configuration keeps the exact historical layout.
+  EkfOptions_s fixed = test_options();
+  EkfState fixed_state;
+  fixed_state.reset(
+    fixed, 0.0, Vector4d(1, 0, 0, 0), Vector3d::Zero(), Vector3d::Zero(), Vector3d::Zero(), Vector3d::Zero());
+  EXPECT_EQ(fixed_state.size(), K_IMU_STATE_SIZE);
+  EXPECT_EQ(fixed_state.calibrationDimension(), 0);
+  EXPECT_FALSE(fixed_state.calibrationEnabled());
+}
+
+// ===========================================================================
+// T37 -- inserting a clone before the calibration section preserves every
+// calibration block and its cross terms; marginalisation deletes only the
+// oldest clone and leaves the shared td column intact.
+// ===========================================================================
+TEST(EkfStateCalibration, T37AugmentAndMarginalizePreserveCalibrationBlocks)
+{
+  EkfOptions_s options = test_options();
+  options.num_cameras_ = 2;
+  options.estimate_extrinsics_ = true;
+  options.estimate_time_offset_ = true;
+  EkfState state;
+  state.reset(
+    options, 0.0, Vector4d(1, 0, 0, 0), Vector3d(0.1, 0.2, 0.3), Vector3d::Zero(), Vector3d::Zero(),
+    Vector3d::Zero());
+
+  std::mt19937 rng(77);
+  std::normal_distribution<double> normal(0.0, 1.0);
+  const int old_n = state.size();
+  const int calib_dim = state.calibrationDimension();
+  const int old_calib = state.calibrationOffset();
+  Eigen::MatrixXd P_old(old_n, old_n);
+  for (int r = 0; r < old_n; ++r)
+    for (int c = 0; c <= r; ++c) {
+      const double v = normal(rng);
+      P_old(r, c) = v;
+      P_old(c, r) = v;
+    }
+  state.covariance() = P_old;
+
+  state.augmentClone(1.0);
+  const int new_calib = old_calib + K_CLONE_STATE_SIZE;
+  const int new_n = old_n + K_CLONE_STATE_SIZE;
+  ASSERT_EQ(state.size(), new_n);
+  ASSERT_EQ(state.calibrationOffset(), new_calib);
+
+  // Expected permutation/selection: [live+old clones][new clone][calib].
+  Eigen::MatrixXd A = Eigen::MatrixXd::Zero(new_n, old_n);
+  A.topLeftCorner(old_calib, old_calib).setIdentity();
+  A.block(old_calib, 0, K_CLONE_STATE_SIZE, K_CLONE_STATE_SIZE).setIdentity();
+  A.block(new_calib, old_calib, calib_dim, calib_dim).setIdentity();
+  const Eigen::MatrixXd expected = A * P_old * A.transpose();
+  EXPECT_LT((state.covariance() - expected).cwiseAbs().maxCoeff(), 1e-12);
+  // The new clone-td correlation is exactly the live-td correlation (no
+  // clone-td augmentation term in the selected velocity-compensation model).
+  EXPECT_NEAR(
+    state.covariance()(old_calib, state.timeOffsetOffset()), expected(old_calib, state.timeOffsetOffset()),
+    1e-12);
+
+  state.marginalizeOldestClone();
+  ASSERT_EQ(state.size(), old_n);
+  ASSERT_EQ(state.calibrationOffset(), old_calib);
+  Eigen::MatrixXd expected_marg = Eigen::MatrixXd::Zero(old_n, old_n);
+  // Oldest clone occupied rows [15,21); after deletion newer rows shift by 6.
+  expected_marg.topLeftCorner(K_IMU_STATE_SIZE, K_IMU_STATE_SIZE) =
+    expected.topLeftCorner(K_IMU_STATE_SIZE, K_IMU_STATE_SIZE);
+  expected_marg.block(K_IMU_STATE_SIZE, 0, old_n - K_IMU_STATE_SIZE, K_IMU_STATE_SIZE) =
+    expected.block(K_IMU_STATE_SIZE + K_CLONE_STATE_SIZE, 0, old_n - K_IMU_STATE_SIZE, K_IMU_STATE_SIZE);
+  expected_marg.block(0, K_IMU_STATE_SIZE, K_IMU_STATE_SIZE, old_n - K_IMU_STATE_SIZE) =
+    expected.block(0, K_IMU_STATE_SIZE + K_CLONE_STATE_SIZE, K_IMU_STATE_SIZE, old_n - K_IMU_STATE_SIZE);
+  expected_marg.bottomRightCorner(old_n - K_IMU_STATE_SIZE, old_n - K_IMU_STATE_SIZE) =
+    expected.bottomRightCorner(old_n - K_IMU_STATE_SIZE, old_n - K_IMU_STATE_SIZE);
+  EXPECT_LT((state.covariance() - expected_marg).cwiseAbs().maxCoeff(), 1e-12);
+}
+
+// ===========================================================================
+// T38 -- copyLiveFrom() is the no-clone IMU predictor path: it must keep the
+// calibration section and live-calibration cross covariance, otherwise the
+// destination size no longer matches options/state.
+// ===========================================================================
+TEST(EkfStateCalibration, T38CopyLiveKeepsCalibrationWithoutClones)
+{
+  EkfOptions_s options = test_options();
+  options.num_cameras_ = 2;
+  options.estimate_extrinsics_ = true;
+  options.estimate_time_offset_ = true;
+  EkfState source;
+  source.reset(
+    options, 5.0, Vector4d(1, 0, 0, 0), Vector3d(0.2, 0.3, 0.4), Vector3d(0.1, 0, 0), Vector3d::Zero(),
+    Vector3d::Zero());
+  source.injectCameraCalibration(
+    1, EkfState::quaternionFromAxisAngle(Vector3d(0.02, -0.01, 0.03)), Vector3d(-0.1, 0.02, 0.01), 0.004);
+  source.augmentClone(1.0);
+  source.imu().q_ = EkfState::quaternionFromAxisAngle(Vector3d(0.01, 0.02, 0.0));
+  source.imu().p_ += Vector3d(0.1, 0.02, 0.0);
+  source.refreshImuFej();
+  source.augmentClone(2.0);
+
+  Eigen::MatrixXd & P = source.covariance();
+  const int off = source.calibrationOffset();
+  const int td = source.timeOffsetOffset();
+  P(0, off) = 0.004;
+  P(off, 0) = 0.004;
+  P(3, off + 5) = -0.003;
+  P(off + 5, 3) = -0.003;
+  P(4, td) = 0.0006;
+  P(td, 4) = 0.0006;
+
+  EkfState copied;
+  copied.copyLiveFrom(source);
+  EXPECT_FALSE(copied.hasPendingImuCovariance());
+  EXPECT_EQ(copied.numClones(), 0);
+  EXPECT_EQ(copied.size(), K_IMU_STATE_SIZE + source.calibrationDimension());
+  EXPECT_EQ(copied.timeOffsetOffset(), K_IMU_STATE_SIZE + 2 * source.cameraCalibSize());
+  EXPECT_DOUBLE_EQ(copied.cameraTimeOffset(0), 0.004);
+  EXPECT_DOUBLE_EQ(copied.cameraTimeOffset(1), 0.004);
+  EXPECT_LT(
+    (copied.covariance().topLeftCorner<K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>() -
+     P.topLeftCorner<K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>())
+      .cwiseAbs()
+      .maxCoeff(),
+    1e-12);
+
+  const int dst_off = K_IMU_STATE_SIZE;
+  EXPECT_NEAR(copied.covariance()(0, dst_off), 0.004, 1e-12);
+  EXPECT_NEAR(copied.covariance()(3, dst_off + 5), -0.003, 1e-12);
+  EXPECT_NEAR(copied.covariance()(4, copied.timeOffsetOffset()), 0.0006, 1e-12);
+}
+
+// ===========================================================================
+// T39 -- calibration covariance propagation is compatible with the optional
+// batched IMU covariance path; the shared td block is not duplicated.
+// ===========================================================================
+TEST(EkfStateCalibration, T39BatchPropagationKeepsSharedTdCompatible)
+{
+  EkfOptions_s sequential_options = test_options();
+  sequential_options.num_cameras_ = 2;
+  sequential_options.estimate_extrinsics_ = true;
+  sequential_options.estimate_time_offset_ = true;
+  EkfOptions_s batch_options = sequential_options;
+  batch_options.batch_imu_covariance_ = true;
+
+  EkfState sequential, batched;
+  const Vector4d q0 = EkfState::quaternionFromAxisAngle(Vector3d(0.02, -0.01, 0.04));
+  const Vector3d p0(0.1, 0.2, 0.3);
+  const Vector3d v0(0.4, -0.1, 0.2);
+  sequential.reset(sequential_options, 0.0, q0, p0, v0, Vector3d::Zero(), Vector3d::Zero());
+  batched.reset(batch_options, 0.0, q0, p0, v0, Vector3d::Zero(), Vector3d::Zero());
+  // clone-free predictor + clone window both with calibration cross terms.
+  sequential.augmentClone(0.0);
+  batched.augmentClone(0.0);
+  sequential.augmentClone(0.0);
+  batched.augmentClone(0.0);
+  for (int k = 0; k < 31; ++k) {
+    const Vector3d acc(0.1, -0.05, 9.8);
+    const Vector3d gyr(0.03, -0.02, 0.01);
+    sequential.propagate(acc, gyr, 0.005, 1.0 + 0.2 * (k % 3));
+    batched.propagate(acc, gyr, 0.005, 1.0 + 0.2 * (k % 3));
+  }
+  EXPECT_TRUE(batched.hasPendingImuCovariance());
+  batched.flushImuCovariance();
+  ASSERT_EQ(batched.size(), sequential.size());
+  expect_covariances_match(batched, sequential, 2e-10);
+  EXPECT_NEAR(batched.timeOffsetVariance(), sequential.timeOffsetVariance(), 1e-18);
+  EXPECT_EQ(batched.timeOffsetOffset(), sequential.timeOffsetOffset());
 }
 
 }  // namespace backend
