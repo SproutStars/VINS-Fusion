@@ -47,7 +47,7 @@
     schur_init_td_sigma: 0.001
     schur_td_min: -0.10
     schur_td_max: 0.10
-    schur_nullspace_method: "qr"       # 改为 "qr" 开启 QR
+    schur_nullspace_method: "qr"       # "qr" 或 "svd"
     schur_batch_imu_covariance: false   # true 开启批量传播
     schur_max_update_observations: 0    # 0 不限；本轮测试 240、480
     schur_window_size: 5
