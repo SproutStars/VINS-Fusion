@@ -70,6 +70,11 @@ bool schurVisualizationRequested()
          hasSubscribers(PUB_KEYFRAME_POSE) || hasSubscribers(PUB_KEYFRAME_POINT);
 }
 
+bool schurPointCloudRequested()
+{
+  return hasSubscribers(PUB_POINT_CLOUD) || hasSubscribers(PUB_MARGIN_CLOUD);
+}
+
 void registerPub(const rclcpp::Node::SharedPtr & _n)
 {
   rcl_interfaces::msg::ParameterDescriptor frame_descriptor;

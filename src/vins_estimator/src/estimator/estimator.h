@@ -28,6 +28,7 @@
 #include "../backend/ekf_state.h"
 #include "../backend/feature_history.h"
 #include "../backend/landing_static.h"
+#include "../backend/schur_cloud_history.h"
 #include "../backend/schur_update.h"
 #include "../backend/schur_visualization.h"
 #include "../factor/imu_factor.h"
@@ -270,6 +271,10 @@ public:
   vins::backend::EkfState schur_state_;
   vins::backend::SchurUpdater schur_updater_;
   vins::backend::FeatureHistory schur_history_;
+  // Publication-only history retained across EKF track consumption. It is
+  // enabled only for stereo+IMU Schur runs and never feeds the filter.
+  vins::backend::SchurCloudHistory schur_cloud_history_;
+  bool schur_cloud_enabled_ = false;
   std::vector<vins::backend::CameraExtrinsics_s> schur_cameras_;
   vins::backend::SchurVisualizationSnapshot_s schur_visual_snapshot_;
   vins::backend::MarginPublicationHistory schur_margin_history_;

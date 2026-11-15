@@ -140,6 +140,8 @@ void Estimator::clearState()
   schur_landing_static_updates_ = 0;
   schur_landing_static_failures_ = 0;
   schur_history_.clear();
+  schur_cloud_history_.clear();
+  schur_cloud_enabled_ = false;
   schur_cameras_.clear();
   schur_margin_history_.clear();
   schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot_s();
@@ -1301,6 +1303,17 @@ void Estimator::initSchurBackend()
   }
 
   schur_history_.clear();
+  schur_cloud_history_.clear();
+  // Publication-only cloud history: enabled only for the stereo+IMU Schur
+  // backend. Limits are derived from the frontend feature budget and one
+  // clone window; no extra tunables are introduced. It never feeds the EKF.
+  schur_cloud_enabled_ = USE_IMU && STEREO && NUM_OF_CAM >= 2 && BACKEND_TYPE == "schur_ekf";
+  if (schur_cloud_enabled_) {
+    const size_t feature_budget = static_cast<size_t>(std::max(MAX_CNT, 1));
+    const size_t window = static_cast<size_t>(std::max(SCHUR_WINDOW_SIZE, 2));
+    schur_cloud_history_.configure(
+      std::max<size_t>(256, feature_budget * (window + 2)), static_cast<size_t>(2 * (window + 2)));
+  }
   schur_margin_history_.clear();
   schur_frame_index_ = 0;
   schur_oldest_frame_ = 0;
@@ -1462,8 +1475,7 @@ bool Estimator::schurProcessFrame(
   // number of distinct tracks for the hold policy, while FeatureHistory's
   // min_observations keeps counting raw observations (a stereo pair is two).
   const std::size_t num_cameras = std::max<std::size_t>(1, schur_cameras_.size());
-  std::vector<std::vector<vins::backend::FeatureHistory::FrameObservation_s>> frame_observations(
-    num_cameras);
+  std::vector<std::vector<vins::backend::FeatureHistory::FrameObservation_s>> frame_observations(num_cameras);
   for (auto & camera_observations : frame_observations)
     camera_observations.reserve(_image.size());
   int feature_count = 0;
@@ -1533,8 +1545,15 @@ bool Estimator::schurProcessFrame(
     for (const auto & camera_observations : frame_observations)
       for (const auto & observation : camera_observations)
         margin_live_ids.insert(observation.feature_id_);
-    for (const auto & track : schur_history_.allTracks(schur_oldest_frame_))
-      margin_live_ids.insert(track.id_);
+    if (schur_cloud_enabled_) {
+      // The cloud history is a superset of the retained measurement history
+      // (same frames, plus observations from already-consumed segments), so it
+      // keeps cloud-only IDs alive for margin dedup too.
+      schur_cloud_history_.appendFeatureIds(margin_live_ids);
+    } else {
+      for (const auto & track : schur_history_.allTracks(schur_oldest_frame_))
+        margin_live_ids.insert(track.id_);
+    }
     schur_margin_history_.retain(margin_live_ids);
   }
 
@@ -1602,9 +1621,13 @@ bool Estimator::schurProcessFrame(
   //    configured camera under the same clone/frame index. FeatureHistory
   //    keeps one row per (frame, camera), so a stereo pair contributes two
   //    real measurements while still sharing a single clone.
-  for (std::size_t camera_id = 0; camera_id < frame_observations.size(); ++camera_id)
+  for (std::size_t camera_id = 0; camera_id < frame_observations.size(); ++camera_id) {
     schur_history_.addFrameWithPixels(
       schur_frame_index_, static_cast<int>(camera_id), frame_observations[camera_id]);
+    if (schur_cloud_enabled_)
+      schur_cloud_history_.addFrameWithPixels(
+        schur_frame_index_, static_cast<int>(camera_id), frame_observations[camera_id]);
+  }
 
   // 2. Append the current pose as the newest clone. Pruning is deferred until
   //    after the visual update so the oldest clone can still be observed by
@@ -1618,6 +1641,8 @@ bool Estimator::schurProcessFrame(
   //    oldest retained clone is the one that will be pruned in step 6.
   schur_oldest_frame_ = schur_frame_index_ - (schur_state_.numClones() - 1);
   schur_history_.trim(schur_oldest_frame_);
+  if (schur_cloud_enabled_)
+    schur_cloud_history_.prune(schur_oldest_frame_);
 
   // 4. MSCKF track selection. Only features that are lost in this frame, or
   //    whose oldest observation belongs to the clone that is about to be
@@ -1702,9 +1727,31 @@ bool Estimator::schurProcessFrame(
     const int keyframe_clone_index = schur_frame_index_ - schur_oldest_frame_;
     const std::vector<int> consumed_for_margin =
       summary.applied_ ? summary.used_feature_ids_ : std::vector<int>{};
+    const std::vector<vins::backend::FeatureTrack_s> measurement_tracks =
+      schur_history_.allTracks(schur_oldest_frame_);
+    // Build the longer publication history only when a consumer exists. The
+    // extra tracks contribute cloud_points_ only; measurement_tracks remains
+    // the sole source for margin and loop-fusion keyframe points.
+    std::vector<vins::backend::FeatureTrack_s> cloud_tracks;
+    const std::vector<vins::backend::FeatureTrack_s> empty_cloud;
+    // Keyframe/loop subscribers alone do not need the publication cloud, so
+    // avoid its second triangulation pass in that case.
+    const std::vector<vins::backend::FeatureTrack_s> * cloud_source =
+      schurPointCloudRequested() ? &measurement_tracks : &empty_cloud;
+    if (schur_cloud_enabled_ && schurPointCloudRequested()) {
+      // Bounded publication candidate budget. Longest-lived tracks are
+      // preferred; the cap is intentionally larger than the frontend feature
+      // budget but is not a guaranteed superset of every window-lost ID.
+      const size_t max_cloud_points = static_cast<size_t>(2 * std::max(MAX_CNT, 1));
+      cloud_tracks = schur_cloud_history_.tracks(schur_oldest_frame_, max_cloud_points);
+      if (!cloud_tracks.empty())
+        cloud_source = &cloud_tracks;
+    }
+    vins::backend::SchurVisualizationQuality_s quality;
+    quality.gate_all_cloud_tracks_ = schur_cloud_enabled_;
     schur_visual_snapshot_ = vins::backend::makeSchurVisualizationSnapshot(
-      schur_state_, schur_cameras_, schur_updater_, schur_history_.allTracks(schur_oldest_frame_),
-      keyframe_clone_index, frame_time, consumed_for_margin, &schur_margin_history_);
+      schur_state_, schur_cameras_, schur_updater_, measurement_tracks, *cloud_source, keyframe_clone_index,
+      frame_time, consumed_for_margin, &schur_margin_history_, quality);
     schur_visualization_stamp_ = current_feature_stamp_.value_or(vins::stamp(_header));
   } else {
     schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot_s();
@@ -1906,6 +1953,8 @@ bool Estimator::schurProcessFrame(
     schur_state_.pruneCloneWindow();
     schur_oldest_frame_ = schur_frame_index_ - (schur_state_.numClones() - 1);
     schur_history_.trim(schur_oldest_frame_);
+    if (schur_cloud_enabled_)
+      schur_cloud_history_.prune(schur_oldest_frame_);
   }
 
   // 6b. P7 rebuild accounting: after leaving hold the window is rebuilt one
@@ -1985,6 +2034,7 @@ void Estimator::schurHoldEnter(double _frame_time, double _gap_seconds)
   // holding instead of growing with a stale window.
   const int dropped_clones = schur_state_.dropAllClones();
   schur_history_.clear();
+  schur_cloud_history_.clear();
   schur_landing_static_.reset();
   schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot_s();
   schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
@@ -2013,6 +2063,7 @@ void Estimator::schurHoldRecover(double _frame_time, int _features)
   // naturally during the hold) are deliberately kept untouched.
   schur_state_.dropAllClones();
   schur_history_.clear();
+  schur_cloud_history_.clear();
   schur_landing_static_.reset();
   schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot_s();
   schur_visualization_stamp_ = builtin_interfaces::msg::Time{};
@@ -2047,6 +2098,7 @@ void Estimator::schurSoftRestart(double _frame_time, double _gap_seconds)
   // configured init_*_sigma values while preserving the motion state.
   schur_state_.reset(schur_state_.options(), _frame_time, imu.q_, imu.p_, imu.v_, imu.ba_, imu.bg_);
   schur_history_.clear();
+  schur_cloud_history_.clear();
   schur_landing_static_.reset();
   schur_visual_snapshot_ = vins::backend::SchurVisualizationSnapshot_s();
   schur_visualization_stamp_ = builtin_interfaces::msg::Time{};

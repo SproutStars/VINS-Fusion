@@ -1,0 +1,1400 @@
+{
+  "notes": [
+    "Point counts sum publication instances, not unique landmarks.",
+    "Cloud geometric quality gates condition on fixed estimated poses.",
+    "ATE uses existing estimated-body vs raw Vicon-marker comparison; V2 marker extrinsic unavailable. Compare paired trajectories directly as well.",
+    "Observer image counts are neither estimator deliveries nor tracker processed-frame counts."
+  ],
+  "runs": [
+    {
+      "label": "baseline",
+      "dataset": "V2_01_easy_r1",
+      "metrics": {
+        "dataset": "V2_01_easy",
+        "label": "baseline",
+        "rate": 1.0,
+        "wall_s": 119.06518637000045,
+        "cpu_seconds": 85.99999999999999,
+        "average_cpu_percent_one_core": 72.22934144053754,
+        "peak_rss_mib": 99.16796875,
+        "peak_threads": 18,
+        "output_poses": 1130,
+        "received_images": 2280,
+        "received_image_messages": 4560,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 2280,
+          "/cam1/image_raw": 2280
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 40.3825115,
+        "latency_p95_ms": 51.8914037,
+        "latency_p99_ms": 55.71352443,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1127,
+        "ate_rmse_m": 0.3031809115647366,
+        "ate_median_m": 0.2738876905100554,
+        "ate_p95_m": 0.4258447928151273,
+        "trajectory_duration_s": 112.59999990463257,
+        "max_output_gap_s": 0.10000014305114746,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 1130,
+            "empty_messages": 10,
+            "total_points": 126652,
+            "total_finite_points": 126652,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 111.0982456140351,
+            "points_per_frame_p50": 116.0,
+            "points_per_frame_p95": 128.0,
+            "points_per_sensor_second": 1111.9578578871246,
+            "finite_points_per_sensor_second": 1111.9578578871246,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 940,
+            "empty_messages": 0,
+            "total_points": 105077,
+            "total_finite_points": 105077,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 111.78404255319148,
+            "points_per_frame_p50": 117.0,
+            "points_per_frame_p95": 128.0,
+            "points_per_sensor_second": 1119.0308839190627,
+            "finite_points_per_sensor_second": 1119.0308839190627,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 954,
+            "empty_messages": 186,
+            "total_points": 4758,
+            "total_finite_points": 4758,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 4.173684210526316,
+            "points_per_frame_p50": 4.0,
+            "points_per_frame_p95": 10.049999999999955,
+            "points_per_sensor_second": 41.773485518009494,
+            "finite_points_per_sensor_second": 41.773485518009494,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 817,
+            "empty_messages": 123,
+            "total_points": 4128,
+            "total_finite_points": 4128,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 4.391489361702128,
+            "points_per_frame_p50": 4.0,
+            "points_per_frame_p95": 11.0,
+            "points_per_sensor_second": 43.96166134185303,
+            "finite_points_per_sensor_second": 43.96166134185303,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413393213.3057606,
+        "last_output_s": 1413393326.2057605,
+        "published_span_s": 112.89999985694885,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413393212.2557604,
+        "camera_last_s": 1413393326.2057605,
+        "camera_span_s": 113.95,
+        "first_output_delay_sensor_s": 1.0500001907348633,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.9907854309517231
+      }
+    },
+    {
+      "label": "baseline",
+      "dataset": "V2_02_medium_r1",
+      "metrics": {
+        "dataset": "V2_02_medium",
+        "label": "baseline",
+        "rate": 1.0,
+        "wall_s": 123.00705472099798,
+        "cpu_seconds": 87.8,
+        "average_cpu_percent_one_core": 71.37801990231057,
+        "peak_rss_mib": 95.6640625,
+        "peak_threads": 18,
+        "output_poses": 1164,
+        "received_images": 2348,
+        "received_image_messages": 4696,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 2348,
+          "/cam1/image_raw": 2348
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 41.652801,
+        "latency_p95_ms": 54.476090299999996,
+        "latency_p99_ms": 60.25027452999998,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1162,
+        "ate_rmse_m": 0.2971144302297019,
+        "ate_median_m": 0.2726088887140286,
+        "ate_p95_m": 0.4580314706085698,
+        "trajectory_duration_s": 116.09999990463257,
+        "max_output_gap_s": 0.10000014305114746,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1174,
+            "nonempty_messages": 1164,
+            "empty_messages": 10,
+            "total_points": 143605,
+            "total_finite_points": 143605,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 122.32112436115844,
+            "points_per_frame_p50": 122.0,
+            "points_per_frame_p95": 159.0,
+            "points_per_sensor_second": 1224.2540482351792,
+            "finite_points_per_sensor_second": 1224.2540482351792,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393886.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 117.300000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 974,
+            "nonempty_messages": 974,
+            "empty_messages": 0,
+            "total_points": 120829,
+            "total_finite_points": 120829,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 124.05441478439425,
+            "points_per_frame_p50": 123.0,
+            "points_per_frame_p95": 154.0,
+            "points_per_sensor_second": 1241.8191161356629,
+            "finite_points_per_sensor_second": 1241.8191161356629,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393906.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 97.30000000000001,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393906.0057607
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1174,
+            "nonempty_messages": 978,
+            "empty_messages": 196,
+            "total_points": 7356,
+            "total_finite_points": 7356,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 6.2657580919931855,
+            "points_per_frame_p50": 5.0,
+            "points_per_frame_p95": 17.0,
+            "points_per_sensor_second": 62.710997380439245,
+            "finite_points_per_sensor_second": 62.710997380439245,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393886.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 117.300000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 974,
+            "nonempty_messages": 852,
+            "empty_messages": 122,
+            "total_points": 6241,
+            "total_finite_points": 6241,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 6.407597535934292,
+            "points_per_frame_p50": 5.0,
+            "points_per_frame_p95": 16.34999999999991,
+            "points_per_sensor_second": 64.14182939362794,
+            "finite_points_per_sensor_second": 64.14182939362794,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393906.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 97.30000000000001,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393906.0057607
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413393887.0557604,
+        "last_output_s": 1413394003.3557603,
+        "published_span_s": 116.29999995231628,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413393886.0057604,
+        "camera_last_s": 1413394003.3557603,
+        "camera_span_s": 117.35,
+        "first_output_delay_sensor_s": 1.0499999523162842,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.9910524069221669
+      }
+    },
+    {
+      "label": "baseline",
+      "dataset": "V2_03_difficult_r1",
+      "metrics": {
+        "dataset": "V2_03_difficult",
+        "label": "baseline",
+        "rate": 1.0,
+        "wall_s": 123.2558000880017,
+        "cpu_seconds": 77.08,
+        "average_cpu_percent_one_core": 62.53661080855158,
+        "peak_rss_mib": 96.734375,
+        "peak_threads": 18,
+        "output_poses": 1157,
+        "received_images": 1922,
+        "received_image_messages": 4258,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 1922,
+          "/cam1/image_raw": 2336
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 41.441084,
+        "latency_p95_ms": 53.6916618,
+        "latency_p99_ms": 59.908133800000016,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1156,
+        "ate_rmse_m": 0.44674289987174043,
+        "ate_median_m": 0.3683798931036775,
+        "ate_p95_m": 0.8066966431203884,
+        "trajectory_duration_s": 115.55000019073486,
+        "max_output_gap_s": 0.15000033378601074,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1167,
+            "nonempty_messages": 1154,
+            "empty_messages": 13,
+            "total_points": 102301,
+            "total_finite_points": 102301,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 87.66152527849187,
+            "points_per_frame_p50": 86.0,
+            "points_per_frame_p95": 148.0,
+            "points_per_sensor_second": 876.9909978419978,
+            "finite_points_per_sensor_second": 876.9909978419978,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394881.6557605,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 116.650000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 968,
+            "nonempty_messages": 965,
+            "empty_messages": 3,
+            "total_points": 85974,
+            "total_finite_points": 85974,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 88.81611570247934,
+            "points_per_frame_p50": 86.0,
+            "points_per_frame_p95": 153.0,
+            "points_per_sensor_second": 888.6201550387597,
+            "finite_points_per_sensor_second": 888.6201550387597,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394901.5557604,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 96.75,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413394901.5557604
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1167,
+            "nonempty_messages": 758,
+            "empty_messages": 409,
+            "total_points": 6763,
+            "total_finite_points": 6763,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 5.795201371036846,
+            "points_per_frame_p50": 4.0,
+            "points_per_frame_p95": 21.0,
+            "points_per_sensor_second": 57.97685377860853,
+            "finite_points_per_sensor_second": 57.97685377860853,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394881.6557605,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 116.650000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 968,
+            "nonempty_messages": 656,
+            "empty_messages": 312,
+            "total_points": 6042,
+            "total_finite_points": 6042,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 6.241735537190083,
+            "points_per_frame_p50": 4.0,
+            "points_per_frame_p95": 21.0,
+            "points_per_sensor_second": 62.44961240310077,
+            "finite_points_per_sensor_second": 62.44961240310077,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394901.5557604,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 96.75,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413394901.5557604
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413394882.6557603,
+        "last_output_s": 1413394998.3057606,
+        "published_span_s": 115.65000033378601,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413394881.5557604,
+        "camera_last_s": 1413394998.3057606,
+        "camera_span_s": 116.75,
+        "first_output_delay_sensor_s": 1.0999999046325684,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.990578161317225
+      }
+    },
+    {
+      "label": "baseline_repeat",
+      "dataset": "V2_01_easy_r1",
+      "metrics": {
+        "dataset": "V2_01_easy",
+        "label": "baseline_repeat",
+        "rate": 1.0,
+        "wall_s": 119.04403251500116,
+        "cpu_seconds": 85.89999999999999,
+        "average_cpu_percent_one_core": 72.15817390021246,
+        "peak_rss_mib": 95.9765625,
+        "peak_threads": 18,
+        "output_poses": 1130,
+        "received_images": 2280,
+        "received_image_messages": 4560,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 2280,
+          "/cam1/image_raw": 2280
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 40.25054900000001,
+        "latency_p95_ms": 51.374417199999996,
+        "latency_p99_ms": 55.470955920000016,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1127,
+        "ate_rmse_m": 0.3031809115647366,
+        "ate_median_m": 0.2738876905100554,
+        "ate_p95_m": 0.4258447928151273,
+        "trajectory_duration_s": 112.59999990463257,
+        "max_output_gap_s": 0.10000014305114746,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 1130,
+            "empty_messages": 10,
+            "total_points": 126652,
+            "total_finite_points": 126652,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 111.0982456140351,
+            "points_per_frame_p50": 116.0,
+            "points_per_frame_p95": 128.0,
+            "points_per_sensor_second": 1111.9578578871246,
+            "finite_points_per_sensor_second": 1111.9578578871246,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 940,
+            "empty_messages": 0,
+            "total_points": 105077,
+            "total_finite_points": 105077,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 111.78404255319148,
+            "points_per_frame_p50": 117.0,
+            "points_per_frame_p95": 128.0,
+            "points_per_sensor_second": 1119.0308839190627,
+            "finite_points_per_sensor_second": 1119.0308839190627,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 954,
+            "empty_messages": 186,
+            "total_points": 4758,
+            "total_finite_points": 4758,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 4.173684210526316,
+            "points_per_frame_p50": 4.0,
+            "points_per_frame_p95": 10.049999999999955,
+            "points_per_sensor_second": 41.773485518009494,
+            "finite_points_per_sensor_second": 41.773485518009494,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 817,
+            "empty_messages": 123,
+            "total_points": 4128,
+            "total_finite_points": 4128,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 4.391489361702128,
+            "points_per_frame_p50": 4.0,
+            "points_per_frame_p95": 11.0,
+            "points_per_sensor_second": 43.96166134185303,
+            "finite_points_per_sensor_second": 43.96166134185303,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413393213.3057606,
+        "last_output_s": 1413393326.2057605,
+        "published_span_s": 112.89999985694885,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413393212.2557604,
+        "camera_last_s": 1413393326.2057605,
+        "camera_span_s": 113.95,
+        "first_output_delay_sensor_s": 1.0500001907348633,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.9907854309517231
+      }
+    },
+    {
+      "label": "candidate",
+      "dataset": "V2_01_easy_r1",
+      "metrics": {
+        "dataset": "V2_01_easy",
+        "label": "candidate",
+        "rate": 1.0,
+        "wall_s": 119.99057096800243,
+        "cpu_seconds": 89.10000000000001,
+        "average_cpu_percent_one_core": 74.2558346720094,
+        "peak_rss_mib": 98.41015625,
+        "peak_threads": 18,
+        "output_poses": 1130,
+        "received_images": 2280,
+        "received_image_messages": 4560,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 2280,
+          "/cam1/image_raw": 2280
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 43.1151545,
+        "latency_p95_ms": 54.944445099999996,
+        "latency_p99_ms": 57.763799690000006,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1127,
+        "ate_rmse_m": 0.30182026837963394,
+        "ate_median_m": 0.27315506741389334,
+        "ate_p95_m": 0.4202736969855129,
+        "trajectory_duration_s": 112.59999990463257,
+        "max_output_gap_s": 0.10000014305114746,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 1130,
+            "empty_messages": 10,
+            "total_points": 142111,
+            "total_finite_points": 142111,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 124.65877192982457,
+            "points_per_frame_p50": 129.0,
+            "points_per_frame_p95": 165.04999999999995,
+            "points_per_sensor_second": 1247.6821774800017,
+            "finite_points_per_sensor_second": 1247.6821774800017,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 940,
+            "empty_messages": 0,
+            "total_points": 118955,
+            "total_finite_points": 118955,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 126.54787234042553,
+            "points_per_frame_p50": 131.0,
+            "points_per_frame_p95": 168.04999999999995,
+            "points_per_sensor_second": 1266.8264110756122,
+            "finite_points_per_sensor_second": 1266.8264110756122,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 1002,
+            "empty_messages": 138,
+            "total_points": 7145,
+            "total_finite_points": 7145,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 6.267543859649122,
+            "points_per_frame_p50": 5.0,
+            "points_per_frame_p95": 15.0,
+            "points_per_sensor_second": 62.730465327065545,
+            "finite_points_per_sensor_second": 62.730465327065545,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 859,
+            "empty_messages": 81,
+            "total_points": 6288,
+            "total_finite_points": 6288,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 6.68936170212766,
+            "points_per_frame_p50": 6.0,
+            "points_per_frame_p95": 15.049999999999955,
+            "points_per_sensor_second": 66.96485623003194,
+            "finite_points_per_sensor_second": 66.96485623003194,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413393213.3057606,
+        "last_output_s": 1413393326.2057605,
+        "published_span_s": 112.89999985694885,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413393212.2557604,
+        "camera_last_s": 1413393326.2057605,
+        "camera_span_s": 113.95,
+        "first_output_delay_sensor_s": 1.0500001907348633,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.9907854309517231
+      }
+    },
+    {
+      "label": "candidate",
+      "dataset": "V2_02_medium_r1",
+      "metrics": {
+        "dataset": "V2_02_medium",
+        "label": "candidate",
+        "rate": 1.0,
+        "wall_s": 123.37084383799811,
+        "cpu_seconds": 91.08,
+        "average_cpu_percent_one_core": 73.82619520670526,
+        "peak_rss_mib": 98.13671875,
+        "peak_threads": 18,
+        "output_poses": 1164,
+        "received_images": 2348,
+        "received_image_messages": 4696,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 2348,
+          "/cam1/image_raw": 2348
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 44.231595999999996,
+        "latency_p95_ms": 56.89452005,
+        "latency_p99_ms": 65.85439749,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1162,
+        "ate_rmse_m": 0.2943624900816914,
+        "ate_median_m": 0.27284356064729387,
+        "ate_p95_m": 0.4419927606084468,
+        "trajectory_duration_s": 116.09999990463257,
+        "max_output_gap_s": 0.10000014305114746,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1174,
+            "nonempty_messages": 1164,
+            "empty_messages": 10,
+            "total_points": 190212,
+            "total_finite_points": 190212,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 162.0204429301533,
+            "points_per_frame_p50": 168.0,
+            "points_per_frame_p95": 210.0,
+            "points_per_sensor_second": 1621.5856761457464,
+            "finite_points_per_sensor_second": 1621.5856761457464,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393886.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 117.300000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 974,
+            "nonempty_messages": 974,
+            "empty_messages": 0,
+            "total_points": 160909,
+            "total_finite_points": 160909,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 165.20431211498973,
+            "points_per_frame_p50": 169.0,
+            "points_per_frame_p95": 210.0,
+            "points_per_sensor_second": 1653.7410071942445,
+            "finite_points_per_sensor_second": 1653.7410071942445,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393906.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 97.30000000000001,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393906.0057607
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1174,
+            "nonempty_messages": 1005,
+            "empty_messages": 169,
+            "total_points": 16030,
+            "total_finite_points": 16030,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 13.654173764906304,
+            "points_per_frame_p50": 12.0,
+            "points_per_frame_p95": 34.0,
+            "points_per_sensor_second": 136.65814138233296,
+            "finite_points_per_sensor_second": 136.65814138233296,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393886.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 117.300000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 974,
+            "nonempty_messages": 875,
+            "empty_messages": 99,
+            "total_points": 13683,
+            "total_finite_points": 13683,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 14.048254620123203,
+            "points_per_frame_p50": 13.0,
+            "points_per_frame_p95": 33.34999999999991,
+            "points_per_sensor_second": 140.6269270298047,
+            "finite_points_per_sensor_second": 140.6269270298047,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393906.0557604,
+            "last_header_stamp_s": 1413394003.3557606,
+            "sensor_span_s": 97.30000000000001,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393906.0057607
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413393887.0557604,
+        "last_output_s": 1413394003.3557603,
+        "published_span_s": 116.29999995231628,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413393886.0057604,
+        "camera_last_s": 1413394003.3557603,
+        "camera_span_s": 117.35,
+        "first_output_delay_sensor_s": 1.0499999523162842,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.9910524069221669
+      }
+    },
+    {
+      "label": "candidate",
+      "dataset": "V2_03_difficult_r1",
+      "metrics": {
+        "dataset": "V2_03_difficult",
+        "label": "candidate",
+        "rate": 1.0,
+        "wall_s": 123.09928427600244,
+        "cpu_seconds": 79.39,
+        "average_cpu_percent_one_core": 64.49265766809715,
+        "peak_rss_mib": 96.79296875,
+        "peak_threads": 18,
+        "output_poses": 1157,
+        "received_images": 1922,
+        "received_image_messages": 4258,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 1922,
+          "/cam1/image_raw": 2336
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 43.057766,
+        "latency_p95_ms": 55.732905800000005,
+        "latency_p99_ms": 60.90384524000004,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1156,
+        "ate_rmse_m": 0.47703515529435486,
+        "ate_median_m": 0.37687478549349485,
+        "ate_p95_m": 0.8809268591145685,
+        "trajectory_duration_s": 115.55000019073486,
+        "max_output_gap_s": 0.15000033378601074,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1167,
+            "nonempty_messages": 1139,
+            "empty_messages": 28,
+            "total_points": 134318,
+            "total_finite_points": 134318,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 115.0968294772922,
+            "points_per_frame_p50": 115.0,
+            "points_per_frame_p95": 201.0,
+            "points_per_sensor_second": 1151.4616362317227,
+            "finite_points_per_sensor_second": 1151.4616362317227,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394881.6557605,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 116.650000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 968,
+            "nonempty_messages": 950,
+            "empty_messages": 18,
+            "total_points": 117503,
+            "total_finite_points": 117503,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 121.38739669421487,
+            "points_per_frame_p50": 117.0,
+            "points_per_frame_p95": 202.64999999999998,
+            "points_per_sensor_second": 1214.5012919896642,
+            "finite_points_per_sensor_second": 1214.5012919896642,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394901.5557604,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 96.75,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413394901.5557604
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1167,
+            "nonempty_messages": 801,
+            "empty_messages": 366,
+            "total_points": 11584,
+            "total_finite_points": 11584,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 9.92630676949443,
+            "points_per_frame_p50": 7.0,
+            "points_per_frame_p95": 35.0,
+            "points_per_sensor_second": 99.30561498911743,
+            "finite_points_per_sensor_second": 99.30561498911743,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394881.6557605,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 116.650000116,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 968,
+            "nonempty_messages": 692,
+            "empty_messages": 276,
+            "total_points": 10255,
+            "total_finite_points": 10255,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 10.59400826446281,
+            "points_per_frame_p50": 7.0,
+            "points_per_frame_p95": 36.0,
+            "points_per_sensor_second": 105.99483204134367,
+            "finite_points_per_sensor_second": 105.99483204134367,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413394901.5557604,
+            "last_header_stamp_s": 1413394998.3057606,
+            "sensor_span_s": 96.75,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413394901.5557604
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413394882.6557603,
+        "last_output_s": 1413394998.3057606,
+        "published_span_s": 115.65000033378601,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413394881.5557604,
+        "camera_last_s": 1413394998.3057606,
+        "camera_span_s": 116.75,
+        "first_output_delay_sensor_s": 1.0999999046325684,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.990578161317225
+      }
+    },
+    {
+      "label": "candidate_repeat",
+      "dataset": "V2_01_easy_r1",
+      "metrics": {
+        "dataset": "V2_01_easy",
+        "label": "candidate_repeat",
+        "rate": 1.0,
+        "wall_s": 120.01642634399832,
+        "cpu_seconds": 89.28,
+        "average_cpu_percent_one_core": 74.38981706062492,
+        "peak_rss_mib": 96.1328125,
+        "peak_threads": 18,
+        "output_poses": 1130,
+        "received_images": 2280,
+        "received_image_messages": 4560,
+        "received_images_by_topic": {
+          "/cam0/image_raw": 2280,
+          "/cam1/image_raw": 2280
+        },
+        "latency_misses": 0,
+        "image_count_semantics": {
+          "received_images": "primary/left camera image messages; not synchronized or processed pairs",
+          "received_image_messages": "total image messages across enabled camera topics",
+          "received_images_by_topic": "image messages for each enabled camera topic"
+        },
+        "latency_p50_ms": 43.216194,
+        "latency_p95_ms": 54.51482615,
+        "latency_p99_ms": 58.052935280000014,
+        "failure_reboots": 0,
+        "restart_requests": 0,
+        "reset_entry_events": 0,
+        "actual_resets_completed": null,
+        "failure_detection_triggers": 0,
+        "starvation_restarts": 0,
+        "soft_restart_escalations": 0,
+        "legacy_failure_reboots": 0,
+        "by_reason": {
+          "solver_failure": 0,
+          "initialization": 0,
+          "failure_detection": 0,
+          "starvation": 0,
+          "backstop": 0,
+          "soft_escalation": 0,
+          "legacy": 0,
+          "other": 0
+        },
+        "events": [],
+        "ate_reference": "estimated_body_origin",
+        "matched_poses": 1127,
+        "ate_rmse_m": 0.3031809115647366,
+        "ate_median_m": 0.2738876905100554,
+        "ate_p95_m": 0.4258447928151273,
+        "trajectory_duration_s": 112.59999990463257,
+        "max_output_gap_s": 0.10000014305114746,
+        "cloud_metrics_file": "cloud_metrics.json"
+      },
+      "clouds": {
+        "point_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 1130,
+            "empty_messages": 10,
+            "total_points": 142117,
+            "total_finite_points": 142117,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 124.6640350877193,
+            "points_per_frame_p50": 129.0,
+            "points_per_frame_p95": 166.0,
+            "points_per_sensor_second": 1247.73485526754,
+            "finite_points_per_sensor_second": 1247.73485526754,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 940,
+            "empty_messages": 0,
+            "total_points": 118961,
+            "total_finite_points": 118961,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 126.55425531914894,
+            "points_per_frame_p50": 131.0,
+            "points_per_frame_p95": 168.04999999999995,
+            "points_per_sensor_second": 1266.8903088391905,
+            "finite_points_per_sensor_second": 1266.8903088391905,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        },
+        "margin_cloud": {
+          "full_sequence": {
+            "available": true,
+            "messages": 1140,
+            "nonempty_messages": 1003,
+            "empty_messages": 137,
+            "total_points": 7150,
+            "total_finite_points": 7150,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 6.271929824561403,
+            "points_per_frame_p50": 5.0,
+            "points_per_frame_p95": 15.0,
+            "points_per_sensor_second": 62.77436348334761,
+            "finite_points_per_sensor_second": 62.77436348334761,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393212.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 113.899999988,
+            "frame_ids": [
+              "world"
+            ]
+          },
+          "after_first_left_image_plus_20s": {
+            "available": true,
+            "messages": 940,
+            "nonempty_messages": 859,
+            "empty_messages": 81,
+            "total_points": 6290,
+            "total_finite_points": 6290,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": 6.691489361702128,
+            "points_per_frame_p50": 6.0,
+            "points_per_frame_p95": 15.049999999999955,
+            "points_per_sensor_second": 66.98615548455804,
+            "finite_points_per_sensor_second": 66.98615548455804,
+            "invalid_point_ratio": 0.0,
+            "first_header_stamp_s": 1413393232.3057606,
+            "last_header_stamp_s": 1413393326.2057607,
+            "sensor_span_s": 93.9,
+            "frame_ids": [
+              "world"
+            ],
+            "window_start_s": 1413393232.2557604
+          }
+        }
+      },
+      "tracker_overflow_events": 0,
+      "tracker_overflow_dropped_pairs": 0,
+      "coverage": {
+        "first_output_s": 1413393213.3057606,
+        "last_output_s": 1413393326.2057605,
+        "published_span_s": 112.89999985694885,
+        "gaps_over_250ms": 0,
+        "gaps_over_1s": 0,
+        "camera_first_s": 1413393212.2557604,
+        "camera_last_s": 1413393326.2057605,
+        "camera_span_s": 113.95,
+        "first_output_delay_sensor_s": 1.0500001907348633,
+        "tail_uncovered_s": 0.0,
+        "output_span_fraction": 0.9907854309517231
+      }
+    }
+  ],
+  "paired_trajectories": [
+    {
+      "candidate": "candidate",
+      "dataset": "V2_01_easy_r1",
+      "baseline_rows": 1130,
+      "candidate_rows": 1130,
+      "same_shape": true,
+      "exactly_equal": false,
+      "max_stamp_delta_s": 0.0,
+      "max_position_delta_m": 0.11290908973515706,
+      "max_quaternion_component_delta": 0.02099225904665741
+    },
+    {
+      "candidate": "candidate",
+      "dataset": "V2_02_medium_r1",
+      "baseline_rows": 1164,
+      "candidate_rows": 1164,
+      "same_shape": true,
+      "exactly_equal": false,
+      "max_stamp_delta_s": 0.0,
+      "max_position_delta_m": 0.14639198164845713,
+      "max_quaternion_component_delta": 0.042488492267891316
+    },
+    {
+      "candidate": "candidate",
+      "dataset": "V2_03_difficult_r1",
+      "baseline_rows": 1157,
+      "candidate_rows": 1157,
+      "same_shape": true,
+      "exactly_equal": false,
+      "max_stamp_delta_s": 0.0,
+      "max_position_delta_m": 0.6783628657798854,
+      "max_quaternion_component_delta": 0.06917291516763197
+    },
+    {
+      "candidate": "candidate_repeat",
+      "dataset": "V2_01_easy_r1",
+      "baseline_rows": 1130,
+      "candidate_rows": 1130,
+      "same_shape": true,
+      "exactly_equal": true,
+      "max_stamp_delta_s": 0.0,
+      "max_position_delta_m": 0.0,
+      "max_quaternion_component_delta": 0.0
+    }
+  ]
+}

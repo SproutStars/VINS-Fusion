@@ -14,11 +14,13 @@ received_image_messages counts all enabled camera messages and
 received_images_by_topic reports each stream separately.
 """
 import argparse
+from array import array
 from collections import OrderedDict
 from dataclasses import dataclass
 import csv
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -39,6 +41,42 @@ _IMAGE_COUNT_SEMANTICS = {
     "received_images": "primary/left camera image messages; not synchronized or processed pairs",
     "received_image_messages": "total image messages across enabled camera topics",
     "received_images_by_topic": "image messages for each enabled camera topic",
+}
+_CLOUD_OBSERVER_TOPICS = {
+    "point_cloud": "/vins_estimator/point_cloud",
+    "margin_cloud": "/vins_estimator/margin_cloud",
+}
+_CLOUD_METRICS_POST20S = 20.0
+_CLOUD_CSV_COLUMNS = (
+    "topic",
+    "ros_topic",
+    "header_stamp_ns",
+    "header_stamp_s",
+    "frame_id",
+    "point_count",
+    "finite_count",
+    "invalid_count",
+)
+_CLOUD_METRIC_SEMANTICS = {
+    "point_count": "len(msg.points) for each received sensor_msgs/msg/PointCloud message",
+    "finite_count": "points whose x, y, and z coordinates are all finite",
+    "invalid_count": "points with at least one non-finite coordinate; point_count - finite_count",
+    "total_points": (
+        "sum of point_count over every cloud message in the segment; repeated observations "
+        "are counted again, so this is not a unique map-landmark count"),
+    "points_per_frame_mean": (
+        "arithmetic mean of per-message point_count, including empty messages"),
+    "points_per_frame_p50": (
+        "linear-interpolated population median of per-message point_count, including "
+        "empty messages"),
+    "points_per_frame_p95": (
+        "linear-interpolated population 95th percentile of per-message point_count, "
+        "including empty messages"),
+    "points_per_sensor_second": (
+        "total_points divided by (max header stamp - min header stamp) in seconds; "
+        "this is a cumulative publish-rate metric, not unique landmarks per second"),
+    "sensor_time_range": (
+        "minimum and maximum cloud header timestamps in the segment; null with no messages"),
 }
 _TRUTH_CACHE_VERSION = 1
 _TRUTH_MESSAGE_TYPES = {
@@ -242,6 +280,238 @@ class ImageMessageCounter:
             "received_image_messages": self.received_image_messages,
             "received_images_by_topic": dict(self.counts),
         }
+
+
+def _point_cloud_stamp_ns(message):
+    stamp = message.header.stamp
+    return int(stamp.sec) * 10**9 + int(stamp.nanosec)
+
+
+def _point_xyz_is_finite(point):
+    return math.isfinite(point.x) and math.isfinite(point.y) and math.isfinite(point.z)
+
+
+class CloudMetricsCollector:
+    """Aggregate point-cloud diagnostics without retaining their XYZ samples.
+
+    Memory model: one compact set of scalar counters and one frame-id string per
+    received cloud message, so per-frame metadata is O(number of messages) and is
+    not constant-memory for arbitrarily long bags. Point XYZ values are inspected
+    once in the callback and are never accumulated here.
+    """
+
+    def __init__(self, left_image_topic, topics=None, post20s=_CLOUD_METRICS_POST20S,
+                 csv_directory=None):
+        if post20s < 0:
+            raise ValueError("Cloud post-20 s offset must be nonnegative")
+        self.left_image_topic = left_image_topic
+        self.topics = dict(_CLOUD_OBSERVER_TOPICS if topics is None else topics)
+        if set(self.topics) != set(_CLOUD_OBSERVER_TOPICS):
+            raise ValueError(
+                f"Cloud topics must be exactly {sorted(_CLOUD_OBSERVER_TOPICS)}")
+        self.post20s = float(post20s)
+        self.first_left_image_stamp_ns = None
+        # O(messages) scalar metadata only; no point XYZ is retained.
+        self.samples = {
+            name: {
+                "stamps_ns": array("q"),
+                "point_counts": array("I"),
+                "finite_counts": array("I"),
+                "invalid_counts": array("I"),
+                "frames": [],
+            }
+            for name in self.topics
+        }
+        self._csv_files = {}
+        if csv_directory is not None:
+            directory = Path(csv_directory)
+            directory.mkdir(parents=True, exist_ok=True)
+            for name in self.topics:
+                handle = open(directory / f"{name}_frames.csv", "w", newline="")
+                writer = csv.writer(handle)
+                writer.writerow(_CLOUD_CSV_COLUMNS)
+                self._csv_files[name] = (handle, writer)
+        self._closed = False
+
+    def record_primary_image(self, topic, stamp_ns):
+        if topic == self.left_image_topic and self.first_left_image_stamp_ns is None:
+            self.first_left_image_stamp_ns = int(stamp_ns)
+
+    def record_cloud(self, topic_name, message):
+        if topic_name not in self.samples:
+            raise ValueError(f"Cloud message from unexpected topic key {topic_name!r}")
+        stamp_ns = _point_cloud_stamp_ns(message)
+        stamp = message.header.stamp
+        frame_id = str(getattr(message.header, "frame_id", ""))
+        points = message.points
+        point_count = len(points)
+        invalid_count = sum(1 for point in points if not _point_xyz_is_finite(point))
+        finite_count = point_count - invalid_count
+
+        samples = self.samples[topic_name]
+        samples["stamps_ns"].append(stamp_ns)
+        samples["point_counts"].append(point_count)
+        samples["finite_counts"].append(finite_count)
+        samples["invalid_counts"].append(invalid_count)
+        samples["frames"].append(frame_id)
+
+        csv_entry = self._csv_files.get(topic_name)
+        if csv_entry is not None:
+            csv_entry[1].writerow([
+                topic_name,
+                self.topics[topic_name],
+                stamp_ns,
+                int(stamp.sec) + int(stamp.nanosec) * 1e-9,
+                frame_id,
+                point_count,
+                finite_count,
+                invalid_count,
+            ])
+
+    def _post20s_threshold_ns(self):
+        if self.first_left_image_stamp_ns is None:
+            return None
+        return self.first_left_image_stamp_ns + int(round(self.post20s * 1e9))
+
+    @staticmethod
+    def _empty_segment(reason=None):
+        segment = {
+            "available": reason is None,
+            "messages": 0,
+            "nonempty_messages": 0,
+            "empty_messages": 0,
+            "total_points": 0,
+            "total_finite_points": 0,
+            "total_invalid_points": 0,
+            "messages_with_invalid_points": 0,
+            "points_per_frame_mean": None,
+            "points_per_frame_p50": None,
+            "points_per_frame_p95": None,
+            "points_per_sensor_second": None,
+            "finite_points_per_sensor_second": None,
+            "invalid_point_ratio": None,
+            "first_header_stamp_s": None,
+            "last_header_stamp_s": None,
+            "sensor_span_s": None,
+            "frame_ids": [],
+        }
+        if reason is not None:
+            segment["reason"] = reason
+        return segment
+
+    @staticmethod
+    def _summarize_segment(samples, mask):
+        stamps = np.asarray(samples["stamps_ns"], dtype=np.int64)
+        counts = np.asarray(samples["point_counts"], dtype=np.int64)
+        finite = np.asarray(samples["finite_counts"], dtype=np.int64)
+        invalid = np.asarray(samples["invalid_counts"], dtype=np.int64)
+        frames = samples["frames"]
+
+        segment_stamps = stamps[mask]
+        segment_counts = counts[mask]
+        segment_finite = finite[mask]
+        segment_invalid = invalid[mask]
+        segment_frames = [frame for frame, selected in zip(frames, mask) if selected]
+        message_count = int(len(segment_counts))
+        result = CloudMetricsCollector._empty_segment()
+        result["available"] = True
+        result["messages"] = message_count
+        result["nonempty_messages"] = int(np.count_nonzero(segment_counts > 0))
+        result["empty_messages"] = message_count - result["nonempty_messages"]
+        result["total_points"] = int(segment_counts.sum())
+        result["total_finite_points"] = int(segment_finite.sum())
+        result["total_invalid_points"] = int(segment_invalid.sum())
+        result["messages_with_invalid_points"] = int(
+            np.count_nonzero(segment_invalid > 0))
+        result["frame_ids"] = sorted(set(segment_frames))
+        if message_count:
+            start_ns = int(segment_stamps.min())
+            end_ns = int(segment_stamps.max())
+            span_s = (end_ns - start_ns) * 1e-9
+            result["first_header_stamp_s"] = start_ns * 1e-9
+            result["last_header_stamp_s"] = end_ns * 1e-9
+            result["sensor_span_s"] = span_s
+            result["points_per_frame_mean"] = float(segment_counts.mean())
+            p50, p95 = np.percentile(segment_counts, [50, 95])
+            result["points_per_frame_p50"] = float(p50)
+            result["points_per_frame_p95"] = float(p95)
+            if span_s > 0:
+                result["points_per_sensor_second"] = (
+                    result["total_points"] / span_s)
+                result["finite_points_per_sensor_second"] = (
+                    result["total_finite_points"] / span_s)
+            if result["total_points"]:
+                result["invalid_point_ratio"] = (
+                    result["total_invalid_points"] / result["total_points"])
+        return result
+
+    def _message_records(self, samples, threshold_ns):
+        records = []
+        for stamp_ns, point_count, finite_count, invalid_count, frame_id in zip(
+                samples["stamps_ns"], samples["point_counts"],
+                samples["finite_counts"], samples["invalid_counts"],
+                samples["frames"]):
+            records.append({
+                "header_stamp_ns": int(stamp_ns),
+                "header_stamp_s": int(stamp_ns) * 1e-9,
+                "point_count": int(point_count),
+                "finite_count": int(finite_count),
+                "invalid_count": int(invalid_count),
+                "frame_id": frame_id,
+                "after_post20s": (None if threshold_ns is None
+                                  else bool(stamp_ns >= threshold_ns)),
+            })
+        return records
+
+    def metrics(self):
+        threshold_ns = self._post20s_threshold_ns()
+        result = {
+            "schema_version": 1,
+            "enabled": True,
+            "observer_node": "vins_benchmark_observer",
+            "left_image_topic": self.left_image_topic,
+            "first_left_image_header_stamp_s": (
+                None if self.first_left_image_stamp_ns is None
+                else self.first_left_image_stamp_ns * 1e-9),
+            "post20s_offset_s": self.post20s,
+            "post20s_window_start_s": (
+                None if threshold_ns is None else threshold_ns * 1e-9),
+            "cumulative_points_are_not_unique_map_points": True,
+            "semantics": dict(_CLOUD_METRIC_SEMANTICS),
+            "latency_timing": {
+                "left_image_arrival": "sampled in the existing image callback; unchanged",
+                "odometry_arrival": "sampled at odometry callback entry; unchanged",
+                "cloud_metrics_feed_latency": False,
+            },
+            "topics": {},
+        }
+        for name, samples in self.samples.items():
+            stamps = np.asarray(samples["stamps_ns"], dtype=np.int64)
+            full_mask = np.ones(len(stamps), dtype=bool)
+            full = self._summarize_segment(samples, full_mask)
+            if threshold_ns is None:
+                post20 = self._empty_segment(
+                    "no left image header was observed")
+                post20["window_start_s"] = None
+            else:
+                post20 = self._summarize_segment(samples, stamps >= threshold_ns)
+                post20["window_start_s"] = threshold_ns * 1e-9
+            result["topics"][name] = {
+                "ros_topic": self.topics[name],
+                "segments": {
+                    "full_sequence": full,
+                    "after_first_left_image_plus_20s": post20,
+                },
+                "messages": self._message_records(samples, threshold_ns),
+            }
+        return result
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        for handle, _ in self._csv_files.values():
+            handle.close()
 
 
 class ArrivalTimes:
@@ -948,6 +1218,12 @@ def run_bag(args, replay, bag, output, truth, truth_extrinsic=None):
     trajectory, latencies = [], []
     image_topics = replay["image_topics"]
     image_counter = ImageMessageCounter(image_topics)
+    cloud_metrics = None
+    if getattr(args, "cloud_metrics", False):
+        cloud_metrics = CloudMetricsCollector(
+            image_topics[0],
+            post20s=_CLOUD_METRICS_POST20S,
+            csv_directory=(output if getattr(args, "save_cloud_csv", False) else None))
     counters = {"latency_misses": 0}
     last_output_wall = [time.monotonic()]
 
@@ -956,7 +1232,11 @@ def run_bag(args, replay, bag, output, truth, truth_extrinsic=None):
         endian = "<" if data[1] & 1 else ">"
         sec, nsec = struct.unpack_from(endian + "iI", data, 4)
         if topic == image_topics[0]:
-            arrivals.record(sec * 10**9 + nsec, time.monotonic_ns())
+            stamp = sec * 10**9 + nsec
+            # Existing arrival sampling is kept untouched.
+            arrivals.record(stamp, time.monotonic_ns())
+            if cloud_metrics is not None:
+                cloud_metrics.record_primary_image(topic, stamp)
         image_counter.record(topic)
 
     def odometry(msg):
@@ -981,6 +1261,13 @@ def run_bag(args, replay, bag, output, truth, truth_extrinsic=None):
     ]
     subscriptions.append(
         observer.create_subscription(Odometry, "/vins_estimator/odometry", odometry, 100))
+    if cloud_metrics is not None:
+        from sensor_msgs.msg import PointCloud
+        for name, topic in cloud_metrics.topics.items():
+            subscriptions.append(observer.create_subscription(
+                PointCloud, topic,
+                lambda message, name=name: cloud_metrics.record_cloud(name, message),
+                100))
     estimator = player = None
     resource_rows = []
     env = os.environ.copy()
@@ -1040,6 +1327,8 @@ def run_bag(args, replay, bag, output, truth, truth_extrinsic=None):
             stop_process(estimator)
             observer.destroy_node()
             rclpy.try_shutdown()
+            if cloud_metrics is not None:
+                cloud_metrics.close()
     np.savetxt(output / "trajectory.csv", trajectory, delimiter=",",
                header="t,x,y,z,qx,qy,qz,qw", comments="")
     np.savetxt(output / "resources.csv", resource_rows, delimiter=",",
@@ -1065,6 +1354,11 @@ def run_bag(args, replay, bag, output, truth, truth_extrinsic=None):
                           else "estimated_body_origin"),
         **trajectory_metrics(trajectory, truth, truth_extrinsic),
     }
+    if cloud_metrics is not None:
+        cloud_result = cloud_metrics.metrics()
+        (output / "cloud_metrics.json").write_text(
+            json.dumps(cloud_result, indent=2) + "\n")
+        result["cloud_metrics_file"] = "cloud_metrics.json"
     (output / "metrics.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result), flush=True)
     return result
@@ -1094,10 +1388,18 @@ def main():
                         help="Explicit mav0 sensor.yaml; supplies T_BS and sensor_type")
     parser.add_argument("--truth-csv", action="append", metavar="[DATASET=]PATH",
                         help="Per-sequence external truth CSV; repeat DATASET=PATH for each dataset")
+    parser.add_argument(
+        "--cloud-metrics", action="store_true",
+        help="Observe /vins_estimator/point_cloud and margin_cloud; write cloud_metrics.json")
+    parser.add_argument(
+        "--save-cloud-csv", action="store_true",
+        help="Write per-message point_cloud_frames.csv and margin_cloud_frames.csv")
     args = parser.parse_args()
     args.binary, args.config, args.output = args.binary.resolve(), args.config.resolve(), args.output.resolve()
     if args.rate <= 0 or args.repeats < 1:
         parser.error("rate and repeats must be positive")
+    if args.save_cloud_csv and not args.cloud_metrics:
+        parser.error("--save-cloud-csv requires --cloud-metrics")
     if args.truth_topic is not None:
         if not args.truth_topic.startswith("/") or re.search(r"\s", args.truth_topic):
             parser.error("--truth-topic must be an absolute ROS topic without whitespace")
@@ -1126,6 +1428,19 @@ def main():
                 "mode": replay["mode"], "topics": replay["topics"],
                 "playback_topics": replay["playback_topics"], "replay": replay,
                 "image_count_semantics": _IMAGE_COUNT_SEMANTICS,
+                "cloud_observer": {
+                    "enabled": bool(args.cloud_metrics),
+                    "observer_node": "vins_benchmark_observer",
+                    "topics": (dict(_CLOUD_OBSERVER_TOPICS)
+                               if args.cloud_metrics else {}),
+                    "post20s_offset_s": (_CLOUD_METRICS_POST20S
+                                         if args.cloud_metrics else None),
+                    "save_cloud_csv": bool(args.save_cloud_csv),
+                    "latency_timing": (
+                        "left-image arrival sampled in its existing callback; "
+                        "odometry arrival sampled at callback entry; cloud metrics "
+                        "do not feed latency"),
+                },
                 "cpu_affinity": args.cpu_affinity,
                 "cpu_affinity_method": (
                     "taskset -c prefix on estimator only; observer and bag player unbound"

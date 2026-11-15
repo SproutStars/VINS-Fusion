@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <iostream>
+#include <random>
 #include <vector>
 
 #include "backend/feature_history.h"
+#include "backend/schur_cloud_history.h"
 #include "backend/schur_visualization.h"
 
 namespace
@@ -47,8 +50,7 @@ Eigen::Vector2d project_world(
   const auto & clone = _state.clone(_clone_index);
   const Eigen::Matrix3d R_i = EkfState::rotation(clone.q_);
   const Eigen::Matrix3d R_cb = EkfState::rotation(_camera.q_cb_);
-  const Eigen::Vector3d p_c =
-    R_cb.transpose() * (R_i.transpose() * (_world_point - clone.p_) - _camera.p_cb_);
+  const Eigen::Vector3d p_c = R_cb.transpose() * (R_i.transpose() * (_world_point - clone.p_) - _camera.p_cb_);
   return Eigen::Vector2d(p_c.x() / p_c.z(), p_c.y() / p_c.z());
 }
 
@@ -117,19 +119,14 @@ TEST(SchurVisualization, StereoKeyframePointsUseCameraZeroOrAreOmitted)
 
   FeatureTrack_s both_cameras;
   both_cameras.id_ = 21;
-  both_cameras.observations_.push_back(
-    observation(0, 0, uv00, Eigen::Vector2d(320.0, 240.0), true));
-  both_cameras.observations_.push_back(
-    observation(1, 0, uv10, Eigen::Vector2d(228.0, 240.0), true));
-  both_cameras.observations_.push_back(
-    observation(1, 1, uv11, Eigen::Vector2d(999.0, 777.0), true));
+  both_cameras.observations_.push_back(observation(0, 0, uv00, Eigen::Vector2d(320.0, 240.0), true));
+  both_cameras.observations_.push_back(observation(1, 0, uv10, Eigen::Vector2d(228.0, 240.0), true));
+  both_cameras.observations_.push_back(observation(1, 1, uv11, Eigen::Vector2d(999.0, 777.0), true));
 
   FeatureTrack_s right_only_at_keyframe;
   right_only_at_keyframe.id_ = 22;
-  right_only_at_keyframe.observations_.push_back(
-    observation(0, 0, uv00, Eigen::Vector2d(320.0, 240.0), true));
-  right_only_at_keyframe.observations_.push_back(
-    observation(1, 1, uv11, Eigen::Vector2d(238.0, 240.0), true));
+  right_only_at_keyframe.observations_.push_back(observation(0, 0, uv00, Eigen::Vector2d(320.0, 240.0), true));
+  right_only_at_keyframe.observations_.push_back(observation(1, 1, uv11, Eigen::Vector2d(238.0, 240.0), true));
 
   const SchurVisualizationSnapshot_s snapshot =
     makeSchurVisualizationSnapshot(state, cameras, updater, {both_cameras, right_only_at_keyframe}, 1, 15.0);
@@ -331,4 +328,313 @@ TEST(SchurMargin, PoorFirstSegmentDoesNotBlockLaterReliableSegmentOrMutateFilter
   EXPECT_TRUE((good.state_.imu().p_.array() == pose.array()).all());
   EXPECT_FALSE(good.track_.has_point_);
   EXPECT_TRUE(good.track_.world_point_.isZero());
+}
+
+
+TEST(SchurCloudHistory, SurvivesConsumptionAndPrunesByAbsoluteFrame)
+{
+  FeatureHistory measurement;
+  SchurCloudHistory cloud;
+  cloud.configure(64, 32);
+
+  measurement.addFrame(20, 0, {std::make_pair(1, Eigen::Vector2d(0.0, 0.0))});
+  cloud.addFrame(20, 0, {std::make_pair(1, Eigen::Vector2d(0.0, 0.0))});
+  measurement.addFrame(21, 0, {std::make_pair(1, Eigen::Vector2d(-0.2, 0.0))});
+  cloud.addFrame(21, 0, {std::make_pair(1, Eigen::Vector2d(-0.2, 0.0))});
+
+  // Simulate the Schur update consuming the track. Measurement history forgets
+  // it, publication history must not.
+  measurement.eraseFeatures({1});
+  measurement.addFrame(22, 0, {std::make_pair(1, Eigen::Vector2d(-0.4, 0.0))});
+  cloud.addFrame(22, 0, {std::make_pair(1, Eigen::Vector2d(-0.4, 0.0))});
+
+  EXPECT_TRUE(measurement.allTracks(20).at(0).observations_.size() == 1u);
+  const auto cloud_tracks = cloud.tracks(20, 10);
+  ASSERT_EQ(cloud_tracks.size(), 1u);
+  ASSERT_EQ(cloud_tracks[0].observations_.size(), 3u);
+  EXPECT_EQ(cloud_tracks[0].observations_[0].clone_index_, 0);
+  EXPECT_EQ(cloud_tracks[0].observations_[2].clone_index_, 2);
+
+  // Sliding the clone window rebases clone indices without a remap.
+  cloud.prune(21);
+  const auto pruned = cloud.tracks(21, 10);
+  ASSERT_EQ(pruned.size(), 1u);
+  ASSERT_EQ(pruned[0].observations_.size(), 2u);
+  EXPECT_EQ(pruned[0].observations_[0].clone_index_, 0);
+  EXPECT_EQ(pruned[0].observations_[1].clone_index_, 1);
+
+  // A single remaining observation is no longer a triangulatable track.
+  cloud.prune(22);
+  EXPECT_TRUE(cloud.tracks(22, 10).empty());
+  EXPECT_EQ(cloud.numFeatures(), 1u);
+  cloud.prune(23);
+  EXPECT_EQ(cloud.numFeatures(), 0u);
+}
+
+TEST(SchurCloudHistory, EnforcesCapsAndIgnoresDuplicateViews)
+{
+  SchurCloudHistory cloud;
+  cloud.configure(2, 4);
+  cloud.addFrameWithPixels(
+    0, 0,
+    {FeatureHistory::FrameObservation_s{1, Eigen::Vector2d(0.0, 0.0), Eigen::Vector2d(320.0, 240.0), true}});
+  cloud.addFrameWithPixels(
+    0, 0,
+    {FeatureHistory::FrameObservation_s{1, Eigen::Vector2d(0.0, 0.0), Eigen::Vector2d(320.0, 240.0), true}});
+  EXPECT_EQ(cloud.numObservations(), 1u);
+
+  for (int frame = 1; frame < 8; ++frame)
+    cloud.addFrameWithPixels(
+      frame, 0,
+      {FeatureHistory::FrameObservation_s{
+        1, Eigen::Vector2d(0.01 * frame, 0.0), Eigen::Vector2d(320.0 + frame, 240.0), true}});
+  EXPECT_LE(cloud.numObservations(), 4u);
+  const auto bounded = cloud.tracks(0, 10);
+  ASSERT_EQ(bounded.size(), 1u);
+  ASSERT_EQ(bounded[0].observations_.size(), 4u);
+  EXPECT_EQ(bounded[0].observations_.back().clone_index_, 7);
+
+  cloud.addFrameWithPixels(
+    0, 1,
+    {FeatureHistory::FrameObservation_s{2, Eigen::Vector2d(0.0, 0.0), Eigen::Vector2d(320.0, 240.0), true},
+     FeatureHistory::FrameObservation_s{3, Eigen::Vector2d(0.0, 0.0), Eigen::Vector2d(320.0, 240.0), true}});
+  EXPECT_LE(cloud.numFeatures(), 2u);
+
+  cloud.clear();
+  EXPECT_EQ(cloud.numFeatures(), 0u);
+  EXPECT_EQ(cloud.newestFrameIndex(), -1);
+}
+
+TEST(SchurCloudHistory, CloudOnlyTracksNeverBecomeLoopKeyframePoints)
+{
+  const EkfState state = two_clone_state();
+  const std::vector<CameraExtrinsics_s> cameras(1);
+  const SchurUpdater updater(visualization_options());
+  const Eigen::Vector3d world_point(0.0, 0.0, 5.0);
+  const Eigen::Vector2d uv0 = project_world(state, 0, cameras[0], world_point);
+  const Eigen::Vector2d uv1 = project_world(state, 1, cameras[0], world_point);
+
+  FeatureTrack_s measurement_track;
+  measurement_track.id_ = 21;
+  measurement_track.observations_.push_back(observation(0, 0, uv0, Eigen::Vector2d(320.0, 240.0), true));
+  measurement_track.observations_.push_back(observation(1, 0, uv1, Eigen::Vector2d(228.0, 240.0), true));
+
+  FeatureTrack_s cloud_only = measurement_track;
+  cloud_only.id_ = 99;
+  cloud_only.observations_[1].pixel_uv_ = Eigen::Vector2d(999.0, 777.0);
+
+  const SchurVisualizationSnapshot_s snapshot = makeSchurVisualizationSnapshot(
+    state, cameras, updater, {measurement_track}, {measurement_track, cloud_only}, 1, 20.0, {21});
+  ASSERT_TRUE(snapshot.valid_);
+  ASSERT_EQ(snapshot.cloud_points_.size(), 2u);
+  ASSERT_EQ(snapshot.keyframe_points_.size(), 1u);
+  EXPECT_EQ(snapshot.keyframe_points_[0].feature_id_, 21);
+  EXPECT_NEAR(snapshot.keyframe_points_[0].pixel_uv_.x(), 228.0, 1e-12);
+}
+
+TEST(SchurCloudQuality, StereoPairSatisfiesTwoViewMarginAndCloudGate)
+{
+  const EkfState state = two_clone_state();
+  const CameraExtrinsics_s cam0;
+  CameraExtrinsics_s cam1;
+  cam1.p_cb_ = Eigen::Vector3d(-0.11, 0.0, 0.0);
+  const std::vector<CameraExtrinsics_s> cameras{cam0, cam1};
+  const SchurUpdater updater(visualization_options());
+  const Eigen::Vector3d world_point(0.0, 0.0, 2.0);
+
+  FeatureTrack_s track;
+  track.id_ = 31;
+  track.observations_.push_back(
+    observation(1, 0, project_world(state, 1, cam0, world_point), Eigen::Vector2d(320.0, 240.0), true));
+  track.observations_.push_back(
+    observation(1, 1, project_world(state, 1, cam1, world_point), Eigen::Vector2d(238.0, 240.0), true));
+
+  const SchurVisualizationSnapshot_s snapshot =
+    makeSchurVisualizationSnapshot(state, cameras, updater, {track}, {track}, 1, 21.0, {31});
+  ASSERT_TRUE(snapshot.valid_);
+  ASSERT_EQ(snapshot.cloud_points_.size(), 1u);
+  ASSERT_EQ(snapshot.margin_points_.size(), 1u);
+  EXPECT_EQ(snapshot.margin_points_[0].feature_id_, 31);
+}
+
+TEST(SchurCloudQuality, StereoCloudGateRejectsWrongMatch)
+{
+  const EkfState state = two_clone_state();
+  const CameraExtrinsics_s cam0;
+  CameraExtrinsics_s cam1;
+  cam1.p_cb_ = Eigen::Vector3d(-0.11, 0.0, 0.0);
+  const std::vector<CameraExtrinsics_s> cameras{cam0, cam1};
+  const SchurUpdater updater(visualization_options());
+  const Eigen::Vector3d world_point(0.0, 0.0, 2.0);
+
+  FeatureTrack_s track;
+  track.id_ = 32;
+  track.observations_.push_back(
+    observation(1, 0, project_world(state, 1, cam0, world_point), Eigen::Vector2d(320.0, 240.0), true));
+  track.observations_.push_back(
+    observation(1, 1, project_world(state, 1, cam1, world_point), Eigen::Vector2d(238.0, 240.0), true));
+  // Off-epipolar (y) error. An x error along the epipolar line is not
+  // geometrically rejectable from two views alone (it is just a different
+  // depth); only cross-frame redundancy can address that ambiguity.
+  track.observations_[1].uv_.y() += 0.2;  // ~92 px off-epipolar mismatch
+
+  const SchurVisualizationSnapshot_s snapshot =
+    makeSchurVisualizationSnapshot(state, cameras, updater, {track}, {track}, 1, 22.0, {32});
+  EXPECT_TRUE(snapshot.cloud_points_.empty());
+  EXPECT_TRUE(snapshot.margin_points_.empty());
+  EXPECT_TRUE(snapshot.keyframe_points_.empty());
+}
+
+TEST(SchurCloudQuality, MarginRetentionIncludesCloudOnlyIds)
+{
+  SchurCloudHistory cloud;
+  cloud.configure(8, 8);
+  cloud.addFrameWithPixels(
+    0, 0,
+    {FeatureHistory::FrameObservation_s{5, Eigen::Vector2d(0.0, 0.0), Eigen::Vector2d(320.0, 240.0), true}});
+
+  MarginPublicationHistory history;
+  history.mark(5);
+  ASSERT_EQ(history.size(), 1u);
+  std::unordered_set<int> live_ids;
+  cloud.appendFeatureIds(live_ids);
+  history.retain(live_ids);
+  EXPECT_EQ(history.size(), 1u);
+  EXPECT_TRUE(cloud.contains(5));
+}
+
+
+TEST(SchurCloudQuality, RejectsWeakParallaxZeroBaselineAndNegativeDepth)
+{
+  const SchurUpdater updater(visualization_options());
+  SchurVisualizationQuality_s quality;
+  quality.gate_all_cloud_tracks_ = true;
+
+  // Weak parallax: 2 cm baseline at 5 m, exact observations. Triangulation
+  // succeeds but the publication profiles reject the geometry.
+  {
+    EkfOptions_s options;
+    options.window_size_ = 4;
+    EkfState state;
+    state.reset(
+      options, 0.0, Eigen::Vector4d(1, 0, 0, 0), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+      Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    state.augmentClone(0.0);
+    state.imu().p_ = Eigen::Vector3d(0.02, 0.0, 0.0);
+    state.refreshImuFej();
+    state.augmentClone(1.0);
+    const std::vector<CameraExtrinsics_s> cameras(1);
+    const Eigen::Vector3d world_point(0.0, 0.0, 5.0);
+    FeatureTrack_s track;
+    track.id_ = 41;
+    track.observations_.push_back(observation(
+      0, 0, project_world(state, 0, cameras[0], world_point), Eigen::Vector2d(320.0, 240.0), true));
+    track.observations_.push_back(observation(
+      1, 0, project_world(state, 1, cameras[0], world_point), Eigen::Vector2d(318.0, 240.0), true));
+    const auto snapshot = makeSchurVisualizationSnapshot(
+      state, cameras, updater, {track}, {track}, 1, 30.0, {41}, nullptr, quality);
+    EXPECT_TRUE(snapshot.cloud_points_.empty());
+    EXPECT_TRUE(snapshot.margin_points_.empty());
+    EXPECT_EQ(snapshot.keyframe_points_.size(), 1u);
+  }
+
+  // Zero stereo baseline: different camera ids but identical extrinsic pose.
+  {
+    const EkfState state = two_clone_state();
+    const CameraExtrinsics_s cam0;
+    const CameraExtrinsics_s cam1 = cam0;
+    const std::vector<CameraExtrinsics_s> cameras{cam0, cam1};
+    const Eigen::Vector3d world_point(0.0, 0.0, 2.0);
+    FeatureTrack_s track;
+    track.id_ = 42;
+    const Eigen::Vector2d uv = project_world(state, 1, cam0, world_point);
+    track.observations_.push_back(observation(1, 0, uv, Eigen::Vector2d(320.0, 240.0), true));
+    track.observations_.push_back(observation(1, 1, uv, Eigen::Vector2d(320.0, 240.0), true));
+    const auto snapshot = makeSchurVisualizationSnapshot(
+      state, cameras, updater, {track}, {track}, 1, 31.0, {42}, nullptr, quality);
+    EXPECT_TRUE(snapshot.cloud_points_.empty());
+    EXPECT_TRUE(snapshot.margin_points_.empty());
+    EXPECT_TRUE(snapshot.keyframe_points_.empty());
+  }
+
+  // Negative depth: the second observation is on the opposite side of the
+  // epipole, so the two-view initialisation returns lambda <= 0.
+  {
+    const EkfState state = two_clone_state();
+    const std::vector<CameraExtrinsics_s> cameras(1);
+    FeatureTrack_s track;
+    track.id_ = 43;
+    track.observations_.push_back(
+      observation(0, 0, Eigen::Vector2d(0.0, 0.0), Eigen::Vector2d(320.0, 240.0), true));
+    track.observations_.push_back(
+      observation(1, 0, Eigen::Vector2d(0.2, 0.0), Eigen::Vector2d(412.0, 240.0), true));
+    const auto snapshot = makeSchurVisualizationSnapshot(
+      state, cameras, updater, {track}, {track}, 1, 32.0, {43}, nullptr, quality);
+    EXPECT_TRUE(snapshot.cloud_points_.empty());
+    EXPECT_TRUE(snapshot.margin_points_.empty());
+    EXPECT_TRUE(snapshot.keyframe_points_.empty());
+  }
+}
+
+TEST(SchurCloudQuality, CrossSegmentObservationsReduceSyntheticTriangulationError)
+{
+  EkfOptions_s options;
+  options.window_size_ = 5;
+  EkfState state;
+  state.reset(
+    options, 0.0, Eigen::Vector4d(1, 0, 0, 0), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+    Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  for (int i = 0; i < 5; ++i) {
+    state.imu().p_ = Eigen::Vector3d(0.2 * i, 0.0, 0.0);
+    state.refreshImuFej();
+    state.augmentClone(i);
+  }
+
+  CameraExtrinsics_s cam0;
+  CameraExtrinsics_s cam1;
+  cam1.p_cb_ = Eigen::Vector3d(-0.11, 0.0, 0.0);
+  const std::vector<CameraExtrinsics_s> cameras{cam0, cam1};
+  const SchurUpdater updater(visualization_options());
+  const Eigen::Vector3d truth(0.0, 0.0, 4.0);
+  std::mt19937 rng(12345);
+  std::normal_distribution<double> pixel_noise(0.0, 0.25);
+  double short_error = 0.0;
+  double full_error = 0.0;
+  int trials = 0;
+
+  // No seed selection: all 100 deterministic trials contribute to the mean.
+  for (int trial = 0; trial < 100; ++trial) {
+    FeatureTrack_s short_track;
+    short_track.id_ = 51;
+    FeatureTrack_s full_track;
+    full_track.id_ = 52;
+    for (int i = 0; i < 5; ++i) {
+      for (int camera_id = 0; camera_id < 2; ++camera_id) {
+        Eigen::Vector2d uv = project_world(state, i, cameras[camera_id], truth);
+        uv += Eigen::Vector2d(pixel_noise(rng), pixel_noise(rng)) / 460.0;
+        const FeatureObservation_s obs =
+          observation(i, camera_id, uv, uv * 460.0 + Eigen::Vector2d(320.0, 240.0), true);
+        full_track.observations_.push_back(obs);
+        if (i == 4)
+          short_track.observations_.push_back(obs);
+      }
+    }
+
+    FeatureTrack_s short_solution = short_track;
+    FeatureTrack_s full_solution = full_track;
+    const bool short_ok = updater.triangulate(state, cameras, short_solution);
+    const bool full_ok = updater.triangulate(state, cameras, full_solution);
+    if (!short_ok || !full_ok)
+      continue;
+    short_error += (short_solution.world_point_ - truth).norm();
+    full_error += (full_solution.world_point_ - truth).norm();
+    ++trials;
+  }
+
+  ASSERT_GT(trials, 90);
+  const double short_mean = short_error / trials;
+  const double full_mean = full_error / trials;
+  std::cout << "[cloud-history] synthetic stereo trials=" << trials << " short_mean=" << short_mean
+            << " full_mean=" << full_mean << std::endl;
+  EXPECT_LT(full_mean, short_mean);
 }

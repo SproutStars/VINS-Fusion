@@ -47,6 +47,9 @@ bool trackImageRequested();
 // estimator uses this to avoid triangulating publication-only snapshots when
 // loop_fusion and RViz are not connected.
 bool schurVisualizationRequested();
+// True when a point_cloud or margin_cloud consumer exists. Keyframe/loop
+// subscribers alone must not trigger publication-cloud reconstruction.
+bool schurPointCloudRequested();
 
 void registerPub(const rclcpp::Node::SharedPtr & _n);
 

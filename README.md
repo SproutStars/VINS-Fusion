@@ -80,6 +80,9 @@ ros2 launch vins vins.launch.py mode:=stereo_imu \
   loop_fusion:=true rviz:=true
 ```
 
+双目 + IMU 的 Schur 后端支持跨消费段的有界点云观测历史与几何质量筛选；
+ARM 测量、适用范围和精度边界见 [双目点云改进与 ARM 验证](docs/STEREO_CLOUD_ARM_20261115.md)。
+
 启动参数：
 
 | 参数 | 默认值 | 含义 |
