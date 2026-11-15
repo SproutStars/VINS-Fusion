@@ -39,6 +39,9 @@
     stage_timing_interval: 100
     ransac_outlier_rejection: 1
     backend_type: "schur_ekf"
+    schur_nullspace_method: "qr"       # 改为 "qr" 开启 QR
+    schur_batch_imu_covariance: false   # true 开启批量传播
+    schur_max_update_observations: 0    # 0 不限；本轮测试 240、480
     schur_window_size: 5
     schur_warmup_frames: 10
     schur_max_features: 120

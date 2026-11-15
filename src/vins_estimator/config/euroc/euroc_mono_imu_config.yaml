@@ -42,6 +42,9 @@
     # 后端选择："ceres"（默认滑动窗口 NLS）或 "schur_ekf"
     #（面向 ARM 的 Schur 补 EKF，参见 docs/BACKEND_SCHUR_EKF.md）。
     backend_type: "schur_ekf"
+    schur_nullspace_method: "qr"       # 改为 "qr" 开启 QR
+    schur_batch_imu_covariance: false   # true 开启批量传播
+    schur_max_update_observations: 0    # 0 不限；本轮测试 240、480
     schur_window_size: 5
     # 初始化后先用 Ceres 求解若干图像帧，然后
     # 再由 EKF 接管。这样可让初始化阶段的零偏/速度收敛。
