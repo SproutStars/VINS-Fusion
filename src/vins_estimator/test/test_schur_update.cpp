@@ -2291,3 +2291,359 @@ TEST(SchurUpdate, T30DeterministicRepeatReduceUpdateWorkload)
   EXPECT_TRUE(std::isfinite(reduce_checksum));
   EXPECT_TRUE(std::isfinite(update_checksum));
 }
+
+// ===========================================================================
+// T35 -- optional Givens-QR point nullspace matches the SVD oracle: same
+// point-block rank, chi2 dof and chi2 on a non-zero-residual track.  The QR
+// path rotates Hf/Hx/r and drops the eliminated rows instead of forming the
+// full 2N x 2N left singular vectors.
+// ===========================================================================
+TEST(SchurUpdate, T35QrNullspaceMatchesSvdOracleWithNonzeroResidual)
+{
+  UpdateOptions_s svd_opts = default_options();
+  UpdateOptions_s qr_opts = svd_opts;
+  qr_opts.nullspace_method_ = "qr";
+  SchurUpdater svd_updater(svd_opts);
+  SchurUpdater qr_updater(qr_opts);
+
+  const CameraExtrinsics_s cam =
+    make_camera(Eigen::Vector3d(0.02, -0.01, 0.03), Eigen::Vector3d(0.0, 0.0, 0.0));
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(4, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);
+  regularize_covariance(state);
+
+  const Eigen::Vector3d world_point(0.8, -0.4, 4.5);
+  FeatureTrack_s track;
+  track.id_ = 3500;
+  const Eigen::Vector2d offset_px(0.62, -0.41);
+  for (int i = 0; i < 4; ++i) {
+    Eigen::Vector2d uv =
+      project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam, world_point);
+    uv += offset_px * (i % 2 == 0 ? 1.0 : -0.5) / K_FOCAL;
+    track.observations_.push_back(make_observation(i, 0, uv));
+  }
+  ASSERT_TRUE(svd_updater.triangulate(state, {cam}, track));
+
+  const TrackReduction_s red_svd = svd_updater.reduceTrack(state, {cam}, track);
+  const TrackReduction_s red_qr = qr_updater.reduceTrack(state, {cam}, track);
+  ASSERT_TRUE(red_svd.valid_);
+  ASSERT_TRUE(red_qr.valid_);
+  ASSERT_EQ(red_svd.point_rank_, 3);
+  EXPECT_EQ(red_qr.point_rank_, red_svd.point_rank_);
+  EXPECT_EQ(red_qr.gate_dof_, red_svd.gate_dof_);
+  EXPECT_EQ(red_qr.gate_dof_, 2 * 4 - 3);
+  EXPECT_GT(std::abs(red_qr.chi2_), 1e-6);
+
+  // The point block / Schur blocks do not depend on the nullspace method.
+  EXPECT_LT((red_qr.A_point_ - red_svd.A_point_).norm(), 1e-12);
+  EXPECT_LT((red_qr.b_point_ - red_svd.b_point_).norm(), 1e-12);
+  EXPECT_NEAR(red_qr.chi2_, red_svd.chi2_, 1e-9 * std::max(1.0, std::abs(red_svd.chi2_)));
+
+  // Independent full-U SVD oracle exactly as T28.
+  const JointSystem_s joint = build_joint(svd_updater, state, {cam}, track);
+  const int m = 2 * 4;
+  Eigen::JacobiSVD<Eigen::MatrixXd> oracle_svd(joint.Hf_, Eigen::ComputeFullU);
+  const Eigen::MatrixXd N = oracle_svd.matrixU().rightCols(m - 3);
+  const Eigen::VectorXd r0 = N.transpose() * joint.r_;
+  const Eigen::MatrixXd H0 = N.transpose() * joint.Hx_;
+  Eigen::MatrixXd S0 = H0 * state.covariance() * H0.transpose();
+  S0.diagonal().array() += 1.0;
+  Eigen::LDLT<Eigen::MatrixXd> ldlt(S0);
+  ASSERT_EQ(ldlt.info(), Eigen::Success);
+  const Eigen::VectorXd y = ldlt.solve(r0);
+  ASSERT_TRUE(y.allFinite());
+  const double chi2_ref = r0.dot(y);
+  std::printf(
+    "[T35] dof=%d chi2_svd=%.9f chi2_qr=%.9f oracle=%.9f diff=%.3e\n", red_qr.gate_dof_, red_svd.chi2_,
+    red_qr.chi2_, chi2_ref, std::abs(red_qr.chi2_ - chi2_ref));
+  EXPECT_NEAR(red_qr.chi2_, chi2_ref, 1e-9 * std::max(1.0, std::abs(chi2_ref)));
+}
+
+// ===========================================================================
+// T36 -- QR and SVD posterior comparison.  With the same accepted tracks the
+// accumulated A/b (and therefore the shared eigen/Joseph update) is identical;
+// only the gate projection differs numerically.
+// ===========================================================================
+TEST(SchurUpdate, T36QrUpdatePosteriorMatchesSvd)
+{
+  UpdateOptions_s svd_opts = default_options();
+  svd_opts.condition_limit_ = 0.0;
+  UpdateOptions_s qr_opts = svd_opts;
+  qr_opts.nullspace_method_ = "qr";
+  SchurUpdater svd_updater(svd_opts);
+  SchurUpdater qr_updater(qr_opts);
+
+  const CameraExtrinsics_s cam = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(0.02, 0.0, 0.0));
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(4, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);
+  regularize_covariance(state);
+
+  std::vector<FeatureTrack_s> tracks;
+  for (int f = 0; f < 8; ++f) {
+    FeatureTrack_s track;
+    track.id_ = 3600 + f;
+    const Eigen::Vector3d world_point(-0.7 + 0.2 * f, 0.15 * ((f % 3) - 1), 4.0 + 0.1 * f);
+    for (int i = 0; i < 4; ++i) {
+      Eigen::Vector2d uv =
+        project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam, world_point);
+      uv.x() += 0.2 * (i % 2 == 0 ? 1.0 : -1.0) / K_FOCAL;  // small non-zero residual
+      track.observations_.push_back(make_observation(i, 0, uv));
+    }
+    tracks.push_back(track);
+  }
+
+  EkfState svd_state = state;
+  EkfState qr_state = state;
+  std::vector<FeatureTrack_s> svd_tracks = tracks;
+  std::vector<FeatureTrack_s> qr_tracks = tracks;
+  const Snapshot_s before = snapshot(state);
+  const UpdateSummary_s s_svd = svd_updater.update(svd_state, svd_tracks, {cam});
+  const UpdateSummary_s s_qr = qr_updater.update(qr_state, qr_tracks, {cam});
+  ASSERT_TRUE(s_svd.applied_);
+  ASSERT_TRUE(s_qr.applied_);
+  EXPECT_EQ(s_qr.features_used_, s_svd.features_used_);
+  EXPECT_EQ(s_qr.observations_used_, s_svd.observations_used_);
+  EXPECT_EQ(s_qr.degrees_of_freedom_, s_svd.degrees_of_freedom_);
+  EXPECT_EQ(s_qr.rank_, s_svd.rank_);
+  EXPECT_NEAR(s_qr.condition_, s_svd.condition_, 1e-9 * std::max(1.0, std::abs(s_svd.condition_)));
+
+  const double posterior_diff = snapshot_max_diff(snapshot(svd_state), snapshot(qr_state));
+  const Eigen::VectorXd dx_svd = reconstruct_dx(before, svd_state);
+  const Eigen::VectorXd dx_qr = reconstruct_dx(before, qr_state);
+  const double dx_rel = (dx_svd - dx_qr).norm() / std::max(1.0, dx_svd.norm());
+  std::printf("[T36] posterior_max_diff=%.3e dx_rel=%.3e rank=%d\n", posterior_diff, dx_rel, s_qr.rank_);
+  EXPECT_LT(posterior_diff, 1e-9);
+  EXPECT_LT(dx_rel, 1e-9);
+}
+
+// ===========================================================================
+// T37 -- same-clone stereo pairs are kept as two complete rows by the QR
+// projection, and a rank-deficient point block is rejected by both methods.
+// ===========================================================================
+TEST(SchurUpdate, T37QrSameCloneStereoAndDegenerateRank)
+{
+  UpdateOptions_s svd_opts = default_options();
+  UpdateOptions_s qr_opts = svd_opts;
+  qr_opts.nullspace_method_ = "qr";
+  SchurUpdater svd_updater(svd_opts);
+  SchurUpdater qr_updater(qr_opts);
+
+  const CameraExtrinsics_s cam0 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  const CameraExtrinsics_s cam1 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.11, 0.0, 0.0));
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(3, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);
+  regularize_covariance(state);
+
+  const Eigen::Vector3d world_point(0.45, -0.2, 4.0);
+  FeatureTrack_s track;
+  track.id_ = 3700;
+  for (int i = 0; i < 3; ++i) {
+    track.observations_.push_back(make_observation(
+      i, 0,
+      project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0, world_point)));
+    track.observations_.push_back(make_observation(
+      i, 1,
+      project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam1, world_point)));
+  }
+  ASSERT_EQ(track.observations_.size(), 6u);
+  ASSERT_TRUE(svd_updater.triangulate(state, {cam0, cam1}, track));
+  const TrackReduction_s red_svd = svd_updater.reduceTrack(state, {cam0, cam1}, track);
+  const TrackReduction_s red_qr = qr_updater.reduceTrack(state, {cam0, cam1}, track);
+  ASSERT_TRUE(red_svd.valid_);
+  ASSERT_TRUE(red_qr.valid_);
+  EXPECT_EQ(red_qr.gate_dof_, 2 * 6 - 3);
+  EXPECT_NEAR(red_qr.chi2_, red_svd.chi2_, 1e-9 * std::max(1.0, std::abs(red_svd.chi2_)));
+
+  // Two identical mono observations from one clone leave A_point rank 2.
+  const Eigen::Vector2d uv = project_world(qs[0], ps[0], cam0, world_point);
+  FeatureTrack_s duplicate;
+  duplicate.id_ = 3701;
+  duplicate.world_point_ = world_point;
+  duplicate.has_point_ = true;
+  duplicate.observations_.push_back(make_observation(0, 0, uv));
+  duplicate.observations_.push_back(make_observation(0, 0, uv));
+  EXPECT_FALSE(svd_updater.reduceTrack(state, {cam0, cam1}, duplicate).valid_);
+  EXPECT_FALSE(qr_updater.reduceTrack(state, {cam0, cam1}, duplicate).valid_);
+}
+
+// ===========================================================================
+// T38 -- positive observation budget: complete tracks only, deterministic
+// longest-first admission, deferred/expired are not consumed/rejected, and
+// deferred/expired tracks are never triangulated.
+// ===========================================================================
+TEST(SchurUpdate, T38ObservationBudgetDefersAndExpiresWithoutTriangulation)
+{
+  UpdateOptions_s opts = default_options();
+  opts.condition_limit_ = 0.0;
+  opts.max_update_observations_ = 5;
+  SchurUpdater updater(opts);
+
+  const CameraExtrinsics_s cam0 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  const CameraExtrinsics_s cam1 = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(-0.10, 0.0, 0.0));
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(3, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);  // window_size = n+2 => margin_active == false
+  regularize_covariance(state);
+
+  auto make_track = [&](int _id, const std::vector<int> & _clone_indices)
+  {
+    FeatureTrack_s track;
+    track.id_ = _id;
+    const Eigen::Vector3d world_point(0.2 * (_id % 5), -0.1 * (_id % 3), 4.0 + 0.05 * (_id % 4));
+    for (const int i : _clone_indices)
+      track.observations_.push_back(make_observation(
+        i, 0,
+        project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0, world_point)));
+    return track;
+  };
+
+  FeatureTrack_s a = make_track(3801, {0, 1, 2});  // 3 obs, selected
+  FeatureTrack_s b = make_track(3802, {0, 1});     // 2 obs, selected
+  FeatureTrack_s d = make_track(3804, {1, 2});     // 2 obs, deferred (no budget left)
+  FeatureTrack_s oversized;                        // 6 obs > cap, expired
+  oversized.id_ = 3803;
+  oversized.world_point_ = Eigen::Vector3d(0.3, 0.1, 4.2);
+  for (int i = 0; i < 3; ++i) {
+    const Eigen::Vector2d uv0 = project_world(
+      qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam0, oversized.world_point_);
+    const Eigen::Vector2d uv1 = project_world(
+      qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam1, oversized.world_point_);
+    oversized.observations_.push_back(make_observation(i, 0, uv0));
+    oversized.observations_.push_back(make_observation(i, 1, uv1));
+  }
+  ASSERT_EQ(oversized.observations_.size(), 6u);
+
+  std::vector<FeatureTrack_s> tracks{oversized, a, b, d};
+  const UpdateSummary_s summary = updater.update(state, tracks, {cam0, cam1});
+
+  EXPECT_TRUE(summary.budget_active_);
+  EXPECT_TRUE(summary.budget_limited_);
+  EXPECT_EQ(summary.budget_selected_tracks_, 2);
+  EXPECT_EQ(summary.budget_deferred_tracks_, 1);
+  EXPECT_EQ(summary.budget_expired_tracks_, 1);
+  EXPECT_EQ(summary.budget_selected_observations_, 5);
+  EXPECT_EQ(summary.budget_deferred_observations_, 2);
+  EXPECT_EQ(summary.budget_expired_observations_, 6);
+  EXPECT_LE(summary.budget_selected_observations_, opts.max_update_observations_);
+
+  auto contains = [](const std::vector<int> & _ids, int _id)
+  { return std::find(_ids.begin(), _ids.end(), _id) != _ids.end(); };
+  EXPECT_TRUE(contains(summary.consumed_feature_ids_, a.id_));
+  EXPECT_TRUE(contains(summary.consumed_feature_ids_, b.id_));
+  EXPECT_FALSE(contains(summary.consumed_feature_ids_, d.id_));
+  EXPECT_FALSE(contains(summary.consumed_feature_ids_, oversized.id_));
+  EXPECT_TRUE(contains(summary.budget_deferred_feature_ids_, d.id_));
+  EXPECT_TRUE(contains(summary.budget_expired_feature_ids_, oversized.id_));
+  for (const int id : summary.used_feature_ids_) {
+    EXPECT_FALSE(contains(summary.budget_deferred_feature_ids_, id));
+    EXPECT_FALSE(contains(summary.budget_expired_feature_ids_, id));
+  }
+  for (const int id : summary.rejected_feature_ids_) {
+    EXPECT_FALSE(contains(summary.budget_deferred_feature_ids_, id));
+    EXPECT_FALSE(contains(summary.budget_expired_feature_ids_, id));
+  }
+
+  // Only admitted tracks were triangulated.
+  EXPECT_TRUE(tracks[1].has_point_);
+  EXPECT_TRUE(tracks[2].has_point_);
+  EXPECT_FALSE(tracks[3].has_point_);
+  EXPECT_FALSE(tracks[0].has_point_);
+  EXPECT_LE(summary.observations_used_, summary.budget_selected_observations_);
+  std::printf(
+    "[T38] selected=%d/%d deferred=%d expired=%d used_obs=%d applied=%d\n", summary.budget_selected_tracks_,
+    summary.budget_selected_observations_, summary.budget_deferred_tracks_, summary.budget_expired_tracks_,
+    summary.observations_used_, summary.applied_ ? 1 : 0);
+}
+
+// ===========================================================================
+// T39 -- zero budget is exactly the legacy path: no budget diagnostics,
+// consumed_feature_ids_ lists every input id, and the posterior is unchanged
+// relative to the historical default.
+// ===========================================================================
+TEST(SchurUpdate, T39ZeroBudgetKeepsLegacyConsumedSemantics)
+{
+  UpdateOptions_s opts = default_options();
+  opts.condition_limit_ = 0.0;
+  opts.max_update_observations_ = 0;
+  SchurUpdater updater(opts);
+
+  const CameraExtrinsics_s cam = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(0.02, 0.0, 0.0));
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(4, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);
+  regularize_covariance(state);
+
+  std::vector<FeatureTrack_s> tracks;
+  for (int f = 0; f < 6; ++f) {
+    FeatureTrack_s track;
+    track.id_ = 3900 + f;
+    const Eigen::Vector3d world_point(-0.5 + 0.2 * f, 0.1 * ((f % 3) - 1), 4.0 + 0.1 * f);
+    for (int i = 0; i < 4; ++i)
+      track.observations_.push_back(make_observation(
+        i, 0,
+        project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam, world_point)));
+    tracks.push_back(track);
+  }
+
+  const UpdateSummary_s summary = updater.update(state, tracks, {cam});
+  EXPECT_TRUE(summary.applied_);
+  EXPECT_FALSE(summary.budget_active_);
+  EXPECT_FALSE(summary.budget_limited_);
+  EXPECT_EQ(summary.consumed_feature_ids_.size(), tracks.size());
+  EXPECT_EQ(summary.budget_selected_observations_, 0);
+  EXPECT_EQ(summary.budget_deferred_tracks_, 0);
+  EXPECT_EQ(summary.budget_expired_tracks_, 0);
+  EXPECT_TRUE(summary.budget_deferred_feature_ids_.empty());
+  EXPECT_TRUE(summary.budget_expired_feature_ids_.empty());
+}
+
+// ===========================================================================
+// T40 -- unknown nullspace_method_ strings fall back to the historical SVD
+// path (default compatibility).
+// ===========================================================================
+TEST(SchurUpdate, T40UnknownNullspaceMethodFallsBackToSvd)
+{
+  UpdateOptions_s svd_opts = default_options();
+  UpdateOptions_s unknown_opts = svd_opts;
+  unknown_opts.nullspace_method_ = "not-a-method";
+  SchurUpdater svd_updater(svd_opts);
+  const SchurUpdater unknown_updater(unknown_opts);
+
+  const CameraExtrinsics_s cam = make_camera(Eigen::Vector3d::Zero(), Eigen::Vector3d(0.02, 0.0, 0.0));
+  std::vector<Eigen::Vector4d> qs;
+  std::vector<Eigen::Vector3d> ps;
+  smooth_trajectory(3, qs, ps);
+  EkfState state;
+  build_state(state, qs, ps);
+  regularize_covariance(state);
+
+  const Eigen::Vector3d world_point(0.5, 0.2, 4.2);
+  FeatureTrack_s track;
+  track.id_ = 4000;
+  for (int i = 0; i < 3; ++i) {
+    Eigen::Vector2d uv =
+      project_world(qs[static_cast<std::size_t>(i)], ps[static_cast<std::size_t>(i)], cam, world_point);
+    uv.x() += 0.5 / K_FOCAL;
+    track.observations_.push_back(make_observation(i, 0, uv));
+  }
+  ASSERT_TRUE(svd_updater.triangulate(state, {cam}, track));
+  const TrackReduction_s red_svd = svd_updater.reduceTrack(state, {cam}, track);
+  const TrackReduction_s red_unknown = unknown_updater.reduceTrack(state, {cam}, track);
+  ASSERT_TRUE(red_svd.valid_);
+  ASSERT_TRUE(red_unknown.valid_);
+  EXPECT_DOUBLE_EQ(red_unknown.chi2_, red_svd.chi2_);
+  EXPECT_EQ(red_unknown.gate_dof_, red_svd.gate_dof_);
+}

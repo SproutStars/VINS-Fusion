@@ -51,6 +51,9 @@ std::string BACKEND_TYPE = "ceres";
 int SCHUR_WINDOW_SIZE = 5;
 int SCHUR_WARMUP_FRAMES = 0;
 int SCHUR_MAX_FEATURES = 120;
+std::string SCHUR_NULLSPACE_METHOD = "svd";
+bool SCHUR_BATCH_IMU_COVARIANCE = false;
+int SCHUR_MAX_UPDATE_OBSERVATIONS = 0;
 int SCHUR_MIN_OBSERVATIONS = 2;
 int SCHUR_MIN_FEATURES = 12;
 int SCHUR_MIN_UPDATE_OBSERVATIONS = 24;
@@ -114,8 +117,6 @@ std::vector<std::string> CAM_NAMES;
 int MAX_CNT;
 int MIN_DIST;
 std::string FEATURE_DETECTOR;
-int FAST_THRESHOLD;
-int GRID_X, GRID_Y;
 double DETECTION_MIN_FEATURE_RATIO;
 double F_THRESHOLD;
 int SHOW_TRACK;
@@ -150,29 +151,21 @@ void readParameters(std::string _config_file, const std::string & _output_path)
   MAX_CNT = config.getInt("max_cnt");
   MIN_DIST = config.getInt("min_dist");
   FEATURE_DETECTOR = config.getString("feature_detector", "gftt");
-  FAST_THRESHOLD = config.getInt("fast_threshold", 20);
-  GRID_X = config.getInt("grid_x", 5);
-  GRID_Y = config.getInt("grid_y", 5);
   DETECTION_MIN_FEATURE_RATIO = config.getDouble("detection_min_feature_ratio", 0.0);
   F_THRESHOLD = config.getDouble("F_threshold");
   SHOW_TRACK = config.getInt("show_track");
   FLOW_BACK = config.getInt("flow_back");
   if (MAX_CNT < 1 || MIN_DIST < 0)
     throw std::invalid_argument("max_cnt must be positive and min_dist nonnegative");
-  if (FEATURE_DETECTOR != "gftt" && FEATURE_DETECTOR != "fast_grid" && FEATURE_DETECTOR != "gftt_pyramid")
-    throw std::invalid_argument("feature_detector must be 'gftt', 'fast_grid' or 'gftt_pyramid'");
-  if (FAST_THRESHOLD < 1 || FAST_THRESHOLD > 255)
-    throw std::invalid_argument("fast_threshold must be in [1, 255]");
-  if (GRID_X < 1 || GRID_Y < 1)
-    throw std::invalid_argument("grid_x and grid_y must be positive");
+  if (FEATURE_DETECTOR != "gftt" && FEATURE_DETECTOR != "gftt_pyramid")
+    throw std::invalid_argument("feature_detector must be 'gftt' or 'gftt_pyramid'");
   if (!std::isfinite(DETECTION_MIN_FEATURE_RATIO) || DETECTION_MIN_FEATURE_RATIO < 0.0 || DETECTION_MIN_FEATURE_RATIO > 1.0)
     throw std::invalid_argument("detection_min_feature_ratio must be in [0, 1]");
   RCLCPP_INFO(
     vins::logger(),
     "Feature tracker: max_cnt=%d min_dist=%d flow_back=%d detector=%s "
-    "fast_threshold=%d grid=%dx%d detection_min_feature_ratio=%.3f",
-    MAX_CNT, MIN_DIST, FLOW_BACK, FEATURE_DETECTOR.c_str(), FAST_THRESHOLD, GRID_X, GRID_Y,
-    DETECTION_MIN_FEATURE_RATIO);
+    "detection_min_feature_ratio=%.3f",
+    MAX_CNT, MIN_DIST, FLOW_BACK, FEATURE_DETECTOR.c_str(), DETECTION_MIN_FEATURE_RATIO);
 
   MULTIPLE_THREAD = config.getInt("multiple_thread");
   BACKEND_FREQ = config.getDouble("freq", 10.0);
@@ -205,6 +198,13 @@ void readParameters(std::string _config_file, const std::string & _output_path)
   SCHUR_WARMUP_FRAMES = config.getInt("schur_warmup_frames", 0);
   if (SCHUR_WARMUP_FRAMES < 0)
     throw std::invalid_argument("schur_warmup_frames must be nonnegative");
+  SCHUR_NULLSPACE_METHOD = config.getString("schur_nullspace_method", "svd");
+  if (SCHUR_NULLSPACE_METHOD != "svd" && SCHUR_NULLSPACE_METHOD != "qr")
+    throw std::invalid_argument("schur_nullspace_method must be 'svd' or 'qr'");
+  SCHUR_BATCH_IMU_COVARIANCE = config.getBool("schur_batch_imu_covariance", false);
+  SCHUR_MAX_UPDATE_OBSERVATIONS = config.getInt("schur_max_update_observations", 0);
+  if (SCHUR_MAX_UPDATE_OBSERVATIONS < 0)
+    throw std::invalid_argument("schur_max_update_observations must be nonnegative (0 unlimited)");
   SCHUR_MAX_FEATURES = config.getInt("schur_max_features", 120);
   if (SCHUR_MAX_FEATURES < 4)
     throw std::invalid_argument("schur_max_features must be at least 4");
@@ -373,6 +373,11 @@ void readParameters(std::string _config_file, const std::string & _output_path)
     SCHUR_RESTART_COOLDOWN_SECONDS, static_cast<int>(SCHUR_STARVATION_SOFT_RESTART),
     SCHUR_SOFT_RESTART_MAX_SECONDS, static_cast<int>(SCHUR_STARVATION_HOLD), SCHUR_HOLD_RECOVERY_FRAMES,
     SCHUR_ACC_NOISE, SCHUR_GYR_NOISE, SCHUR_ACC_BIAS_NOISE, SCHUR_GYR_BIAS_NOISE);
+
+  RCLCPP_INFO(
+    vins::logger(), "Schur experimental options: nullspace=%s batch_imu_covariance=%d max_update_observations=%d",
+    SCHUR_NULLSPACE_METHOD.c_str(), static_cast<int>(SCHUR_BATCH_IMU_COVARIANCE),
+    SCHUR_MAX_UPDATE_OBSERVATIONS);
 
   RCLCPP_INFO(
     vins::logger(),

@@ -127,12 +127,20 @@ void EkfState::reset(
     options_.init_acc_bias_sigma_ * options_.init_acc_bias_sigma_ * I3;
   covariance_.block<3, 3>(K_IMU_BG, K_IMU_BG) =
     options_.init_gyr_bias_sigma_ * options_.init_gyr_bias_sigma_ * I3;
+  clearPendingImuCovariance();
 }
 
 void EkfState::copyLiveFrom(const EkfState & _source)
 {
   if (this == &_source)
     return;
+  // The source may have an unapplied IMU batch. Copying its stale 15x15 block
+  // would silently drop the accumulated transition/Q and publish a covariance
+  // that belongs to an older timestamp. Flush both sides first; the
+  // destination pending batch is about to be overwritten anyway, but keeping
+  // the accessor invariant uniform makes copyLiveFrom safe for any caller.
+  _source.flushPendingImuCovariance();
+  flushPendingImuCovariance();
   options_ = _source.options_;
   initialized_ = _source.initialized_;
   timestamp_ = _source.timestamp_;
@@ -145,6 +153,38 @@ void EkfState::copyLiveFrom(const EkfState & _source)
     covariance_ = _source.covariance_.topLeftCorner<K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>();
   else
     covariance_.resize(0, 0);
+  clearPendingImuCovariance();
+}
+
+void EkfState::clearPendingImuCovariance() const
+{
+  // phi/q are scratch: propagate() overwrites both when it starts a new batch,
+  // so only the validity flag has to be cleared here (the hot flush path then
+  // avoids two needless 15x15 assignments).
+  covariance_batch_pending_ = false;
+}
+
+void EkfState::flushPendingImuCovariance() const
+{
+  if (!covariance_batch_pending_)
+    return;
+  // Apply the accumulated interval once:
+  //   P <- A P A^T + Q,  A = Phi_n ... Phi_1,
+  //   Q = Phi_n Q_{n-1} Phi_n^T + Qd_n.
+  // Only the leading 15 rows/columns are touched; the clone blocks themselves
+  // are frozen and their cross terms with the live state are updated once.
+  const int n = static_cast<int>(covariance_.rows());
+  if (initialized_ && n >= K_IMU_STATE_SIZE && covariance_.cols() == n) {
+    G_ROW_SCRATCH.resize(K_IMU_STATE_SIZE, n);
+    G_COL_SCRATCH.resize(n, K_IMU_STATE_SIZE);
+    G_ROW_SCRATCH.noalias() = covariance_batch_phi_ * covariance_.topRows(K_IMU_STATE_SIZE);
+    covariance_.topRows(K_IMU_STATE_SIZE) = G_ROW_SCRATCH;
+    G_COL_SCRATCH.noalias() = covariance_.leftCols(K_IMU_STATE_SIZE) * covariance_batch_phi_.transpose();
+    covariance_.leftCols(K_IMU_STATE_SIZE) = G_COL_SCRATCH;
+    covariance_.topLeftCorner(K_IMU_STATE_SIZE, K_IMU_STATE_SIZE) += covariance_batch_q_;
+    symmetrize(covariance_);
+  }
+  clearPendingImuCovariance();
 }
 
 // ------------------------------------------------------------- propagate ----
@@ -218,20 +258,38 @@ void EkfState::propagate(const Eigen::Vector3d & _acc, const Eigen::Vector3d & _
   const Mat15x12 PhiG = Phi * G;
   const Mat15 Qd = PhiG * Qc * PhiG.transpose();
 
-  // P <- Phi_full P Phi_full^T + Qd_full, where Phi_full = I + D and D lives
-  // only in the leading 15x15 block.  Left and right multiplication therefore
-  // touch only the live rows/columns; the clone blocks change only through
-  // the cross terms, exactly as for an explicit size()-sized Phi_full.
-  const int n = size();
-  G_ROW_SCRATCH.resize(K_IMU_STATE_SIZE, n);
-  G_COL_SCRATCH.resize(n, K_IMU_STATE_SIZE);
-  G_ROW_SCRATCH.noalias() = Phi * covariance_.topRows(K_IMU_STATE_SIZE);
-  covariance_.topRows(K_IMU_STATE_SIZE) = G_ROW_SCRATCH;
-  G_COL_SCRATCH.noalias() = covariance_.leftCols(K_IMU_STATE_SIZE) * Phi.transpose();
-  covariance_.leftCols(K_IMU_STATE_SIZE) = G_COL_SCRATCH;
-  covariance_.topLeftCorner(K_IMU_STATE_SIZE, K_IMU_STATE_SIZE) += Qd;
+  if (options_.batch_imu_covariance_) {
+    // Defer only the P update. The per-sample mean/FEJ advance and the
+    // per-sample Phi/Qd above are identical to the sequential path. The
+    // accumulated pair is applied by flushPendingImuCovariance() before any
+    // covariance read/write, clone operation or copyLiveFrom().
+    if (!covariance_batch_pending_) {
+      covariance_batch_phi_ = Phi;
+      covariance_batch_q_ = Qd;
+      covariance_batch_pending_ = true;
+    } else {
+      Mat15 next_q = Phi * covariance_batch_q_ * Phi.transpose();
+      next_q += Qd;
+      covariance_batch_q_ = next_q;
+      covariance_batch_phi_ = Phi * covariance_batch_phi_;
+    }
+  } else {
+    // P <- Phi_full P Phi_full^T + Qd_full, where Phi_full = I + D and D lives
+    // only in the leading 15x15 block.  Left and right multiplication therefore
+    // touch only the live rows/columns; the clone blocks change only through
+    // the cross terms, exactly as for an explicit size()-sized Phi_full.
+    const int n = size();
+    G_ROW_SCRATCH.resize(K_IMU_STATE_SIZE, n);
+    G_COL_SCRATCH.resize(n, K_IMU_STATE_SIZE);
+    G_ROW_SCRATCH.noalias() = Phi * covariance_.topRows(K_IMU_STATE_SIZE);
+    covariance_.topRows(K_IMU_STATE_SIZE) = G_ROW_SCRATCH;
+    G_COL_SCRATCH.noalias() = covariance_.leftCols(K_IMU_STATE_SIZE) * Phi.transpose();
+    covariance_.leftCols(K_IMU_STATE_SIZE) = G_COL_SCRATCH;
+    covariance_.topLeftCorner(K_IMU_STATE_SIZE, K_IMU_STATE_SIZE) += Qd;
 
-  symmetrize(covariance_);
+    symmetrize(covariance_);
+  }
+
   imu_fej_ = imu_;
   timestamp_ += _dt;
 }
@@ -242,6 +300,9 @@ void EkfState::augmentClone(double _timestamp)
 {
   if (!initialized_)
     return;
+  // The new clone copies rows/columns of the live pose, so a pending IMU
+  // batch must be materialised first.
+  flushPendingImuCovariance();
 
   const int n = size();
 
@@ -265,6 +326,7 @@ void EkfState::augmentClone(double _timestamp)
 
 int EkfState::dropAllClones()
 {
+  flushPendingImuCovariance();
   int removed = 0;
   while (numClones() > 0) {
     marginalizeOldestClone();
@@ -275,6 +337,7 @@ int EkfState::dropAllClones()
 
 int EkfState::pruneCloneWindow()
 {
+  flushPendingImuCovariance();
   int removed = 0;
   const int keep = std::max(0, options_.window_size_);
   while (numClones() > keep) {
@@ -286,6 +349,7 @@ int EkfState::pruneCloneWindow()
 
 void EkfState::marginalizeOldestClone()
 {
+  flushPendingImuCovariance();
   if (numClones() == 0)
     return;
 

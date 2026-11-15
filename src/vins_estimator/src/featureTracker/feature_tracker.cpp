@@ -15,7 +15,6 @@
 #include <chrono>
 #include <cmath>
 
-#include "fast_grid_quality.h"
 #include "feature_tracker.h"
 
 namespace
@@ -212,158 +211,12 @@ void FeatureTracker::detectFeatures(
   if (_max_features <= 0 || _img.empty())
     return;
 
-  if (FEATURE_DETECTOR == "fast_grid")
-    detectFastGridFeatures(_img, _mask, _max_features, _points);
-  else if (FEATURE_DETECTOR == "gftt_pyramid")
+  if (FEATURE_DETECTOR == "gftt_pyramid")
     detectPyramidFeatures(_img, _mask, _max_features, _points, cv::Mat());
   else
     cv::goodFeaturesToTrack(_img, _points, _max_features, 0.01, MIN_DIST, _mask);
 }
 
-void FeatureTracker::detectFastGridFeatures(
-  const cv::Mat & _img, const cv::Mat & _mask, int _max_features, vector<cv::Point2f> & _points)
-{
-  _points.clear();
-  if (_max_features <= 0 || _img.empty() || _img.channels() != 1)
-    return;
-
-  const int grid_x = std::max(1, std::min(GRID_X, _img.cols));
-  const int grid_y = std::max(1, std::min(GRID_Y, _img.rows));
-  const int grid_count = grid_x * grid_y;
-  if (grid_count <= 0)
-    return;
-
-  // VINS masks use 255 for allowed pixels and 0 for forbidden pixels,
-  // matching setMask(). This is the inverse of OpenVINS' Grider_GRID mask.
-  const auto mask_allows = [&_mask, &_img](const cv::Point2f & _pt)
-  {
-    if (
-      !std::isfinite(_pt.x) || !std::isfinite(_pt.y) || _pt.x < 1 || _pt.y < 1 || _pt.x >= _img.cols - 1 ||
-      _pt.y >= _img.rows - 1)
-      return false;
-    if (_mask.empty())
-      return true;
-    const int x = cvRound(_pt.x);
-    const int y = cvRound(_pt.y);
-    return x >= 0 && y >= 0 && x < _mask.cols && y < _mask.rows && _mask.at<uchar>(y, x) >= 128;
-  };
-  const auto response_desc = [](const cv::KeyPoint & _a, const cv::KeyPoint & _b)
-  { return _a.response > _b.response; };
-
-  CV_Assert(_img.type() == CV_8UC1);
-  CV_Assert(_mask.empty() || (_mask.type() == CV_8UC1 && _mask.size() == _img.size()));
-
-  // Keep a bounded pool of candidates per cell, ranked by two-directional
-  // gradient strength instead of FAST's brightness contrast. Sparse cells can
-  // backfill points rejected by refinement without a full-frame response map.
-  vector<vector<cv::KeyPoint>> candidates(grid_count);
-  float strongest_corner = 0.0f;
-  for (int gy = 0; gy < grid_y; ++gy) {
-    const int y0 = gy * _img.rows / grid_y;
-    const int y1 = (gy + 1) * _img.rows / grid_y;
-    for (int gx = 0; gx < grid_x; ++gx) {
-      const int x0 = gx * _img.cols / grid_x;
-      const int x1 = (gx + 1) * _img.cols / grid_x;
-      // cv::FAST needs a 3-pixel border around a candidate.
-      if (x1 - x0 < 7 || y1 - y0 < 7)
-        continue;
-
-      const cv::Rect roi(x0, y0, x1 - x0, y1 - y0);
-      vector<cv::KeyPoint> cell_pts;
-      cv::FAST(_img(roi), cell_pts, FAST_THRESHOLD, true);
-
-      vector<cv::KeyPoint> valid;
-      valid.reserve(cell_pts.size());
-      for (cv::KeyPoint & pt : cell_pts) {
-        pt.pt.x += static_cast<float>(x0);
-        pt.pt.y += static_cast<float>(y0);
-        if (mask_allows(pt.pt)) {
-          // FAST contrast is not a measure of two-directional LK observability.
-          pt.response = vins::tracking::fastCornerMinEigenValue(_img, pt.pt);
-          strongest_corner = std::max(strongest_corner, pt.response);
-          // A FAST contrast extremum can sit on an edge beside the actual
-          // corner. Require a Shi-Tomasi local maximum, as GFTT does; keep
-          // the measured pixel instead of moving it to another structure
-          // with cornerSubPix's wider search window.
-          bool local_maximum = pt.response > 0.0f;
-          for (int dy = -1; dy <= 1 && local_maximum; ++dy)
-            for (int dx = -1; dx <= 1; ++dx)
-              if (vins::tracking::fastCornerMinEigenValue(_img, pt.pt + cv::Point2f(dx, dy)) > pt.response) {
-                local_maximum = false;
-                break;
-              }
-          if (local_maximum)
-            valid.push_back(pt);
-        }
-      }
-
-      const size_t keep = std::min(valid.size(), static_cast<size_t>(_max_features));
-      if (keep > 0) {
-        std::partial_sort(valid.begin(), valid.begin() + keep, valid.end(), response_desc);
-        valid.resize(keep);
-      }
-      candidates[gy * grid_x + gx] = std::move(valid);
-    }
-  }
-
-  constexpr float K_CORNER_QUALITY = 0.01f;
-  for (auto & cell : candidates) {
-    cell.erase(
-      std::remove_if(
-        cell.begin(), cell.end(), [strongest_corner](const cv::KeyPoint & _point)
-        { return _point.response < K_CORNER_QUALITY * strongest_corner; }),
-      cell.end());
-  }
-
-  // Draw one candidate from each cell per round. This distributes the
-  // requested features over the image before taking a second point from any
-  // already-covered cell.
-  vector<size_t> cursor(grid_count, 0);
-  vector<cv::Point2f> selected;
-  selected.reserve(_max_features);
-  const float min_dist = static_cast<float>(MIN_DIST);
-  const float min_dist_sq = min_dist * min_dist;
-  while (static_cast<int>(selected.size()) < _max_features) {
-    bool advanced = false;
-    for (int cell = 0; cell < grid_count && static_cast<int>(selected.size()) < _max_features; ++cell) {
-      while (cursor[cell] < candidates[cell].size()) {
-        const cv::Point2f pt = candidates[cell][cursor[cell]++].pt;
-        advanced = true;
-
-        if (!mask_allows(pt))
-          continue;
-        if (MIN_DIST > 0) {
-          bool too_close = false;
-          for (const cv::Point2f & chosen : selected) {
-            if (pointDistanceSquared(pt, chosen) < min_dist_sq) {
-              too_close = true;
-              break;
-            }
-          }
-          if (too_close)
-            continue;
-        }
-        selected.push_back(pt);
-        break;
-      }
-    }
-    if (!advanced)
-      break;
-  }
-
-  // FAST has a fixed contrast threshold and can miss many usable low-contrast
-  // corners, even when the requested count is small. Do not feed an incomplete
-  // replacement set into initialization / the visual update. Use a coherent
-  // Shi-Tomasi set on these frames rather than mixing two different rankings.
-  if (static_cast<int>(selected.size()) < _max_features) {
-    cv::goodFeaturesToTrack(_img, _points, _max_features, 0.01, MIN_DIST, _mask);
-    RCLCPP_DEBUG(
-      vins::logger(), "FAST grid supplied %zu/%d corners; using GFTT recovery (%zu)", selected.size(),
-      _max_features, _points.size());
-  } else {
-    _points.swap(selected);
-  }
-}
 
 void FeatureTracker::setMask()
 {
@@ -451,10 +304,10 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
     cur_lifted_pts_.clear();
   }
 
-  // Coarse GFTT uses quarter-size response buffers; like FAST+grid it avoids
-  // the full-resolution allocation regression described above. Cache image
+  // Coarse GFTT uses quarter-size response buffers to avoid the
+  // full-resolution allocation regression described above. Cache image
   // derivatives for both forward and backward LK, including the next frame.
-  const bool with_derivatives = FEATURE_DETECTOR != "gftt";
+  const bool with_derivatives = FEATURE_DETECTOR == "gftt_pyramid";
   const size_t expected_pyr_mats = static_cast<size_t>(K_KLT_MAX_LEVEL + 1) * (with_derivatives ? 2u : 1u);
   if (!prev_pyr_.empty() && prev_pyr_.size() != expected_pyr_mats) {
     // The detector (and therefore the cache layout) changed at runtime.

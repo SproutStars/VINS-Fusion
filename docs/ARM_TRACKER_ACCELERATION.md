@@ -1,5 +1,7 @@
 # ARM 检测与光流延迟优化（2026-10-27）
 
+> 历史记录：`fast_grid` 已于 2026-11-15 移除，当前仅支持 `gftt` 与 `gftt_pyramid`。本文中的旧配置、命令和性能数据保留用于历史追溯，不代表当前可用功能。
+
 半分辨率检测与 LK 导数缓存将 ARM tracker 均值降低约 42%–46%，但 Schur EKF 的 medium 两次候选回放都失稳，因此保留为实验选项。Ceres medium 单次对照误差接近、延迟降低；当前 ARM 系统无可用 GPU 计算运行时。
 
 ## 实现与参考
@@ -10,7 +12,7 @@
 
 - OpenVINS `ov_core/src/track/TrackKLT.cpp`、`Grider_GRID.h`：复用金字塔、网格补点及亚像素细化；`VioManager.cpp` 支持相机下采样。本实现仅降低检测分辨率，无需缩放相机标定。
 - SchurVINS `svo_direct/src/feature_detection.cpp`：在金字塔层级检测；`feature_alignment.cpp` 的小块对齐和 ARM NEON 实现提示了光流优化方向。本轮保留原有 LK 窗口、迭代和正反向检查，未移植另一套匹配模型。
-- 本项目原有 `fast_grid` 仍可选。本轮重点验证金字塔 GFTT，不将不同检测器的点分布视为等价。
+- 本项目原有 `fast_grid` 已移除。本轮重点验证金字塔 GFTT，不将不同检测器的点分布视为等价。
 
 ## GPU 可用性
 

@@ -1,5 +1,7 @@
 # Schur 补 EKF 后端（`backend_type: schur_ekf`）
 
+> 历史记录：`fast_grid` 已于 2026-11-15 移除，当前仅支持 `gftt` 与 `gftt_pyramid`。本文中的旧配置、命令和性能数据保留用于历史追溯，不代表当前可用功能。
+
 本文描述 VINS-Fusion 中新增的、面向 ARM 平台的后端。它参考
 `open_vins`（OpenVINS MSCKF）与 `SchurVINS` 的状态管理与更新结构，把默认的
 Ceres 滑窗非线性最小二乘后端替换为**紧耦合误差状态 EKF + 逐特征 Schur 消元**。
@@ -411,7 +413,7 @@ Tracker periodic stats: frames=100 total_frames=100 queue_wait_ms=0.02/0.03
 - `track_ms`：`FeatureTracker::trackImage()` 的总耗时；
 - `pyramid_ms`：左右目 KLT 金字塔构建（单目只有左目）；
 - `flow_ms`：左目时序光流以及双目左右匹配/反向检查；
-- `detect_ms`：`rejectWithF()`、mask 更新和 GFTT/FAST-Grid 检测；
+- `detect_ms`：`rejectWithF()`、mask 更新和 GFTT/金字塔 GFTT 检测；
 - `input_image_ms`：整个 `Estimator::inputImage()` 调用，通常大于 `track_ms`，
   因为还包含 tracker 之后的输入处理；
 - `features_avg=tracked/detected`：当前窗口平均跟踪特征数 / 平均新检测特征数；

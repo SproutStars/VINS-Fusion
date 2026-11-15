@@ -98,6 +98,23 @@ struct UpdateOptions_s {
   // starvation gap. Appended last so existing aggregate initialisation is not
   // disturbed.
   double weak_update_scale_ = 1.0;
+  // Per-track point-nullspace / chi2-gate projection method.
+  //   "svd" (default): historical full-U JacobiSVD of Hf, kept bit-for-bit
+  //                    compatible with earlier releases.
+  //   "qr":            Givens QR of the m x 3 point Jacobian that applies the
+  //                    same rotations to Hx and r and drops the eliminated
+  //                    rows. It never forms the full m x m U factor.
+  // Any other value falls back to "svd", so unknown configurations stay
+  // compatible. Wired by the estimator from SCHUR_NULLSPACE_METHOD.
+  std::string nullspace_method_ = "svd";
+  // Total observation budget for one visual update across all admitted
+  // tracks. 0 disables the cap (historical behaviour). A positive budget
+  // selects complete tracks before triangulation; tracks that do not fit are
+  // deferred (kept for a later update) or, when permanently unselectable or
+  // at the oldest-clone margin, reported as expired in UpdateSummary_s.
+  // Deferred/expired ids are never used, rejected or counted as outliers.
+  // Wired by the estimator from SCHUR_MAX_UPDATE_OBSERVATIONS.
+  int max_update_observations_ = 0;
 };
 
 struct UpdateSummary_s {
@@ -121,14 +138,33 @@ struct UpdateSummary_s {
   std::vector<int> used_feature_ids_;
   // Tracks rejected during triangulation, gating or Schur reduction.
   std::vector<int> rejected_feature_ids_;
-  // Every track id passed to update() on this call, including accepted,
-  // rejected and max_features-capped tracks. This describes the input set;
-  // it is not the list of tracks whose measurements were actually applied.
+  // Budget <= 0: every track id passed to update() on this call, including
+  // accepted, rejected and max_features-capped tracks (legacy input-set
+  // description). Budget > 0: only the ids admitted by the observation
+  // budget, i.e. tracks actually passed to triangulation. Deferred and
+  // expired ids never appear here.
   std::vector<int> consumed_feature_ids_;
   // P6 weak update: true when this call used weak_update_scale > 1.0, i.e. the
   // gate was relaxed and the accepted observations were down-weighted.
   bool weak_update_ = false;
   double weak_update_scale_ = 1.0;
+  // Observation-budget diagnostics. These stay zero/false when
+  // max_update_observations_ <= 0 (the legacy path). A "selected" row is
+  // admitted to triangulation, so budget_selected_observations_ is an upper
+  // bound on observations_used_ (triangulation/gating may still drop a track).
+  // Deferred tracks stay in FeatureHistory and are retried; expired tracks
+  // must be erased without being treated as outliers or consumed.
+  bool budget_active_ = false;    // positive max_update_observations_
+  bool budget_limited_ = false;   // at least one track deferred or expired
+  int budget_input_observations_ = 0;
+  int budget_selected_observations_ = 0;
+  int budget_deferred_observations_ = 0;
+  int budget_expired_observations_ = 0;
+  int budget_selected_tracks_ = 0;
+  int budget_deferred_tracks_ = 0;
+  int budget_expired_tracks_ = 0;
+  std::vector<int> budget_deferred_feature_ids_;  // keep in FeatureHistory
+  std::vector<int> budget_expired_feature_ids_;   // erase, never retried
 };
 
 // One weighted observation row of the visual measurement model.

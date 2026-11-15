@@ -13,7 +13,6 @@ namespace
 struct TrackerParameterGuard_s {
   TrackerParameterGuard_s()
     : max_cnt_(MAX_CNT), min_dist_(MIN_DIST), feature_detector_(FEATURE_DETECTOR),
-      fast_threshold_(FAST_THRESHOLD), grid_x_(GRID_X), grid_y_(GRID_Y),
       detection_min_feature_ratio_(DETECTION_MIN_FEATURE_RATIO), flow_back_(FLOW_BACK), show_track_(SHOW_TRACK)
   {
   }
@@ -23,9 +22,6 @@ struct TrackerParameterGuard_s {
     MAX_CNT = max_cnt_;
     MIN_DIST = min_dist_;
     FEATURE_DETECTOR = feature_detector_;
-    FAST_THRESHOLD = fast_threshold_;
-    GRID_X = grid_x_;
-    GRID_Y = grid_y_;
     DETECTION_MIN_FEATURE_RATIO = detection_min_feature_ratio_;
     FLOW_BACK = flow_back_;
     SHOW_TRACK = show_track_;
@@ -34,9 +30,6 @@ struct TrackerParameterGuard_s {
   int max_cnt_;
   int min_dist_;
   std::string feature_detector_;
-  int fast_threshold_;
-  int grid_x_;
-  int grid_y_;
   double detection_min_feature_ratio_;
   int flow_back_;
   int show_track_;
@@ -77,9 +70,6 @@ TEST(FeatureTrackerGfttPerformance, ImageOnlyPyramidDoesNotSlowDetection)
   FLOW_BACK = 1;
   SHOW_TRACK = 0;
   FEATURE_DETECTOR = "gftt";
-  FAST_THRESHOLD = 20;
-  GRID_X = 5;
-  GRID_Y = 5;
   DETECTION_MIN_FEATURE_RATIO = 0.0;
   cv::setNumThreads(1);
 

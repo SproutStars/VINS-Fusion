@@ -57,6 +57,14 @@ struct EkfOptions_s {
   double init_rotation_sigma_ = 0.01;
   double init_acc_bias_sigma_ = 0.1;
   double init_gyr_bias_sigma_ = 0.01;
+  // Optional IMU covariance batching. Each sample still computes its own RK4
+  // mean and its own FEJ-linearised Phi/Qd exactly as the step-by-step path;
+  // only the P update is deferred. Between image-boundary flushes the live
+  // transition A = Phi_n ... Phi_1 and the accumulated
+  // Q = Phi_n Q_{n-1} Phi_n^T + Qd_n are accumulated, and the clone
+  // cross-blocks are touched once when the batch is flushed. Default false
+  // keeps the historical per-sample P update bit-for-bit unchanged.
+  bool batch_imu_covariance_ = false;
 };
 
 struct ImuNominal_s {
@@ -107,8 +115,37 @@ public:
   const CloneNominal_s & cloneFej(int _index) const { return clone_fej_.at(_index); }
   double cloneTimestamp(int _index) const { return clone_timestamps_.at(_index); }
 
-  Eigen::MatrixXd & covariance() { return covariance_; }
-  const Eigen::MatrixXd & covariance() const { return covariance_; }
+  // Any covariance access first applies a pending batched IMU interval. The
+  // const overload uses the logically-const lazy-flush convention: the
+  // pending transition is implementation detail, not observable state.
+  // EkfState itself is not internally synchronised; callers must keep the
+  // existing one-thread-per-state (or external mutex) discipline.
+  Eigen::MatrixXd & covariance()
+  {
+    flushPendingImuCovariance();
+    return covariance_;
+  }
+  const Eigen::MatrixXd & covariance() const
+  {
+    flushPendingImuCovariance();
+    return covariance_;
+  }
+  // Explicitly terminates a batched IMU interval. Idempotent; the automatic
+  // accessors above are the normal mechanism, but reset/reanchor code and
+  // tests can call this directly.
+  void flushImuCovariance() { flushPendingImuCovariance(); }
+  // True while a batched interval has not yet been applied to covariance().
+  bool hasPendingImuCovariance() const { return covariance_batch_pending_; }
+  bool batchImuCovarianceEnabled() const { return options_.batch_imu_covariance_; }
+  // Toggle batching after construction. Existing pending work is flushed
+  // first so the P/timestamp invariant is never left half-applied. The
+  // Estimator uses this to keep the IMU-rate predictor on the historical
+  // per-sample covariance path even when the image-time filter batches.
+  void setBatchImuCovarianceEnabled(bool _enabled)
+  {
+    flushPendingImuCovariance();
+    options_.batch_imu_covariance_ = _enabled;
+  }
 
   // Propagates the nominal state (RK4) and the covariance (linearised at the FEJ
   // values) by one IMU sample, then advances timestamp_ by dt.
@@ -177,6 +214,12 @@ public:
   static bool isPositiveSemidefinite(const Eigen::MatrixXd & _P, double _tolerance = 1e-9);
 
 private:
+  // Applies covariance_batch_phi_/covariance_batch_q_ to covariance_ once.
+  // Mutates only the mutable lazy-flush fields; callers rely on the existing
+  // external lock discipline, so no internal synchronisation is attempted.
+  void flushPendingImuCovariance() const;
+  void clearPendingImuCovariance() const;
+
   EkfOptions_s options_;
   bool initialized_ = false;
   double timestamp_ = 0.0;
@@ -185,7 +228,16 @@ private:
   std::vector<CloneNominal_s> clones_;
   std::vector<CloneNominal_s> clone_fej_;
   std::vector<double> clone_timestamps_;
-  Eigen::MatrixXd covariance_;
+  // P is mutable because covariance() const is a logically-const lazy flush.
+  mutable Eigen::MatrixXd covariance_;
+  // Pending IMU covariance batch. phi is the product of the per-sample
+  // transitions since the last flush; q is the corresponding accumulated
+  // process noise. Both are cached mutable state in the same sense as P.
+  mutable bool covariance_batch_pending_ = false;
+  mutable Eigen::Matrix<double, K_IMU_STATE_SIZE, K_IMU_STATE_SIZE> covariance_batch_phi_ =
+    Eigen::Matrix<double, K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>::Identity();
+  mutable Eigen::Matrix<double, K_IMU_STATE_SIZE, K_IMU_STATE_SIZE> covariance_batch_q_ =
+    Eigen::Matrix<double, K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>::Zero();
 };
 
 

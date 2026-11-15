@@ -1,5 +1,7 @@
 # ARM 平台前端优化评估：FAST-Grid 与 KLT 金字塔复用
 
+> 历史记录：`fast_grid` 已于 2026-11-15 移除，当前仅支持 `gftt` 与 `gftt_pyramid`。本文中的旧配置、命令和性能数据保留用于历史追溯，不代表当前可用功能。
+
 本文记录参考 `open_vins`、`SchurVINS` 后，在 VINS-Fusion 上实施的前端优化，
 以及在 Orange Pi Zero 3（4×Cortex-A53）上使用 `~/vicon_room2/bags` 三条
 EuRoC V2 完整序列做的同二进制 A/B 验证。

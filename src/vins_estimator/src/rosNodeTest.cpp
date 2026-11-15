@@ -65,6 +65,15 @@ public:
     SCHUR_WARMUP_FRAMES = declare_parameter<int>("schur_warmup_frames", SCHUR_WARMUP_FRAMES);
     if (SCHUR_WARMUP_FRAMES < 0)
       throw std::invalid_argument("schur_warmup_frames must be nonnegative");
+    SCHUR_NULLSPACE_METHOD = declare_parameter<std::string>("schur_nullspace_method", SCHUR_NULLSPACE_METHOD);
+    if (SCHUR_NULLSPACE_METHOD != "svd" && SCHUR_NULLSPACE_METHOD != "qr")
+      throw std::invalid_argument("schur_nullspace_method must be 'svd' or 'qr'");
+    SCHUR_BATCH_IMU_COVARIANCE =
+      declare_parameter<bool>("schur_batch_imu_covariance", SCHUR_BATCH_IMU_COVARIANCE);
+    SCHUR_MAX_UPDATE_OBSERVATIONS =
+      declare_parameter<int>("schur_max_update_observations", SCHUR_MAX_UPDATE_OBSERVATIONS);
+    if (SCHUR_MAX_UPDATE_OBSERVATIONS < 0)
+      throw std::invalid_argument("schur_max_update_observations must be nonnegative (0 unlimited)");
     SCHUR_MAX_FEATURES = declare_parameter<int>("schur_max_features", SCHUR_MAX_FEATURES);
     if (SCHUR_MAX_FEATURES < 4)
       throw std::invalid_argument("schur_max_features must be at least 4");
@@ -218,7 +227,9 @@ public:
           if (
             name == "config_file" || name == "output_path" || name == "image0_topic" ||
             name == "image1_topic" || name == "imu_topic" || name == "backend_type" ||
-            name == "schur_window_size" || name == "schur_warmup_frames" || name == "schur_max_features" ||
+            name == "schur_nullspace_method" || name == "schur_batch_imu_covariance" ||
+            name == "schur_max_update_observations" || name == "schur_window_size" ||
+            name == "schur_warmup_frames" || name == "schur_max_features" ||
             name == "schur_min_observations" || name == "schur_min_features" ||
             name == "schur_min_update_observations" || name == "schur_pixel_noise" ||
             name == "schur_chi2_multiplier" || name == "schur_triangulation_iterations" ||

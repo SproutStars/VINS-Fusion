@@ -81,6 +81,15 @@
  * Significant negative eigenvalues are treated as an inconsistent Schur
  * reduction and the frame update is skipped rather than repaired implicitly.
  *
+ * The per-track chi2 gate needs a basis of the left null space of the 2N x 3
+ * point Jacobian Hf.  The default `nullspace_method_ == "svd"` path computes
+ * it from JacobiSVD(Hf, ComputeFullU), which materialises the full 2N x 2N U.
+ * The optional `"qr"` path applies OpenVINS-style Givens rotations to Hf, Hx
+ * and r, dropping the eliminated rows, and never forms the full U.  The
+ * projection subspace (hence chi2 and its dof) is identical; the point-block
+ * rank test, point_block_rtol_ and the global eigen/Joseph update are shared
+ * by both paths.  No ridge is ever used to remove the structural gauge.
+ *
  * ===========================================================================
  * 4. P6 starvation-adaptive weak update ("accept more, weight less")
  * ===========================================================================
@@ -93,6 +102,8 @@
  *******************************************************/
 
 #include "backend/schur_update.h"
+
+#include "observation_budget.h"
 
 #include <algorithm>
 #include <cmath>
@@ -201,6 +212,54 @@ bool fill_track_jacobians(
       return false;
   }
   return true;
+}
+
+// OpenVINS UpdaterHelper::nullspace_project_inplace style Givens QR.  Hf is
+// m x 3, Hx is m x n and r is m.  The same orthogonal Q^T is applied to all
+// three matrices, so Hf becomes upper triangular in its first 3 rows and the
+// trailing rows of Hx/r are exactly N^T Hx and N^T r, where N spans the left
+// null space of Hf.  Rotating and truncating avoids the full m x m U that
+// JacobiSVD(Hf, ComputeFullU) materialises.  `_Hf` is modified in place.
+void givens_nullspace_project_inplace(Eigen::MatrixXd & _Hf, Eigen::MatrixXd & _Hx, Eigen::VectorXd & _r)
+{
+  Eigen::JacobiRotation<double> gr;
+  const int rows = static_cast<int>(_Hf.rows());
+  const int cols = static_cast<int>(_Hf.cols());
+  for (int col = 0; col < cols; ++col) {
+    for (int row = rows - 1; row > col; --row) {
+      gr.makeGivens(_Hf(row - 1, col), _Hf(row, col));
+      _Hf.block(row - 1, col, 2, cols - col).applyOnTheLeft(0, 1, gr.adjoint());
+      _Hx.block(row - 1, 0, 2, _Hx.cols()).applyOnTheLeft(0, 1, gr.adjoint());
+      _r.block(row - 1, 0, 2, 1).applyOnTheLeft(0, 1, gr.adjoint());
+    }
+  }
+}
+
+// Rank of the 3x3 triangular factor produced by the Givens projection.  The
+// threshold is identical to the SVD path (singular value > sqrt(rtol) *
+// sigma_max, because A_point = Hf^T Hf), but only the small triangular block
+// is decomposed.  Returns 0 for a non-finite/empty factor.
+int triangular_column_rank(const Eigen::MatrixXd & _Hf, double _rtol)
+{
+  const int rank_dim = static_cast<int>(_Hf.cols());
+  if (rank_dim <= 0 || _Hf.rows() < rank_dim)
+    return 0;
+  Eigen::MatrixXd R = _Hf.topRows(rank_dim);
+  if (!R.allFinite())
+    return 0;
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(R, 0);  // singular values only
+  const auto & singular = svd.singularValues();
+  if (!singular.allFinite() || singular.size() == 0)
+    return 0;
+  const double singular_max = singular.maxCoeff();
+  if (!(singular_max > 0.0))
+    return 0;
+  const double singular_rtol = std::sqrt(std::max(0.0, _rtol));
+  int rank = 0;
+  for (int i = 0; i < singular.size(); ++i)
+    if (singular(i) > singular_rtol * singular_max)
+      ++rank;
+  return rank;
 }
 
 }  // namespace
@@ -528,33 +587,54 @@ bool SchurUpdater::reduceTrackImpl(
   if (!Hx.allFinite() || !Hf.allFinite() || !r.allFinite())
     return false;
 
-  Eigen::JacobiSVD<Eigen::MatrixXd> & hf_svd = scratch.hf_svd_;
-  hf_svd.compute(Hf, Eigen::ComputeFullU);
-  const auto & singular = hf_svd.singularValues();
-  if (!singular.allFinite() || singular.size() == 0)
-    return false;
-  const double singular_max = singular.maxCoeff();
-  if (!(singular_max > 0.0))
-    return false;
-  // A_point = Hf^T Hf, so an eigenvalue threshold of rtol*lambda_max
-  // corresponds to a singular-value threshold of sqrt(rtol)*sigma_max.
-  const double singular_rtol = std::sqrt(std::max(0.0, options_.point_block_rtol_));
+  // Point-nullspace projection for the chi2 gate.  "svd" is the historical
+  // path and stays bit-for-bit compatible; "qr" applies the same orthogonal
+  // projection with Givens rotations and never forms the full m x m U.
   int hf_rank = 0;
-  for (int i = 0; i < singular.size(); ++i)
-    if (singular(i) > singular_rtol * singular_max)
-      ++hf_rank;
-  // Keep the gate consistent with the point-block rank test.  A rank < 3
-  // track is a low-parallax case and is rejected by this updater.
-  if (hf_rank != _reduction.point_rank_)
-    return false;
-
-  const Eigen::MatrixXd & U = hf_svd.matrixU();
-  Eigen::MatrixXd & N = scratch.N_;
-  N = U.rightCols(m - hf_rank);
   Eigen::VectorXd & r0 = scratch.r0_;
-  r0 = N.transpose() * r;
   Eigen::MatrixXd & H0 = scratch.H0_;
-  H0 = N.transpose() * Hx;
+  if (options_.nullspace_method_ == "qr") {
+    givens_nullspace_project_inplace(Hf, Hx, r);
+    if (!Hf.allFinite() || !Hx.allFinite() || !r.allFinite())
+      return false;
+    // Rank is measured on the 3x3 triangular factor with the same relative
+    // singular-value threshold as the point-block test.  This keeps the gate
+    // dof and the near-degenerate rejection identical to the SVD oracle.
+    hf_rank = triangular_column_rank(Hf, options_.point_block_rtol_);
+    if (hf_rank != _reduction.point_rank_)
+      return false;
+    const int null_dim = m - hf_rank;
+    if (null_dim <= 0)
+      return false;
+    // The trailing rows are already N^T Hx and N^T r from the shared Q^T.
+    H0 = Hx.bottomRows(null_dim);
+    r0 = r.tail(null_dim);
+  } else {
+    Eigen::JacobiSVD<Eigen::MatrixXd> & hf_svd = scratch.hf_svd_;
+    hf_svd.compute(Hf, Eigen::ComputeFullU);
+    const auto & singular = hf_svd.singularValues();
+    if (!singular.allFinite() || singular.size() == 0)
+      return false;
+    const double singular_max = singular.maxCoeff();
+    if (!(singular_max > 0.0))
+      return false;
+    // A_point = Hf^T Hf, so an eigenvalue threshold of rtol*lambda_max
+    // corresponds to a singular-value threshold of sqrt(rtol)*sigma_max.
+    const double singular_rtol = std::sqrt(std::max(0.0, options_.point_block_rtol_));
+    for (int i = 0; i < singular.size(); ++i)
+      if (singular(i) > singular_rtol * singular_max)
+        ++hf_rank;
+    // Keep the gate consistent with the point-block rank test.  A rank < 3
+    // track is a low-parallax case and is rejected by this updater.
+    if (hf_rank != _reduction.point_rank_)
+      return false;
+
+    const Eigen::MatrixXd & U = hf_svd.matrixU();
+    Eigen::MatrixXd & N = scratch.N_;
+    N = U.rightCols(m - hf_rank);
+    r0 = N.transpose() * r;
+    H0 = N.transpose() * Hx;
+  }
   Eigen::MatrixXd & S0 = scratch.S0_;
   S0 = H0 * P * H0.transpose();
   S0.diagonal().array() += 1.0;
@@ -616,38 +696,119 @@ UpdateSummary_s SchurUpdater::update(
   if (P.rows() != n || P.cols() != n)
     return summary;
 
-  // ---- 1. triangulate, drop unusable tracks, keep the longest ones ------
+  // ---- 1. candidate selection, optional observation budget, triangulation -
+  const int max_features = std::max(0, options_.max_features_);
+  const int max_budget_observations = std::max(0, options_.max_update_observations_);
+  const bool budgeted = max_budget_observations > 0;
   std::vector<int> accepted;
   accepted.reserve(_tracks.size());
-  for (std::size_t i = 0; i < _tracks.size(); ++i) {
-    if (static_cast<int>(_tracks[i].observations_.size()) < options_.min_observations_) {
-      summary.rejected_feature_ids_.push_back(_tracks[i].id_);  // too short to triangulate
-      continue;
+  if (budgeted) {
+    // Select complete tracks BEFORE triangulation so deferred/expired tracks
+    // are not re-triangulated on every frame. The policy (atomic tracks,
+    // stable longest-first order, margin expiry) lives in observation_budget.h.
+    std::vector<int> candidates;
+    candidates.reserve(_tracks.size());
+    for (std::size_t i = 0; i < _tracks.size(); ++i) {
+      if (static_cast<int>(_tracks[i].observations_.size()) < options_.min_observations_) {
+        summary.rejected_feature_ids_.push_back(_tracks[i].id_);  // too short
+      } else {
+        candidates.push_back(static_cast<int>(i));
+      }
     }
-    // Re-triangulate from the current clone poses every time the track is
-    // selected, matching OpenVINS (UpdaterHelper::triangulate_feature is
-    // called once per feature per update, and a feature is consumed by at
-    // most one update). Freezing the first triangulation instead
-    // (VINS_SCHUR_FREEZE=1, removed after the A/B) measured 0.1055 m vs
-    // 0.1116 m on V2_01_easy 20 s and 0.2444 m vs 0.2295 m / 0.3895 m vs
-    // 0.3809 m on the full V2_01_easy / V2_02_medium sequences, i.e. it was
-    // never better on a full sequence, so the reference behaviour stays.
-    if (!triangulate(_state, _cameras, _tracks[i])) {
-      summary.rejected_feature_ids_.push_back(_tracks[i].id_);  // no usable point
-      continue;
+    std::stable_sort(
+      candidates.begin(), candidates.end(),
+      [&_tracks](int _lhs, int _rhs)
+      {
+        return _tracks[static_cast<std::size_t>(_lhs)].observations_.size() >
+               _tracks[static_cast<std::size_t>(_rhs)].observations_.size();
+      });
+    // max_features_ remains a separate track cap applied before the budget.
+    if (static_cast<int>(candidates.size()) > max_features)
+      candidates.resize(static_cast<std::size_t>(max_features));
+
+    // The helper takes FeatureTrack_s by value/const-ref; candidate tracks are
+    // small (one observation per clone window) and this keeps `_tracks` order
+    // intact for the caller.
+    std::vector<FeatureTrack_s> candidate_tracks;
+    candidate_tracks.reserve(candidates.size());
+    for (const int index : candidates)
+      candidate_tracks.push_back(_tracks[static_cast<std::size_t>(index)]);
+
+    ObservationBudgetOptions_s budget;
+    budget.max_observations_ = max_budget_observations;
+    budget.max_tracks_ = 0;  // max_features_ was applied above
+    budget.skip_oversized_ = true;
+    // Same window-full test as Estimator::schurProcessFrame(): the state has
+    // already been augmented for this frame, so numClones() > window_size_
+    // means the oldest clone (clone index 0) will be marginalised next.
+    budget.margin_active_ = _state.numClones() > _state.options().window_size_;
+    budget.margin_clone_index_ = 0;
+    const ObservationBudgetPlan_s plan = planObservationBudget(candidate_tracks, budget);
+
+    summary.budget_active_ = true;
+    summary.budget_limited_ = plan.limited_;
+    summary.budget_input_observations_ = plan.input_observation_count_;
+    summary.budget_selected_observations_ = plan.selected_observation_count_;
+    summary.budget_deferred_observations_ = plan.deferred_observation_count_;
+    summary.budget_expired_observations_ = plan.expired_observation_count_;
+    summary.budget_selected_tracks_ = plan.selected_track_count_;
+    summary.budget_deferred_tracks_ = plan.deferred_track_count_;
+    summary.budget_expired_tracks_ = plan.expired_track_count_;
+    summary.budget_deferred_feature_ids_ = plan.deferred_feature_ids_;
+    summary.budget_expired_feature_ids_ = plan.expired_feature_ids_;
+    // Positive budget: only admitted tracks reach triangulation, so only they
+    // count as consumed. Deferred/expired ids are never used or rejected.
+    summary.consumed_feature_ids_ = plan.selected_feature_ids_;
+
+    accepted.reserve(plan.selected_indices_.size());
+    for (const std::size_t selected : plan.selected_indices_)
+      accepted.push_back(candidates[selected]);
+  } else {
+    // Legacy zero-budget path: triangulate every eligible track, then keep the
+    // longest ones. consumed_feature_ids_ stays the full input list.
+    for (std::size_t i = 0; i < _tracks.size(); ++i) {
+      if (static_cast<int>(_tracks[i].observations_.size()) < options_.min_observations_) {
+        summary.rejected_feature_ids_.push_back(_tracks[i].id_);  // too short to triangulate
+        continue;
+      }
+      // Re-triangulate from the current clone poses every time the track is
+      // selected, matching OpenVINS (UpdaterHelper::triangulate_feature is
+      // called once per feature per update, and a feature is consumed by at
+      // most one update). Freezing the first triangulation instead
+      // (VINS_SCHUR_FREEZE=1, removed after the A/B) measured 0.1055 m vs
+      // 0.1116 m on V2_01_easy 20 s and 0.2444 m vs 0.2295 m / 0.3895 m vs
+      // 0.3809 m on the full V2_01_easy / V2_02_medium sequences, i.e. it was
+      // never better on a full sequence, so the reference behaviour stays.
+      if (!triangulate(_state, _cameras, _tracks[i])) {
+        summary.rejected_feature_ids_.push_back(_tracks[i].id_);  // no usable point
+        continue;
+      }
+      accepted.push_back(static_cast<int>(i));
     }
-    accepted.push_back(static_cast<int>(i));
+    std::stable_sort(
+      accepted.begin(), accepted.end(),
+      [&_tracks](int _lhs, int _rhs)
+      {
+        return _tracks[static_cast<std::size_t>(_lhs)].observations_.size() >
+               _tracks[static_cast<std::size_t>(_rhs)].observations_.size();
+      });
+    if (static_cast<int>(accepted.size()) > max_features)
+      accepted.resize(static_cast<std::size_t>(max_features));
   }
-  std::stable_sort(
-    accepted.begin(), accepted.end(),
-    [&_tracks](int _lhs, int _rhs)
-    {
-      return _tracks[static_cast<std::size_t>(_lhs)].observations_.size() >
-             _tracks[static_cast<std::size_t>(_rhs)].observations_.size();
-    });
-  const int max_features = std::max(0, options_.max_features_);
-  if (static_cast<int>(accepted.size()) > max_features) {
-    accepted.resize(static_cast<std::size_t>(max_features));
+
+  if (budgeted) {
+    // Only budget-admitted tracks are triangulated. A failure here is a normal
+    // rejection and does not return the reserved rows to the budget.
+    std::vector<int> triangulated;
+    triangulated.reserve(accepted.size());
+    for (const int index : accepted) {
+      if (!triangulate(_state, _cameras, _tracks[static_cast<std::size_t>(index)])) {
+        summary.rejected_feature_ids_.push_back(_tracks[static_cast<std::size_t>(index)].id_);
+        continue;
+      }
+      triangulated.push_back(index);
+    }
+    accepted.swap(triangulated);
   }
 
   // ---- 2. per-track gate + Schur-reduced information accumulation -------

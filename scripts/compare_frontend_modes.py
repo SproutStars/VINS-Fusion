@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only comparison of gftt / fast_grid / gftt_pyramid ARM runs.
+"""Read-only comparison of labeled frontend benchmark runs.
 
 Reads <root>/<label>/<dataset>_r<repeat>/ with metrics.json, trajectory.csv,
 estimator.log and run_manifest.json, plus <root>/groundtruth/<dataset>.csv.
@@ -358,8 +358,6 @@ def main(argv=None):
             "temporal_coverage = trajectory_duration_s / bag_effective_duration_s; "
             "pose_per_image is not coverage (20 Hz images vs ~10 Hz backend).",
             "absolute ATE must be read with temporal_coverage and max_output_gap_s.",
-            "fast_grid must be the current hybrid GFTT-fallback source; old FAST-only "
-            "data is not comparable.",
             "Zero restart requests are not evidence of accuracy; inspect per-run ATE, "
             "temporal coverage, and gap.",
             "Benchmark runs are serial only; this tool is read-only offline aggregation.",

@@ -1368,5 +1368,222 @@ TEST(StarvationMonitor, T31RebaselineKeepsMaximumGapAndCounters)
   EXPECT_EQ(monitor.timeGateTriggers(), 2);
 }
 
+
+// ===========================================================================
+// T32-T36 -- optional batched IMU covariance propagation.
+//
+// The batch path is required to keep every per-sample RK4 mean/FEJ/Phi/Qd
+// computation identical to the historical sequential path. Only the P update
+// is deferred until a covariance accessor, clone operation, reset/reanchor or
+// explicit flush. These tests compare it item by item against a sequential
+// state, including nonzero biases, varying IMU, changing noise scales and a
+// fractional image-boundary step.
+// ===========================================================================
+namespace
+{
+
+EkfOptions_s batch_test_options(bool _batch)
+{
+  EkfOptions_s options = test_options();
+  options.window_size_ = 4;
+  options.batch_imu_covariance_ = _batch;
+  return options;
+}
+
+void expect_imu_means_match(const EkfState & _a, const EkfState & _b, double _tol = 1e-12)
+{
+  EXPECT_NEAR((_a.imu().q_ - _b.imu().q_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imu().p_ - _b.imu().p_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imu().v_ - _b.imu().v_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imu().ba_ - _b.imu().ba_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imu().bg_ - _b.imu().bg_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imuFej().q_ - _b.imuFej().q_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imuFej().p_ - _b.imuFej().p_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imuFej().v_ - _b.imuFej().v_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imuFej().ba_ - _b.imuFej().ba_).norm(), 0.0, _tol);
+  EXPECT_NEAR((_a.imuFej().bg_ - _b.imuFej().bg_).norm(), 0.0, _tol);
+  EXPECT_NEAR(_a.timestamp(), _b.timestamp(), _tol);
+}
+
+void expect_covariances_match(const EkfState & _a, const EkfState & _b, double _tol = 2e-11)
+{
+  ASSERT_EQ(_a.size(), _b.size());
+  ASSERT_EQ(_a.covariance().rows(), _b.covariance().rows());
+  EXPECT_TRUE(_a.covariance().isApprox(_b.covariance(), _tol))
+    << "max abs diff=" << (_a.covariance() - _b.covariance()).cwiseAbs().maxCoeff();
+}
+
+void reset_comparable_states(EkfState & _sequential, EkfState & _batched, const EkfOptions_s & _sequential_options)
+{
+  EkfOptions_s batch_options = _sequential_options;
+  batch_options.batch_imu_covariance_ = true;
+  const Vector4d q = EkfState::quaternionFromAxisAngle(Vector3d(0.2, -0.3, 0.4));
+  const Vector3d p(1.0, -2.0, 0.5);
+  const Vector3d v(0.4, -0.2, 0.1);
+  const Vector3d ba(0.03, -0.02, 0.01);
+  const Vector3d bg(0.004, -0.003, 0.002);
+  _sequential.reset(_sequential_options, 10.0, q, p, v, ba, bg);
+  _batched.reset(batch_options, 10.0, q, p, v, ba, bg);
+}
+
+}  // namespace
+
+TEST(EkfStateBatchPropagation, T32MatchesSequentialVaryingImuBiasNoiseAndFractionalDt)
+{
+  EkfOptions_s sequential_options = batch_test_options(false);
+  EkfState sequential, batched;
+  reset_comparable_states(sequential, batched, sequential_options);
+  EXPECT_FALSE(sequential.batchImuCovarianceEnabled());
+  EXPECT_TRUE(batched.batchImuCovarianceEnabled());
+
+  std::mt19937 rng(20261115);
+  std::normal_distribution<double> normal(0.0, 1.0);
+  // The last dt of an image interval can be fractional because processIMU()
+  // integrates the sample that straddles curTime_ only up to the image time.
+  const double dts[] = {0.005, 0.004, 0.006, 0.0025, 0.005, 0.0075};
+  const double noise_scales[] = {1.0, 2.0, 1.0, 4.0, 1.5, 1.0};
+
+  for (int k = 0; k < 180; ++k) {
+    const double dt = dts[k % 6];
+    const double scale = noise_scales[k % 6];
+    const Vector3d acc(0.2 + 0.03 * normal(rng), -0.1 + 0.02 * normal(rng), 9.81 + 0.05 * normal(rng));
+    const Vector3d gyr(0.03 * normal(rng), -0.02 * normal(rng), 0.05 + 0.01 * normal(rng));
+
+    sequential.propagate(acc, gyr, dt, scale);
+    batched.propagate(acc, gyr, dt, scale);
+    EXPECT_FALSE(sequential.hasPendingImuCovariance());
+    EXPECT_TRUE(batched.hasPendingImuCovariance());
+    expect_imu_means_match(sequential, batched);
+  }
+
+  // No accessor was used above, so the batched covariance is still the seed.
+  // Explicit flush must equal the sequential chain.
+  batched.flushImuCovariance();
+  EXPECT_FALSE(batched.hasPendingImuCovariance());
+  expect_covariances_match(batched, sequential);
+  EXPECT_TRUE(EkfState::isPositiveDefinite(batched.covariance()));
+}
+
+TEST(EkfStateBatchPropagation, T33CloneCrossBlocksMatchSequentialAcrossIntervals)
+{
+  const EkfOptions_s sequential_options = batch_test_options(false);
+  EkfState sequential, batched;
+  reset_comparable_states(sequential, batched, sequential_options);
+
+  std::mt19937 rng(31);
+  std::normal_distribution<double> normal(0.0, 0.05);
+  double timestamp = 10.0;
+  for (int interval = 0; interval < 9; ++interval) {
+    const int samples = (interval % 3 == 0) ? 7 : 4;
+    for (int s = 0; s < samples; ++s) {
+      const double dt = (s == samples - 1 && interval % 2 == 0) ? 0.0035 : 0.005;
+      const Vector3d acc(0.1 + normal(rng), -0.05 + normal(rng), 9.81 + normal(rng));
+      const Vector3d gyr(0.02 + normal(rng), -0.01 + normal(rng), 0.03 + normal(rng));
+      sequential.propagate(acc, gyr, dt, 1.0 + 0.5 * (interval % 3));
+      batched.propagate(acc, gyr, dt, 1.0 + 0.5 * (interval % 3));
+      timestamp += dt;
+    }
+
+    // The batch must be applied before the clone copies live rows/columns.
+    sequential.augmentClone(timestamp);
+    batched.augmentClone(timestamp);
+    EXPECT_FALSE(batched.hasPendingImuCovariance());
+    ASSERT_EQ(batched.numClones(), sequential.numClones());
+    expect_imu_means_match(sequential, batched);
+    expect_covariances_match(batched, sequential);
+
+    // Exercise the prune path while a fresh batch is pending.
+    for (int s = 0; s < 3; ++s) {
+      const Vector3d acc(0.05, -0.02, 9.81);
+      const Vector3d gyr(0.01, -0.02, 0.03);
+      sequential.propagate(acc, gyr, 0.005);
+      batched.propagate(acc, gyr, 0.005);
+      timestamp += 0.005;
+    }
+    EXPECT_TRUE(batched.hasPendingImuCovariance());
+    sequential.pruneCloneWindow();
+    batched.pruneCloneWindow();
+    EXPECT_FALSE(batched.hasPendingImuCovariance());
+    ASSERT_EQ(batched.numClones(), sequential.numClones());
+    expect_covariances_match(batched, sequential);
+  }
+
+  // Explicit marginalisation with a pending batch must flush first.
+  for (int s = 0; s < 5; ++s) {
+    const Vector3d acc(0.02, 0.01, 9.81);
+    const Vector3d gyr(0.03, 0.01, -0.02);
+    sequential.propagate(acc, gyr, 0.004);
+    batched.propagate(acc, gyr, 0.004);
+  }
+  ASSERT_GT(batched.numClones(), 0);
+  sequential.marginalizeOldestClone();
+  batched.marginalizeOldestClone();
+  EXPECT_FALSE(batched.hasPendingImuCovariance());
+  expect_covariances_match(batched, sequential);
+}
+
+TEST(EkfStateBatchPropagation, T34FlushResetAndCopyLiveNeverExposeStaleP)
+{
+  const EkfOptions_s sequential_options = batch_test_options(false);
+  EkfState sequential, batched;
+  reset_comparable_states(sequential, batched, sequential_options);
+
+  for (int k = 0; k < 23; ++k) {
+    const Vector3d acc(0.1, -0.04, 9.8);
+    const Vector3d gyr(0.03, -0.02, 0.01);
+    sequential.propagate(acc, gyr, 0.005, 1.0 + 0.25 * (k % 4));
+    batched.propagate(acc, gyr, 0.005, 1.0 + 0.25 * (k % 4));
+  }
+  ASSERT_TRUE(batched.hasPendingImuCovariance());
+
+  // copyLiveFrom() must flush the source before copying the live marginal.
+  EkfState copied;
+  copied.copyLiveFrom(batched);
+  EXPECT_FALSE(batched.hasPendingImuCovariance());
+  EXPECT_FALSE(copied.hasPendingImuCovariance());
+  ASSERT_EQ(copied.numClones(), 0);
+  expect_imu_means_match(copied, batched);
+  EXPECT_TRUE(copied.covariance().isApprox(
+    sequential.covariance().topLeftCorner<K_IMU_STATE_SIZE, K_IMU_STATE_SIZE>(), 2e-11));
+
+  // Disabling batching flushes pending work and restores the per-sample P
+  // update used by the IMU-rate predictor.
+  EXPECT_TRUE(batched.hasPendingImuCovariance() == false);
+  batched.propagate(Vector3d(0.1, 0.0, 9.8), Vector3d(0.02, 0.01, 0.0), 0.005);
+  ASSERT_TRUE(batched.hasPendingImuCovariance());
+  batched.setBatchImuCovarianceEnabled(false);
+  EXPECT_FALSE(batched.hasPendingImuCovariance());
+  EXPECT_FALSE(batched.batchImuCovarianceEnabled());
+  batched.propagate(Vector3d(0.1, 0.0, 9.8), Vector3d(0.02, 0.01, 0.0), 0.005);
+  EXPECT_FALSE(batched.hasPendingImuCovariance());
+
+  // reset() must discard any pending transition and start from the new seed.
+  batched.setBatchImuCovarianceEnabled(true);
+  batched.propagate(Vector3d(0.1, 0.0, 9.8), Vector3d(0.02, 0.01, 0.0), 0.005);
+  ASSERT_TRUE(batched.hasPendingImuCovariance());
+  EkfOptions_s fresh_options = sequential_options;
+  fresh_options.batch_imu_covariance_ = true;
+  batched.reset(
+    fresh_options, 42.0, Vector4d(1, 0, 0, 0), Vector3d(1, 2, 3), Vector3d(0.1, 0.2, 0.3),
+    Vector3d(0.01, 0.02, 0.03), Vector3d(0.001, 0.002, 0.003));
+  EXPECT_FALSE(batched.hasPendingImuCovariance());
+  EXPECT_DOUBLE_EQ(batched.timestamp(), 42.0);
+  EXPECT_EQ(batched.size(), K_IMU_STATE_SIZE);
+}
+
+TEST(EkfStateBatchPropagation, T35DefaultPathRemainsPerSample)
+{
+  const EkfOptions_s options = batch_test_options(false);
+  EkfState state;
+  state.reset(
+    options, 0.0, Vector4d(1, 0, 0, 0), Vector3d::Zero(), Vector3d::Zero(), Vector3d::Zero(),
+    Vector3d::Zero());
+  EXPECT_FALSE(state.batchImuCovarianceEnabled());
+  const double position_variance = state.covariance()(K_IMU_P, K_IMU_P);
+  state.propagate(Vector3d(0.0, 0.0, 9.81), Vector3d(0.01, 0.0, 0.0), 0.01);
+  EXPECT_FALSE(state.hasPendingImuCovariance());
+  EXPECT_GT(state.covariance()(K_IMU_P, K_IMU_P), position_variance);
+}
+
 }  // namespace backend
 }  // namespace vins

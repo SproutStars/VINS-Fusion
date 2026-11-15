@@ -1,5 +1,7 @@
 # ARM 平台 P0/P1/P2 优化与故障注入验证
 
+> 历史记录：`fast_grid` 已于 2026-11-15 移除，当前仅支持 `gftt` 与 `gftt_pyramid`。本文中的旧配置、命令和性能数据保留用于历史追溯，不代表当前可用功能。
+
 本文记录在 `docs/ARM_FAST_GRID_EVALUATION.md` 给出的优先级基础上，对
 VINS-Fusion 做的第二轮加固与性能分析，并在 Orange Pi Zero 3（4×Cortex-A53）
 上使用 `~/vicon_room2/bags` 的 EuRoC V2 数据完成同二进制验证。

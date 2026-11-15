@@ -7,7 +7,6 @@
 #include <string>
 #include <utility>
 
-#include "featureTracker/fast_grid_quality.h"
 #include "featureTracker/feature_tracker.h"
 
 struct FeatureTrackerTestAccess {
@@ -68,7 +67,6 @@ constexpr size_t K_KLT_IMAGE_PYRAMID_MATS = 3u + 1u;
 struct TrackerParameterGuard_s {
   TrackerParameterGuard_s()
     : max_cnt_(MAX_CNT), min_dist_(MIN_DIST), feature_detector_(FEATURE_DETECTOR),
-      fast_threshold_(FAST_THRESHOLD), grid_x_(GRID_X), grid_y_(GRID_Y),
       detection_min_feature_ratio_(DETECTION_MIN_FEATURE_RATIO), flow_back_(FLOW_BACK),
       show_track_(SHOW_TRACK), ransac_outlier_rejection_(RANSAC_OUTLIER_REJECTION), f_threshold_(F_THRESHOLD)
   {
@@ -79,9 +77,6 @@ struct TrackerParameterGuard_s {
     MAX_CNT = max_cnt_;
     MIN_DIST = min_dist_;
     FEATURE_DETECTOR = feature_detector_;
-    FAST_THRESHOLD = fast_threshold_;
-    GRID_X = grid_x_;
-    GRID_Y = grid_y_;
     DETECTION_MIN_FEATURE_RATIO = detection_min_feature_ratio_;
     FLOW_BACK = flow_back_;
     SHOW_TRACK = show_track_;
@@ -92,9 +87,6 @@ struct TrackerParameterGuard_s {
   int max_cnt_;
   int min_dist_;
   std::string feature_detector_;
-  int fast_threshold_;
-  int grid_x_;
-  int grid_y_;
   double detection_min_feature_ratio_;
   int flow_back_;
   int show_track_;
@@ -169,9 +161,6 @@ protected:
     FLOW_BACK = 1;
     SHOW_TRACK = 1;
     FEATURE_DETECTOR = "gftt";
-    FAST_THRESHOLD = 20;
-    GRID_X = 5;
-    GRID_Y = 5;
     DETECTION_MIN_FEATURE_RATIO = 0.0;
     cv::setNumThreads(1);
   }
@@ -579,33 +568,6 @@ TEST(FeatureTrackerPyramidCache, FollowsCurrentFrameAndResetsOnResize)
   EXPECT_EQ(tracker.prev_pts_.size(), tracker.ids_.size());
 }
 
-TEST(FeatureTrackerPyramidCache, FastGridRetainsDerivativePyramid)
-{
-  TrackerParameterGuard_s guard;
-  MAX_CNT = 70;
-  MIN_DIST = 8;
-  FLOW_BACK = 1;
-  SHOW_TRACK = 0;
-  FEATURE_DETECTOR = "fast_grid";
-  FAST_THRESHOLD = 10;
-  GRID_X = 5;
-  GRID_Y = 5;
-  DETECTION_MIN_FEATURE_RATIO = 0.0;
-  cv::setNumThreads(1);
-
-  FeatureTracker tracker;
-  tracker.m_camera_.emplace_back(new camodocal::PinholeCamera("left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
-  const cv::Mat image = makeCornerTexture();
-  tracker.trackImage(1.0, image);
-
-  const auto & pyramid = tracker.previousPyramid();
-  ASSERT_EQ(pyramid.size(), K_KLT_DERIVATIVE_PYRAMID_MATS);
-  EXPECT_EQ(pyramid[0].type(), CV_8UC1);
-  EXPECT_EQ(pyramid[1].type(), CV_16SC2);  // level-0 derivatives
-  EXPECT_EQ(pyramid[2].size(), cv::Size(image.cols / 2, image.rows / 2));
-  EXPECT_EQ(pyramid[3].size(), cv::Size(image.cols / 2, image.rows / 2));
-}
-
 TEST(FeatureTrackerPyramidCache, DetectorChangeDiscardsIncompatibleCache)
 {
   TrackerParameterGuard_s guard;
@@ -624,10 +586,7 @@ TEST(FeatureTrackerPyramidCache, DetectorChangeDiscardsIncompatibleCache)
   ASSERT_EQ(tracker.previousPyramid().size(), K_KLT_IMAGE_PYRAMID_MATS);
   ASSERT_FALSE(tracker.ids_.empty());
 
-  FEATURE_DETECTOR = "fast_grid";
-  FAST_THRESHOLD = 10;
-  GRID_X = 5;
-  GRID_Y = 5;
+  FEATURE_DETECTOR = "gftt_pyramid";
   tracker.trackImage(2.0, image);
   EXPECT_EQ(tracker.previousPyramid().size(), K_KLT_DERIVATIVE_PYRAMID_MATS);
   EXPECT_EQ(tracker.prev_pts_.size(), tracker.ids_.size());
@@ -637,6 +596,38 @@ TEST(FeatureTrackerPyramidCache, DetectorChangeDiscardsIncompatibleCache)
   tracker.trackImage(3.0, image);
   EXPECT_EQ(tracker.previousPyramid().size(), K_KLT_IMAGE_PYRAMID_MATS);
   EXPECT_EQ(tracker.prev_pts_.size(), tracker.ids_.size());
+}
+
+TEST(FeatureTrackerDetection, DetectionRatioDefersTopUpUntilThresholdExceeded)
+{
+  TrackerParameterGuard_s guard;
+  MAX_CNT = 100;
+  MIN_DIST = 8;
+  FLOW_BACK = 0;
+  SHOW_TRACK = 0;
+  FEATURE_DETECTOR = "gftt";
+  DETECTION_MIN_FEATURE_RATIO = 0.5;
+  cv::setNumThreads(1);
+
+  FeatureTracker tracker;
+  tracker.m_camera_.emplace_back(new camodocal::PinholeCamera("left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
+  const cv::Mat image = makeCornerTexture();
+  tracker.trackImage(1.0, image);
+  ASSERT_EQ(tracker.ids_.size(), static_cast<size_t>(MAX_CNT));
+
+  // Simulate 20 lost tracks: 20 <= 0.5 * max_cnt, so this frame may run KLT
+  // but must not top up with a detector.
+  tracker.prev_pts_.resize(80);
+  tracker.ids_.resize(80);
+  tracker.track_cnt_.resize(80);
+  tracker.trackImage(2.0, image);
+  EXPECT_EQ(tracker.ids_.size(), 80u);
+
+  // The same 20-point deficit is above a zero ratio and triggers GFTT top-up.
+  DETECTION_MIN_FEATURE_RATIO = 0.0;
+  tracker.trackImage(3.0, image);
+  EXPECT_GT(tracker.ids_.size(), 80u);
+  EXPECT_LE(tracker.ids_.size(), static_cast<size_t>(MAX_CNT));
 }
 
 TEST(FeatureTrackerKLTCache, ImageOnlyPyramidMatchesDirectMatOpticalFlow)
@@ -701,199 +692,6 @@ TEST(FeatureTrackerKLTCache, ImageOnlyPyramidMatchesDirectMatOpticalFlow)
     EXPECT_FLOAT_EQ(cached_reverse[i].x, direct_reverse[i].x);
     EXPECT_FLOAT_EQ(cached_reverse[i].y, direct_reverse[i].y);
   }
-}
-
-TEST(FeatureTrackerFastGrid, RespectsAllowedMaskMinDistanceAndRequestedCount)
-{
-  TrackerParameterGuard_s guard;
-  MAX_CNT = 100;
-  MIN_DIST = 12;
-  FLOW_BACK = 1;
-  SHOW_TRACK = 0;
-  FEATURE_DETECTOR = "fast_grid";
-  FAST_THRESHOLD = 10;
-  GRID_X = 5;
-  GRID_Y = 5;
-  cv::setNumThreads(1);
-
-  const cv::Mat image = makeCornerTexture();
-  cv::Mat allowed_mask(image.size(), CV_8UC1, cv::Scalar(255));
-  const cv::Rect allowed_region(40, 30, 240, 180);
-  allowed_mask.setTo(0);
-  allowed_mask(allowed_region).setTo(255);
-
-  FeatureTracker tracker;
-  std::vector<cv::Point2f> points;
-  constexpr int requested = 37;
-  tracker.detectFeatures(image, allowed_mask, requested, points);
-
-  ASSERT_FALSE(points.empty());
-  EXPECT_EQ(points.size(), static_cast<size_t>(requested));
-
-  std::set<std::pair<int, int>> occupied_cells;
-  for (size_t i = 0; i < points.size(); ++i) {
-    const cv::Point2f & pt = points[i];
-    ASSERT_TRUE(std::isfinite(pt.x));
-    ASSERT_TRUE(std::isfinite(pt.y));
-    EXPECT_GE(pt.x, 1.0f);
-    EXPECT_LT(pt.x, static_cast<float>(image.cols - 1));
-    EXPECT_GE(pt.y, 1.0f);
-    EXPECT_LT(pt.y, static_cast<float>(image.rows - 1));
-    const int x = cvRound(pt.x);
-    const int y = cvRound(pt.y);
-    ASSERT_GE(x, 1);
-    ASSERT_LT(x, image.cols - 1);
-    ASSERT_GE(y, 1);
-    ASSERT_LT(y, image.rows - 1);
-    EXPECT_GE(allowed_mask.at<uchar>(y, x), 128);
-    EXPECT_TRUE(allowed_region.contains(cv::Point(x, y)));
-    occupied_cells.emplace(
-      std::min(GRID_X - 1, x * GRID_X / image.cols), std::min(GRID_Y - 1, y * GRID_Y / image.rows));
-
-    for (size_t j = 0; j < i; ++j)
-      EXPECT_GE(cv::norm(pt - points[j]), static_cast<float>(MIN_DIST) - 1e-3f);
-  }
-  // A periodic checkerboard can leave no FAST seeds at Shi-Tomasi maxima.
-  // Recovery must reproduce the coherent GFTT set instead of mixing rankings;
-  // a complete FAST set retains round-robin spatial distribution.
-  std::vector<cv::Point2f> recovery;
-  cv::goodFeaturesToTrack(image, recovery, requested, 0.01, MIN_DIST, allowed_mask);
-  if (points != recovery)
-    EXPECT_GE(occupied_cells.size(), 20u);
-}
-
-TEST(FeatureTrackerFastGrid, DetectionRatioDefersTopUpUntilThresholdExceeded)
-{
-  TrackerParameterGuard_s guard;
-  MAX_CNT = 100;
-  MIN_DIST = 8;
-  FLOW_BACK = 0;
-  SHOW_TRACK = 0;
-  FEATURE_DETECTOR = "fast_grid";
-  FAST_THRESHOLD = 10;
-  GRID_X = 5;
-  GRID_Y = 5;
-  DETECTION_MIN_FEATURE_RATIO = 0.5;
-  cv::setNumThreads(1);
-
-  FeatureTracker tracker;
-  tracker.m_camera_.emplace_back(new camodocal::PinholeCamera("left", 320, 240, 0, 0, 0, 0, 200, 200, 160, 120));
-  const cv::Mat image = makeCornerTexture();
-  tracker.trackImage(1.0, image);
-  ASSERT_EQ(tracker.ids_.size(), static_cast<size_t>(MAX_CNT));
-
-  // Simulate 20 lost tracks: 20 <= 0.5 * max_cnt, so this frame may run KLT
-  // but must not top up with a detector.
-  tracker.prev_pts_.resize(80);
-  tracker.ids_.resize(80);
-  tracker.track_cnt_.resize(80);
-  tracker.trackImage(2.0, image);
-  EXPECT_EQ(tracker.ids_.size(), 80u);
-
-  // The same 20-point deficit is above a zero ratio and triggers FAST top-up.
-  DETECTION_MIN_FEATURE_RATIO = 0.0;
-  tracker.trackImage(3.0, image);
-  EXPECT_GT(tracker.ids_.size(), 80u);
-  EXPECT_LE(tracker.ids_.size(), static_cast<size_t>(MAX_CNT));
-}
-
-TEST(FeatureTrackerFastGridQuality, SparseMinEigenMatchesOpenCvOracle)
-{
-  cv::Mat image(80, 96, CV_8UC1);
-  cv::RNG rng(20261110);
-  rng.fill(image, cv::RNG::UNIFORM, 0, 256);
-  cv::GaussianBlur(image, image, cv::Size(3, 3), 0.8);
-
-  cv::Mat oracle;
-  cv::cornerMinEigenVal(image, oracle, 3, 3);
-
-  int checked = 0;
-  for (int y = 4; y < image.rows - 4; y += 5) {
-    for (int x = 4; x < image.cols - 4; x += 5) {
-      const float sparse = vins::tracking::fastCornerMinEigenValue(image, cv::Point2f(x, y));
-      const float expected = oracle.at<float>(y, x);
-      EXPECT_NEAR(sparse, expected, 1e-6f + 1e-4f * std::abs(expected)) << "at (" << x << ", " << y << ")";
-      ++checked;
-    }
-  }
-  EXPECT_GT(checked, 100);
-
-  // The 5x5 Sobel/block support must not fabricate responses at the image
-  // border or for a non-finite probe.
-  const float nan = std::numeric_limits<float>::quiet_NaN();
-  EXPECT_EQ(vins::tracking::fastCornerMinEigenValue(image, cv::Point2f(nan, 10)), 0.0f);
-  EXPECT_EQ(vins::tracking::fastCornerMinEigenValue(image, cv::Point2f(1, 1)), 0.0f);
-  EXPECT_EQ(vins::tracking::fastCornerMinEigenValue(image, cv::Point2f(image.cols - 2, image.rows - 2)), 0.0f);
-}
-
-TEST(FeatureTrackerFastGridQuality, RejectsRankOneEdgeButKeepsTwoDimensionalCorner)
-{
-  cv::Mat image(120, 160, CV_8UC1, cv::Scalar(0));
-  // Strong vertical step: high FAST contrast, but the structure tensor has one
-  // dominant gradient direction and therefore (near) zero min eigenvalue.
-  image.colRange(100, image.cols).setTo(255);
-  // A real corner with the same contrast magnitude.
-  image(cv::Rect(22, 22, 16, 16)).setTo(255);
-  cv::GaussianBlur(image, image, cv::Size(3, 3), 0.8);
-
-  const float edge = vins::tracking::fastCornerMinEigenValue(image, cv::Point2f(101, 90));
-  const float corner = vins::tracking::fastCornerMinEigenValue(image, cv::Point2f(22, 22));
-  EXPECT_GT(corner, 0.0f);
-  // This is exactly the 0.01 relative gate applied to FAST candidates.
-  EXPECT_LT(edge, 0.01f * corner);
-}
-
-TEST(FeatureTrackerFastGrid, CompleteFastSetUsesMeasuredCornerMaxima)
-{
-  TrackerParameterGuard_s guard;
-  MIN_DIST = 12;
-  FEATURE_DETECTOR = "fast_grid";
-  FAST_THRESHOLD = 10;
-  GRID_X = 1;
-  GRID_Y = 1;
-  cv::Mat image(120, 160, CV_8UC1);
-  cv::RNG rng(20261110);
-  rng.fill(image, cv::RNG::UNIFORM, 0, 256);
-  cv::GaussianBlur(image, image, cv::Size(3, 3), 0.8);
-  std::vector<cv::KeyPoint> seeds;
-  cv::FAST(image, seeds, FAST_THRESHOLD, true);
-  cv::Mat oracle;
-  cv::cornerMinEigenVal(image, oracle, 3, 3);
-  FeatureTracker tracker;
-  std::vector<cv::Point2f> actual;
-  tracker.detectFeatures(image, cv::Mat(), 1, actual);
-  ASSERT_EQ(actual.size(), 1u);
-  const auto point = actual.front();
-  EXPECT_TRUE(std::any_of(
-    seeds.begin(), seeds.end(), [point](const cv::KeyPoint & _seed) { return _seed.pt == point; }));
-  const int x = cvRound(point.x), y = cvRound(point.y);
-  for (int dy = -1; dy <= 1; ++dy)
-    for (int dx = -1; dx <= 1; ++dx)
-      EXPECT_GE(oracle.at<float>(y, x) + 1e-7f, oracle.at<float>(y + dy, x + dx));
-}
-
-TEST(FeatureTrackerFastGrid, RecoversLowContrastCornersWithGftt)
-{
-  TrackerParameterGuard_s guard;
-  MIN_DIST = 12;
-  FEATURE_DETECTOR = "fast_grid";
-  FAST_THRESHOLD = 60;
-  GRID_X = 5;
-  GRID_Y = 5;
-  cv::setNumThreads(1);
-  cv::Mat image = makeCornerTexture();
-  image.convertTo(image, CV_8UC1, 0.1, 100);
-  std::vector<cv::KeyPoint> raw_fast;
-  cv::FAST(image, raw_fast, FAST_THRESHOLD, true);
-  ASSERT_TRUE(raw_fast.empty());
-  cv::Mat mask(image.size(), CV_8UC1, cv::Scalar(255));
-  mask.colRange(0, 40).setTo(0);
-  std::vector<cv::Point2f> expected, actual;
-  cv::goodFeaturesToTrack(image, expected, 80, 0.01, MIN_DIST, mask);
-  ASSERT_GT(expected.size(), 40u);
-  FeatureTracker tracker;
-  tracker.detectFeatures(image, mask, 80, actual);
-  EXPECT_EQ(actual, expected);
 }
 
 TEST(FeatureTrackerRansac, RemovesOutlierWithoutTouchingCachedUndistortedPoints)

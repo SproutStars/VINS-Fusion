@@ -110,7 +110,8 @@ class CpuAffinityLaunchTest(unittest.TestCase):
             with self.subTest(config=path):
                 self.context.launch_configurations["config_file"] = str(path)
                 prefix = launch_module.CpuAffinityPrefix(LaunchConfiguration("config_file"))
-                if path.name == "euroc_mono_imu_arm_balanced_config.yaml":
+                if path.name in {"euroc_mono_imu_arm_balanced_config.yaml",
+                                  "euroc_stereo_imu_arm_balanced_config.yaml"}:
                     with mock.patch.object(launch_module.os, "sched_getaffinity", return_value={6, 7}), \
                             mock.patch.object(launch_module.shutil, "which", return_value="/usr/bin/taskset"):
                         self.assertEqual(shlex.split(prefix.perform(self.context)),

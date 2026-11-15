@@ -1254,6 +1254,12 @@ void Estimator::initSchurBackend()
   options.init_rotation_sigma_ = SCHUR_INIT_ROT_SIGMA;
   options.init_acc_bias_sigma_ = SCHUR_INIT_BA_SIGMA;
   options.init_gyr_bias_sigma_ = SCHUR_INIT_BG_SIGMA;
+  // Optional image-time IMU covariance batching. Every sample still advances
+  // the mean/FEJ and computes its own Phi/Qd; only the P update is accumulated
+  // and applied at the image boundary (or any covariance accessor). This is a
+  // cost/ablation switch: with a short interval and a small clone window the
+  // accumulation may cost more than the saved cross-block multiplies.
+  options.batch_imu_covariance_ = SCHUR_BATCH_IMU_COVARIANCE;
 
   const Eigen::Quaterniond q_init(Rs_[frame_count_]);
   const Eigen::Vector4d q_vec(q_init.w(), q_init.x(), q_init.y(), q_init.z());
@@ -1276,6 +1282,11 @@ void Estimator::initSchurBackend()
   update_options.info_indefinite_tol_ = SCHUR_INFO_INDEFINITE_TOL;
   update_options.point_block_rtol_ = SCHUR_POINT_BLOCK_RTOL;
   update_options.condition_limit_ = SCHUR_CONDITION_LIMIT;
+  // Experimental point-nullspace projection and total-observation budget.
+  // Both defaults are strict no-ops ("svd", 0). The updater owns the single
+  // budget implementation; the estimator must not pre-filter tracks.
+  update_options.nullspace_method_ = SCHUR_NULLSPACE_METHOD;
+  update_options.max_update_observations_ = SCHUR_MAX_UPDATE_OBSERVATIONS;
   schur_updater_ = vins::backend::SchurUpdater(update_options);
 
   schur_cameras_.clear();
@@ -1633,6 +1644,14 @@ bool Estimator::schurProcessFrame(
     schur_features_total_ += summary.features_used_;
     schur_rejected_total_ += summary.features_rejected_;
   }
+  // Observation-budget lifecycle (owned by SchurUpdater). Expired tracks are
+  // permanently unselectable (oversized, or at the outgoing-clone margin with
+  // no remaining budget), so erase them even when the frame update was not
+  // applied. Deferred tracks stay in FeatureHistory and are retried later;
+  // FeatureHistory::trim() remains their hard lifetime bound. Neither group
+  // enters used/consumed/rejected/outlier bookkeeping.
+  if (!summary.budget_expired_feature_ids_.empty())
+    schur_history_.eraseFeatures(summary.budget_expired_feature_ids_);
   schur_lost_total_ += selection.lost_count_;
   schur_marginalized_total_ += selection.marginalized_count_;
 
@@ -1719,9 +1738,10 @@ bool Estimator::schurProcessFrame(
       RCLCPP_WARN(
         vins::logger(),
         "Schur EKF skipped frame %d (streak=%d, tracks=%zu lost=%d marg=%d, "
-        "used=%d rejected=%d, weak_scale=%.2f): %s",
+        "used=%d rejected=%d, budget_def=%d budget_exp=%d, weak_scale=%.2f): %s",
         schur_frame_index_, schur_consecutive_failures_, selection.tracks_.size(), selection.lost_count_,
-        selection.marginalized_count_, summary.features_used_, summary.features_rejected_, weak_scale,
+        selection.marginalized_count_, summary.features_used_, summary.features_rejected_,
+        summary.budget_deferred_tracks_, summary.budget_expired_tracks_, weak_scale,
         summary.failure_reason_.empty() ? "no eligible tracks" : summary.failure_reason_.c_str());
 
     // P6: a weak-update frame that is *still* rejected is the case the
@@ -1915,12 +1935,13 @@ bool Estimator::schurProcessFrame(
     fprintf(
       stderr,
       "[schur-step] frame=%d t=%.3f n=%d tracks=%zu lost=%d marg=%d used=%d rej=%d "
-      "obs=%d dof=%d applied=%d rank=%d cond=%.3g reason='%s' "
+      "budget=%d/%d/%d obs=%d dof=%d applied=%d rank=%d cond=%.3g reason='%s' "
       "P=[%.4g/%.3g/%.3g] -> aug=[%.4g/%.3g/%.3g] -> post=[%.4g/%.3g/%.3g] "
       "|dp|=%.3g |dv|=%.3g |dba|=%.3g |dbg|=%.3g "
       "p=%.4f v=%.4f ba=%.4f bg=%.5f rms=%.3f maxres=%.3f\n",
       schur_frame_index_, _header + td_, schur_state_.size(), selection.tracks_.size(), selection.lost_count_,
       selection.marginalized_count_, summary.features_used_, summary.features_rejected_,
+      summary.budget_selected_tracks_, summary.budget_deferred_tracks_, summary.budget_expired_tracks_,
       summary.observations_used_, summary.degrees_of_freedom_, static_cast<int>(summary.applied_),
       summary.rank_, summary.condition_, summary.failure_reason_.c_str(), p_trace_before, p_min_before,
       p_max_before, p_trace_augmented, p_min_augmented, p_max_augmented, p_trace_after, p_min_after,
@@ -2921,6 +2942,10 @@ void Estimator::updateLatestStates()
   latest_gravity_ = g_;
   if (latest_schur_active_) {
     latest_schur_state_.copyLiveFrom(schur_state_);
+    // The real-time predictor publishes P on every IMU callback. Keep it on
+    // the historical per-sample path even when the image-time filter batches;
+    // copyLiveFrom() has already flushed the source marginal.
+    latest_schur_state_.setBatchImuCovarianceEnabled(false);
     latest_time_ = latest_schur_state_.timestamp();
     const auto & imu = latest_schur_state_.imu();
     latest_P_ = imu.p_;

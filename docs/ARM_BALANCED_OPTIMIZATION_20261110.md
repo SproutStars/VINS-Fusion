@@ -1,4 +1,6 @@
 # ARM 平衡优化最终实施结果（2026-11-10）
+
+> 历史记录：`fast_grid` 已于 2026-11-15 移除，当前仅支持 `gftt` 与 `gftt_pyramid`。本文中的旧配置、命令和性能数据保留用于历史追溯，不代表当前可用功能。
 > 最终状态：本地产品代码已冻结；本地 frozen 与 ARM `.62` default 三序列均已完成，ARM profile 由另一代理测试。本文以实测表、证据边界和使用命令为主。所有回放均为 **单次筛选，不是重复统计**，不得宣称统计显著。CPU governor 未修改。
 
 ## 1. 最终结论摘要
@@ -182,7 +184,7 @@ update 没有稳定收益，不能宣称加速；reduce 只有小幅变化。
 当前默认：`feature_detector: gftt`、`opencv_threads: 1`、`tracking_queue_size: 5`、`drop_oldest`、`tracker_detection_interval: 1`。不直接改默认的原因必须按平台/后端注明：
 
 - `[历史 .60 / 4×A53 / Schur EKF]` `gftt_pyramid` tracker 均值降 42%–46%、检测降 66%–69%，但 medium 两次候选回放失稳（ATE 17.4 m、3 次受控重启）。保留 opt-in。
-- `[历史 .60 / 4×A53 / Ceres]` `fast_grid` CPU 降 18.6%–32.3%、P95 降 61.7%–79.1%，但共同窗口 ATE 在 -13.4%～+10.7% 间摆动。保留 opt-in。
+- `[历史 .60 / 4×A53 / Ceres]` `fast_grid` CPU 降 18.6%–32.3%、P95 降 61.7%–79.1%，但共同窗口 ATE 在 -13.4%～+10.7% 间摆动。该模式现已移除。
 - `[历史 .60 / 4×A53 / Ceres]` q1 约丢弃一半 20 Hz 图像；30 Hz 压力测试输出约 7.7 Hz；5 Hz 在 difficult 上 ATE 0.762 m。只可显式 opt-in。
 - `[历史 .60 / 4×A53 / Ceres]` `opencv_threads=2` CPU 更高，P95 无实质改善；`freq=20` 更差；backend queue=2 P95 约 540 ms。
 - `[本地 x86_64 / Schur EKF]` frozen 单次筛选无 ATE 变化、无 RSS 下降、CPU/P95 仅小幅变化；不足以改默认。

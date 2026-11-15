@@ -110,8 +110,6 @@ public:
 
 private:
   friend struct FeatureTrackerTestAccess;
-  void detectFastGridFeatures(
-    const cv::Mat & _img, const cv::Mat & _mask, int _max_features, vector<cv::Point2f> & _points);
   void detectPyramidFeatures(
     const cv::Mat & _img, const cv::Mat & _mask, int _max_features, vector<cv::Point2f> & _points,
     const cv::Mat & _half_image);

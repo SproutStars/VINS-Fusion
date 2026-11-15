@@ -80,15 +80,15 @@ class CompareFrontendModesTest(unittest.TestCase):
             root = Path(tmp)
             write_truth(root, "DS")
             metrics_paths = []
-            for label in ("gftt", "fast_grid"):
+            for label in ("gftt", "candidate"):
                 for repeat in (1, 2):
                     run = write_run(root, label, "DS", repeat)
                     metrics_paths.append(run / "metrics.json")
             before = {path: path.read_text() for path in metrics_paths}
-            report = run_tool(root, ["gftt", "fast_grid"])
+            report = run_tool(root, ["gftt", "candidate"])
             self.assertEqual(sorted(report["runs"]), ["DS_r1", "DS_r2"])
             self.assertEqual(report["datasets"]["DS"], ["DS_r1", "DS_r2"])
-            self.assertEqual(report["recommendation"]["labels"]["fast_grid"]["runs_checked"], 2)
+            self.assertEqual(report["recommendation"]["labels"]["candidate"]["runs_checked"], 2)
             self.assertEqual(before, {path: path.read_text() for path in metrics_paths})
 
     def test_common_ate_uses_the_timestamp_intersection(self) -> None:
@@ -96,49 +96,49 @@ class CompareFrontendModesTest(unittest.TestCase):
             root = Path(tmp)
             write_truth(root, "DS")
             write_run(root, "gftt", "DS", 1, times=(0.0, 1.0, 2.0, 3.0, 4.0), offset=0.02)
-            write_run(root, "fast_grid", "DS", 1, times=(1.0, 2.0, 3.0, 4.0, 5.0), offset=0.03)
-            report = run_tool(root, ["gftt", "fast_grid"])
+            write_run(root, "candidate", "DS", 1, times=(1.0, 2.0, 3.0, 4.0, 5.0), offset=0.03)
+            report = run_tool(root, ["gftt", "candidate"])
             common = report["runs"]["DS_r1"]["common_timestamp_ate"]
             self.assertEqual(common["common_timestamps"], 4)
-            self.assertEqual(common["intersection_labels"], ["fast_grid", "gftt"])
+            self.assertEqual(common["intersection_labels"], ["candidate", "gftt"])
             self.assertEqual(common["intersection_mode"], "2-label")
             truth = compare.dataset_truth(root, "DS", {}, [])
-            poses = compare.summary.load_trajectory(root / "fast_grid" / "DS_r1" / "trajectory.csv")
+            poses = compare.summary.load_trajectory(root / "candidate" / "DS_r1" / "trajectory.csv")
             expected = compare.benchmark.trajectory_metrics(
                 compare.np.array([[stamp, *poses[stamp]] for stamp in (1.0, 2.0, 3.0, 4.0)]), truth)
             self.assertAlmostEqual(
-                common["labels"]["fast_grid"]["ate_rmse_m"], expected["ate_rmse_m"], places=9)
+                common["labels"]["candidate"]["ate_rmse_m"], expected["ate_rmse_m"], places=9)
 
     def test_three_label_intersection_is_not_reused_as_two_label_common(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_truth(root, "DS")
             write_run(root, "gftt", "DS", 1, times=(0.0, 1.0, 2.0, 3.0, 4.0))
-            write_run(root, "fast_grid", "DS", 1, times=(1.0, 2.0, 3.0, 4.0, 5.0))
+            write_run(root, "candidate", "DS", 1, times=(1.0, 2.0, 3.0, 4.0, 5.0))
             write_run(root, "gftt_pyramid", "DS", 1, times=(2.0, 3.0, 4.0))
-            three = run_tool(root, ["gftt", "fast_grid", "gftt_pyramid"])
+            three = run_tool(root, ["gftt", "candidate", "gftt_pyramid"])
             common3 = three["runs"]["DS_r1"]["common_timestamp_ate"]
             self.assertEqual(common3["intersection_mode"], "3-label")
             self.assertEqual(common3["common_timestamps"], 3)
-            self.assertEqual(common3["intersection_labels"], ["fast_grid", "gftt", "gftt_pyramid"])
-            two = run_tool(root, ["gftt", "fast_grid"])
+            self.assertEqual(common3["intersection_labels"], ["candidate", "gftt", "gftt_pyramid"])
+            two = run_tool(root, ["gftt", "candidate"])
             common2 = two["runs"]["DS_r1"]["common_timestamp_ate"]
             self.assertEqual(common2["intersection_mode"], "2-label")
             self.assertEqual(common2["common_timestamps"], 4)
-            self.assertEqual(common2["intersection_labels"], ["fast_grid", "gftt"])
+            self.assertEqual(common2["intersection_labels"], ["candidate", "gftt"])
 
     def test_empty_trajectory_is_reported_without_crashing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_truth(root, "DS")
             write_run(root, "gftt", "DS", 1)
-            write_run(root, "fast_grid", "DS", 1, empty_trajectory=True)
-            report = run_tool(root, ["gftt", "fast_grid"])
+            write_run(root, "candidate", "DS", 1, empty_trajectory=True)
+            report = run_tool(root, ["gftt", "candidate"])
             common = report["runs"]["DS_r1"]["common_timestamp_ate"]
             self.assertEqual(common["common_timestamps"], 0)
             self.assertFalse(common["comparable"])
             self.assertIsNone(common["labels"]["gftt"]["ate_rmse_m"])
-            self.assertIsNone(common["labels"]["fast_grid"]["ate_rmse_m"])
+            self.assertIsNone(common["labels"]["candidate"]["ate_rmse_m"])
             self.assertTrue(any("empty" in issue for issue in report["issues"]))
 
     def test_zero_restarts_do_not_make_bad_accuracy_reliable(self) -> None:
@@ -146,13 +146,13 @@ class CompareFrontendModesTest(unittest.TestCase):
             root = Path(tmp)
             write_truth(root, "DS")
             write_run(root, "gftt", "DS", 1, offset=0.0, scale=1.0, metric_ate=0.01, restart=False)
-            write_run(root, "fast_grid", "DS", 1, offset=0.0, scale=1.5, metric_ate=0.30, restart=False)
-            report = run_tool(root, ["gftt", "fast_grid"])
-            check = report["recommendation"]["labels"]["fast_grid"]
+            write_run(root, "candidate", "DS", 1, offset=0.0, scale=1.5, metric_ate=0.30, restart=False)
+            report = run_tool(root, ["gftt", "candidate"])
+            check = report["recommendation"]["labels"]["candidate"]
             self.assertTrue(check["all_restart_clean"])
             self.assertFalse(check["all_accuracy_within_manual_tolerance"])
             self.assertFalse(check["passes_manual_research_screen"])
-            self.assertNotIn("fast_grid", report["recommendation"]["manual_research_shortlist"])
+            self.assertNotIn("candidate", report["recommendation"]["manual_research_shortlist"])
             self.assertIn("zero restarts do not prove ATE reliability", check["caveat"])
             self.assertIn("not user acceptance", report["recommendation"]["note"])
 
@@ -161,8 +161,8 @@ class CompareFrontendModesTest(unittest.TestCase):
             root = Path(tmp)
             write_truth(root, "DS")
             write_run(root, "gftt", "DS", 1, received=10, matched=5, duration=4.0, gap=0.25)
-            write_run(root, "fast_grid", "DS", 1, received=10, matched=5, duration=4.0, gap=0.25)
-            report = run_tool(root, ["gftt", "fast_grid"])
+            write_run(root, "candidate", "DS", 1, received=10, matched=5, duration=4.0, gap=0.25)
+            report = run_tool(root, ["gftt", "candidate"])
             absolute = report["runs"]["DS_r1"]["labels"]["gftt"]["absolute"]
             self.assertEqual(absolute["pose_per_image"], 0.5)
             self.assertEqual(absolute["temporal_coverage"], 0.8)

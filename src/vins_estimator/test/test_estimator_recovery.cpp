@@ -254,7 +254,7 @@ TEST(EstimatorRecovery, MonocularInitializationFailureKeepsWindowBoundedAndRetri
 
 namespace
 {
-void seedRealtimeSchur(Estimator & _estimator, double _time)
+void seedRealtimeSchur(Estimator & _estimator, double _time, bool _batch_imu_covariance = false)
 {
   using namespace vins::backend;
   _estimator.solver_flag_ = Estimator::NON_LINEAR;
@@ -266,6 +266,7 @@ void seedRealtimeSchur(Estimator & _estimator, double _time)
   _estimator.gyr_0_.setZero();
   EkfOptions_s options;
   options.gravity_ = 9.81;
+  options.batch_imu_covariance_ = _batch_imu_covariance;
   _estimator.schur_state_.reset(
     options, _time, Eigen::Vector4d(1, 0, 0, 0), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
     Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
@@ -398,6 +399,42 @@ TEST(EstimatorImuCovariance, GyroNoiseUsesSensorPeriodAcrossFractionalReanchor)
   EXPECT_NEAR(estimator.latest_imu_dt_, 0.005, 1e-12);
   estimator.clearState();
   EXPECT_DOUBLE_EQ(estimator.latest_imu_dt_, 0.0);
+}
+
+TEST(EstimatorImuCovariance, RealtimePredictorStaysPerSampleWhenImageFilterBatches)
+{
+  Estimator estimator;
+  seedRealtimeSchur(estimator, 10.0, true);
+  ASSERT_TRUE(estimator.schur_state_.batchImuCovarianceEnabled());
+  // copyLiveFrom() copies the image-time options, then updateLatestStates()
+  // explicitly restores the historical per-sample predictor path.
+  EXPECT_FALSE(estimator.latest_schur_state_.batchImuCovarianceEnabled());
+  EXPECT_FALSE(estimator.latest_schur_state_.hasPendingImuCovariance());
+
+  const Eigen::Vector3d acc(0.01, -0.02, 9.81), gyro(0.01, 0.02, 0.03);
+  // Leave an unapplied image-time batch, then re-anchor the predictor. The
+  // copy must flush the source first instead of copying the stale 15x15 P.
+  for (int i = 0; i < 8; ++i)
+    estimator.schur_state_.propagate(acc, gyro, 0.005);
+  ASSERT_TRUE(estimator.schur_state_.hasPendingImuCovariance());
+  estimator.updateLatestStates();
+  EXPECT_FALSE(estimator.schur_state_.hasPendingImuCovariance());
+  EXPECT_FALSE(estimator.latest_schur_state_.hasPendingImuCovariance());
+  EXPECT_TRUE(estimator.latest_schur_state_.covariance().isApprox(
+    estimator.schur_state_.covariance().topLeftCorner(15, 15), 1e-12));
+
+  auto reference = estimator.latest_schur_state_;
+  ASSERT_FALSE(reference.batchImuCovarianceEnabled());
+  for (int i = 1; i <= 20; ++i) {
+    const double time = 10.04 + i * 0.005;
+    reference.propagate(acc, gyro, 0.005, 1.0);
+    estimator.inputIMU(time, acc, gyro);
+    // The predictor publishes covariance every IMU callback; no batch may
+    // survive an individual sample on this copy.
+    EXPECT_FALSE(estimator.latest_schur_state_.hasPendingImuCovariance());
+    EXPECT_TRUE(estimator.latest_schur_state_.covariance().isApprox(reference.covariance(), 1e-12));
+  }
+  EXPECT_NEAR(estimator.latest_schur_state_.timestamp(), 10.14, 1e-12);
 }
 
 TEST(EstimatorLandingDetector, ClearStateDropsActiveStaticEvidence)

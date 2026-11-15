@@ -120,6 +120,126 @@ class TrajectoryMetricsTests(unittest.TestCase):
         self.assertLess(metrics["ate_rmse_m"], 1e-12)
 
 
+class TruthSourceTests(unittest.TestCase):
+    def test_sensor_origin_ate_applies_estimated_rotation_to_lever_arm(self):
+        times = np.linspace(0.0, 0.5, 51)
+        body = np.zeros((len(times), 8), dtype=float)
+        body[:, 0] = times
+        body[:, 1] = np.cos(times * 20.0)
+        body[:, 2] = np.sin(times * 20.0)
+        body[:, 3] = times * 0.5
+        angles = times * 3.0
+        body[:, 4] = 0.0                   # qx
+        body[:, 5] = 0.0                   # qy
+        body[:, 6] = np.sin(angles / 2.0)  # qz
+        body[:, 7] = np.cos(angles / 2.0)  # qw
+        lever = np.array([0.4, -0.2, 0.1])
+        rotation = np.stack([
+            np.column_stack([np.cos(angles), -np.sin(angles), np.zeros_like(angles)]),
+            np.column_stack([np.sin(angles), np.cos(angles), np.zeros_like(angles)]),
+            np.column_stack([np.zeros_like(angles), np.zeros_like(angles), np.ones_like(angles)]),
+        ], axis=1)
+        truth = np.column_stack([times, body[:, 1:4] + rotation @ lever])
+        extrinsic = np.eye(4)
+        extrinsic[:3, 3] = lever
+        with_lever = benchmark.trajectory_metrics(body, truth, extrinsic)
+        without_lever = benchmark.trajectory_metrics(body, truth)
+        self.assertLess(with_lever["ate_rmse_m"], 1e-12)
+        self.assertGreater(without_lever["ate_rmse_m"], 0.1)
+
+    def test_sensor_origin_uses_xyzw_quaternions(self):
+        # 90 deg about x, with a y lever arm: R * [0, 1, 0] = [0, 0, 1].
+        angle = np.pi / 2.0
+        pose = np.array([[0.0, 1.0, 2.0, 3.0,
+                           np.sin(angle / 2.0), 0.0, 0.0, np.cos(angle / 2.0)]])
+        extrinsic = np.eye(4)
+        extrinsic[:3, 3] = [0.0, 1.0, 0.0]
+        sensor = benchmark.body_positions_to_sensor(pose, extrinsic)
+        np.testing.assert_allclose(sensor, [[1.0, 2.0, 4.0]], atol=1e-12)
+
+    def test_pointstamped_extraction_is_position_only(self):
+        try:
+            import rosbag2_py
+            from geometry_msgs.msg import PointStamped
+            from rclpy.serialization import serialize_message
+        except ImportError as error:
+            self.skipTest(f"ROS bag dependencies unavailable: {error}")
+        with tempfile.TemporaryDirectory() as directory:
+            bag = Path(directory) / "bag"
+            writer = rosbag2_py.SequentialWriter()
+            writer.open(
+                rosbag2_py.StorageOptions(uri=str(bag), storage_id="mcap"),
+                rosbag2_py.ConverterOptions("cdr", "cdr"))
+            writer.create_topic(rosbag2_py.TopicMetadata(
+                0, "/leica/position", "geometry_msgs/msg/PointStamped", "cdr", []))
+            for index, stamp_s in enumerate((10.0, 10.01, 10.02)):
+                message = PointStamped()
+                message.header.stamp.sec = int(stamp_s)
+                message.header.stamp.nanosec = int(round((stamp_s % 1) * 1e9))
+                message.point.x, message.point.y, message.point.z = float(index), 2.0, 3.0
+                writer.write("/leica/position", serialize_message(message),
+                             int(stamp_s * 1e9) + index)
+            writer.close()
+            destination = Path(directory) / "truth.csv"
+            rows = benchmark.extract_truth(bag, destination, topic="/leica/position")
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(len(rows[0]), 4)
+            self.assertEqual(destination.read_text().splitlines()[0], "t,x,y,z")
+            np.testing.assert_allclose(rows[1], [10.01, 1.0, 2.0, 3.0], atol=1e-9)
+
+    def test_truth_cache_fingerprint_isolates_topic_and_extrinsic(self):
+        identity = np.eye(4)
+        lever = np.eye(4)
+        lever[0, 3] = 0.1
+        base = benchmark.truth_cache_fingerprint(
+            source_kind="bag_topic", topic="/leica/position",
+            message_type="geometry_msgs/msg/PointStamped", extrinsic=identity)
+        self.assertEqual(len(base), 16)
+        self.assertEqual(base, benchmark.truth_cache_fingerprint(
+            source_kind="bag_topic", topic="/leica/position",
+            message_type="geometry_msgs/msg/PointStamped", extrinsic=identity.copy()))
+        self.assertNotEqual(base, benchmark.truth_cache_fingerprint(
+            source_kind="bag_topic", topic="/vicon/firefly_sbx/firefly_sbx",
+            message_type="geometry_msgs/msg/TransformStamped", extrinsic=identity))
+        self.assertNotEqual(base, benchmark.truth_cache_fingerprint(
+            source_kind="bag_topic", topic="/leica/position",
+            message_type="geometry_msgs/msg/PointStamped", extrinsic=lever))
+
+    def test_truth_csv_range_must_match_its_sequence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bag = Path(directory) / "bag"
+            bag.mkdir()
+            (bag / "metadata.yaml").write_text(
+                "rosbag2_bagfile_information:\n"
+                "  starting_time: {nanoseconds_since_epoch: 1000000000}\n"
+                "  duration: {nanoseconds: 10000000000}\n")
+            matching = np.array([[1.0, 0, 0, 0], [10.0, 1, 0, 0]])
+            other_sequence = np.array([[50.0, 0, 0, 0], [60.0, 1, 0, 0]])
+            benchmark.validate_external_truth_range(
+                "V1_01_easy", matching, Path("matching.csv"), bag)
+            with self.assertRaisesRegex(ValueError, "belongs to one sequence"):
+                benchmark.validate_external_truth_range(
+                    "V1_02_medium", other_sequence, Path("other.csv"), bag)
+
+    def test_v1_extrinsic_is_rejected_for_v2(self):
+        config = Path("/data/v1/mav0/vicon0/sensor.yaml")
+        benchmark.validate_truth_family("V1_01_easy", config, "Truth sensor config")
+        with self.assertRaisesRegex(ValueError, "Do not reuse"):
+            benchmark.validate_truth_family("V2_01_easy", config, "Truth sensor config")
+
+    def test_sensor_config_type_selects_truth_topic(self):
+        topics = [
+            ("/leica/position", "geometry_msgs/msg/PointStamped"),
+            ("/vicon/firefly_sbx/firefly_sbx", "geometry_msgs/msg/TransformStamped"),
+        ]
+        self.assertEqual(
+            benchmark.select_truth_topic(topics, sensor_type="position"),
+            ("/leica/position", "geometry_msgs/msg/PointStamped"))
+        self.assertEqual(
+            benchmark.select_truth_topic(topics, sensor_type="pose"),
+            ("/vicon/firefly_sbx/firefly_sbx", "geometry_msgs/msg/TransformStamped"))
+
+
 class ReplayConfigTests(unittest.TestCase):
     def load_config(self, parameters, overrides=None):
         with tempfile.TemporaryDirectory() as directory:

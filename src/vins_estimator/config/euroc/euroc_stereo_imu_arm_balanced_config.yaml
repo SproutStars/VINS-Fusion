@@ -47,9 +47,6 @@
     max_cnt: 120
     min_dist: 20
     feature_detector: "gftt_pyramid"
-    fast_threshold: 20
-    grid_x: 5
-    grid_y: 5
     detection_min_feature_ratio: 0.0
     marginalization_threads: 4
     solver_timeout_policy: "warn"
